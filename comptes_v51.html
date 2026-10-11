@@ -60,8 +60,6 @@
   .reg-head{background:var(--card);border:1px solid var(--line);border-bottom:none;border-radius:var(--radius) var(--radius) 0 0;overflow:hidden}
   .reg-head table,#reg-scroll table{table-layout:fixed;border-collapse:collapse}
   #reg-scroll{overflow-y:auto;overflow-x:auto;max-height:none;border-radius:0;border-top:none}
-  #reg-scroll tfoot td{position:sticky;bottom:0;background:var(--card);z-index:4;padding:10px 12px;font-weight:600;box-shadow:inset 0 1px 0 var(--line)}
-  #reg-scroll tfoot .debit{color:var(--debit)} #reg-scroll tfoot .credit{color:var(--credit)}
   #reg-scroll{border-radius:0 0 var(--radius) var(--radius)}
   .view.on{display:block}
   .top{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:22px}
@@ -194,12 +192,10 @@
     #reg-scroll{overflow-x:hidden;overflow-y:auto;max-height:none;border-radius:var(--radius)}
     #reg-scroll table{table-layout:auto;width:100%}
     #reg-scroll colgroup{display:none}
-    #reg-scroll tbody,#reg-scroll tfoot{display:block}
+    #reg-scroll tbody{display:block}
     #reg-scroll tr{display:grid;grid-template-columns:6px 1fr auto;column-gap:8px;row-gap:2px;
       padding:12px 14px;border-bottom:1px solid var(--line);align-items:start;
       grid-template-areas:"stat date amt" "stat dest amt" "stat dest solde"}
-    #reg-scroll tr#reg-sums-row{grid-template-columns:1fr auto;grid-template-areas:"lbl deb" "lbl cre" "lbl sol";
-      position:static;box-shadow:none;padding:14px 14px 4px;row-gap:4px}
     #reg-scroll td{padding:0;border:none;font-size:0.94rem}
     #reg-scroll td.st{grid-area:stat;padding:0;width:auto;align-self:stretch}
     #reg-scroll td.st .stbar{width:100%;height:100%;min-height:34px;border-radius:3px}
@@ -208,11 +204,6 @@
     #reg-scroll td.dest{grid-area:dest;font-weight:500}
     #reg-scroll td:nth-child(5),#reg-scroll td:nth-child(6){grid-area:amt;text-align:right;font-size:1.02rem;align-self:start}
     #reg-scroll td:nth-child(7){grid-area:solde;text-align:right;font-size:.76rem;color:var(--ink-3);align-self:end}
-    #reg-sums-row td:nth-child(1),#reg-sums-row td:nth-child(2),#reg-sums-row td:nth-child(3){display:none}
-    #reg-sums-row td:nth-child(4){grid-area:lbl;text-align:left;color:var(--ink-3);font-size:.82rem}
-    #reg-sums-row td:nth-child(5){grid-area:deb;text-align:right}
-    #reg-sums-row td:nth-child(6){grid-area:cre;text-align:right}
-    #reg-sums-row td:nth-child(7){grid-area:sol;text-align:right;font-weight:700}
     #reg-scroll td.empty-msg{grid-column:1/-1}
   }
 
@@ -317,8 +308,13 @@
   .periode{display:inline-flex;gap:4px;flex-wrap:wrap;align-items:center}
   .pchip{padding:5px 10px;border:1px solid var(--line);border-radius:14px;font-size:.82rem;cursor:pointer;background:var(--card,#fff);color:var(--ink-2);white-space:nowrap}
   .pchip.on{background:var(--accent,#2563EB);border-color:var(--accent,#2563EB);color:#fff}
-  .reg-sums{display:flex;gap:18px;justify-content:flex-end;padding:10px 12px;border:1px solid var(--line);border-top:none;border-radius:0 0 var(--radius) var(--radius);font-size:.9rem;font-weight:600;flex-wrap:wrap;background:var(--card,#fff)}
-  .reg-sums .debit{color:var(--debit)} .reg-sums .credit{color:var(--credit)}
+  .reg-sums{display:grid;grid-template-columns:auto auto;justify-content:end;column-gap:28px;row-gap:3px;margin-top:8px;padding:10px 14px;
+            border:1px solid var(--line);border-radius:var(--radius);font-size:.88rem;background:var(--card)}
+  .reg-sums .lb{color:var(--ink-3)}
+  .reg-sums .vl{text-align:right;font-weight:600;white-space:nowrap}
+  .reg-sums .tot{border-top:1px solid var(--line);padding-top:5px;margin-top:2px;color:var(--ink);font-weight:600}
+  .reg-sums .debit{color:var(--debit)} .reg-sums .credit{color:var(--credit)} .reg-sums .zero{color:var(--ink-3)}
+  @media (max-width:700px){.reg-sums{grid-template-columns:1fr auto;column-gap:12px}}
   .acct-add{width:100%;margin-top:4px;padding:6px;border:none;background:none;color:var(--sidebar-ink-2,inherit);opacity:.6;cursor:pointer;font-size:.78rem;text-align:left}
   .acct-add:hover{opacity:1;color:var(--accent,#2563EB)}
   .acct-edit{background:none;border:none;color:var(--ink-3);cursor:pointer;font-size:.95rem;padding:2px 6px;margin-left:6px;border-radius:6px}
@@ -443,8 +439,9 @@
       <table><colgroup><col style="width:10px"><col style="width:120px"><col style="width:100px"><col><col style="width:150px"><col style="width:150px"><col style="width:160px"></colgroup><thead><tr id="head"></tr></thead></table>
     </div>
     <div class="tablecard reg-scroll" id="reg-scroll">
-      <table><colgroup><col style="width:10px"><col style="width:120px"><col style="width:100px"><col><col style="width:150px"><col style="width:150px"><col style="width:160px"></colgroup><tbody id="rows"></tbody><tfoot><tr id="reg-sums-row"></tr></tfoot></table>
+      <table><colgroup><col style="width:10px"><col style="width:120px"><col style="width:100px"><col><col style="width:150px"><col style="width:150px"><col style="width:160px"></colgroup><tbody id="rows"></tbody></table>
     </div>
+    <div class="reg-sums" id="reg-sums"></div>
     <div class="foot"><span style="color:var(--ink-3)">Double-cliquez une ligne pour la modifier · cliquez la barre de statut à gauche pour pointer/dépointer</span></div>
   </section>
 
@@ -1014,6 +1011,9 @@ const fmt=new Intl.NumberFormat('fr-FR',{minimumFractionDigits:2,maximumFraction
 const fmt0=new Intl.NumberFormat('fr-FR',{maximumFractionDigits:0});
 const eur=c=>(c<0?'-':'')+fmt.format(Math.abs(c)/100)+' €';
 const eur0=c=>fmt0.format(Math.round(c/100))+' €';
+const clsSigne=c=>c>0?'credit':c<0?'debit':'zero';
+/* opération « virement » (intercomptes) : type virement ou catégorie Virement… */
+const VIR_SQL="(o.type='virement' OR LOWER(COALESCE(o.cat_path,'')) LIKE 'virement%')";
 const catParts=c=>(c||'').split(/\s*:\s*/).filter(Boolean);
 const catTop=c=>catParts(c)[0]||'Divers';
 function frToISO(s){return shortToISO(s);}
@@ -1541,17 +1541,19 @@ function renderRegistre(){
 
   document.getElementById('count').textContent=total.toLocaleString('fr-FR')+' opération'+(total>1?'s':'')+
     (total>PAGE_SIZE?(' · '+(off+1)+'–'+Math.min(off+PAGE_SIZE,total)+' affichées'):'');
-  // sommes débit / crédit adaptées au filtre courant (toutes pages)
+  // totaux adaptés au filtre courant (toutes pages) : débits et crédits hors virements, virements à part
   const sums=qy(`SELECT
-      COALESCE(SUM(CASE WHEN o.montant<0 THEN -o.montant ELSE 0 END),0) deb,
-      COALESCE(SUM(CASE WHEN o.montant>0 THEN o.montant ELSE 0 END),0) cre
-    FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id`+w,p)[0]||{deb:0,cre:0};
-  const foot=document.getElementById('reg-sums-row');
-  if(foot)foot.innerHTML='<td></td><td></td><td></td>'+
-    '<td style="text-align:right;color:var(--ink-3)">Total filtré</td>'+
-    '<td class="r num debit">'+eur(sums.deb)+'</td>'+
-    '<td class="r num credit">'+eur(sums.cre)+'</td>'+
-    '<td class="r num">'+eur(sums.cre-sums.deb)+'</td>';
+      COALESCE(SUM(CASE WHEN NOT `+VIR_SQL+` AND o.montant<0 THEN -o.montant ELSE 0 END),0) deb,
+      COALESCE(SUM(CASE WHEN NOT `+VIR_SQL+` AND o.montant>0 THEN o.montant ELSE 0 END),0) cre,
+      COALESCE(SUM(CASE WHEN `+VIR_SQL+` THEN o.montant ELSE 0 END),0) vir
+    FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id`+w,p)[0]||{deb:0,cre:0,vir:0};
+  const net=sums.cre-sums.deb+sums.vir;
+  const foot=document.getElementById('reg-sums');
+  if(foot)foot.innerHTML=
+    '<span class="lb">Total négatif (hors virements)</span><span class="vl num debit">'+eur(-sums.deb)+'</span>'+
+    '<span class="lb">Total positif (hors virements)</span><span class="vl num credit">'+eur(sums.cre)+'</span>'+
+    '<span class="lb">Total des virements</span><span class="vl num '+clsSigne(sums.vir)+'">'+eur(sums.vir)+'</span>'+
+    '<span class="lb tot">Total net</span><span class="vl num tot '+clsSigne(net)+'">'+eur(net)+'</span>';
   appliquerLargeurs();syncScrollX();appliquerHauteurRegistre();
   document.getElementById('legend').innerHTML=Object.keys(META).map(s=>
     '<span><span class="dot" style="background:'+META[s].col+'"></span>'+META[s].label+'</span>').join('');
@@ -1748,6 +1750,7 @@ function anOps(){
   return rows.map(r=> (r.c!=null) ? {d:r.d,m:r.vm,cat:path(r.c)} : {d:r.d,m:r.om,cat:r.cp});
 }
 const isVirCat=c=>/^virement/i.test(c||'');
+const estVirement=o=>o.type==='virement'||isVirCat(o.cat);
 
 function anSetSens(s){state.anSens=s;
   document.getElementById('an-dep').classList.toggle('on',s==='debit');
