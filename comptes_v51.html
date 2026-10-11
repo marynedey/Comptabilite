@@ -1570,12 +1570,13 @@ function renderRegistre(){
 
   document.getElementById('count').textContent=total.toLocaleString('fr-FR')+' opération'+(total>1?'s':'')+
     (total>PAGE_SIZE?(' · '+(off+1)+'–'+Math.min(off+PAGE_SIZE,total)+' affichées'):'');
-  // totaux adaptés au filtre courant (toutes pages) : débits et crédits hors virements, virements à part
+  // totaux adaptés au filtre courant (toutes pages) : débits et crédits hors virements, virements à part ;
+  // les opérations annulées (barrées) ne comptent pas, comme dans l'analyse
   const sums=qy(`SELECT
       COALESCE(SUM(CASE WHEN NOT `+VIR_SQL+` AND o.montant<0 THEN -o.montant ELSE 0 END),0) deb,
       COALESCE(SUM(CASE WHEN NOT `+VIR_SQL+` AND o.montant>0 THEN o.montant ELSE 0 END),0) cre,
       COALESCE(SUM(CASE WHEN `+VIR_SQL+` THEN o.montant ELSE 0 END),0) vir
-    FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id`+w,p)[0]||{deb:0,cre:0,vir:0};
+    FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id`+w+` AND o.statut<>'annule'`,p)[0]||{deb:0,cre:0,vir:0};
   const net=sums.cre-sums.deb+sums.vir;
   const foot=document.getElementById('reg-sums');
   if(foot)foot.innerHTML=
