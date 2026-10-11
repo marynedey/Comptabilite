@@ -316,6 +316,7 @@
   #vent-tot.ok,#rc-vent-tot.ok{color:var(--credit);font-weight:600}
   #vent-tot.bad,#rc-vent-tot.bad{color:var(--debit);font-weight:600}
   .navbtn{padding:6px 8px}
+  .navbtn:disabled{opacity:.35;cursor:default}
   kbd{display:inline-block;padding:2px 7px;border:1px solid var(--line-2);border-bottom-width:2px;border-radius:6px;background:var(--card-alt);font-family:inherit;font-size:.82rem;font-weight:600;color:var(--ink)}
   .periode{display:inline-flex;gap:4px;flex-wrap:wrap;align-items:center}
   .pchip{padding:5px 10px;border:1px solid var(--line);border-radius:14px;font-size:.82rem;cursor:pointer;background:var(--card,#fff);color:var(--ink-2);white-space:nowrap}
@@ -388,6 +389,7 @@
     <button class="navbtn" onclick="navBack()" title="Retour (précédent)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>
     <button class="navbtn" onclick="navFwd()" title="Avancer (suivant)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg></button>
     <button class="navbtn" onclick="aideRaccourcis()" title="Raccourcis clavier ( ? )">?</button>
+    <button class="navbtn" id="btn-undo" onclick="annulerDerniere()" title="Annuler la dernière modification (Ctrl+Z)" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/></svg></button>
     <button onclick="sauvegarder()" title="Exporter la base vers un fichier"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Sauvegarder</button>
    </div>
    <div class="tb-more">
@@ -952,26 +954,59 @@ function idbPutKey(k,v){return idbOpen().then(d=>new Promise((res,rej)=>{const t
   t.objectStore(STORE).put(v,k);t.oncomplete=()=>res();t.onerror=()=>rej(t.error);}));}
 function idbGetKey(k){return idbOpen().then(d=>new Promise((res,rej)=>{const t=d.transaction(STORE,'readonly');
   const g=t.objectStore(STORE).get(k);g.onsuccess=()=>res(g.result||null);g.onerror=()=>rej(g.error);}));}
+async function annulerDerniere(){
+  const e=UNDO[UNDO.length-1];
+  if(!e){await dlgAlert('Rien à annuler.\n\nSeules les modifications faites depuis l’ouverture de l’appli peuvent être annulées (les '+UNDO_MAX+' dernières).','Annuler');return;}
+  const ok=await dlgConfirm('Annuler la modification n°'+e.jid+' ?\n\n'+e.label+'\n\nLes données reviennent exactement à leur état d’avant cette modification. '+
+    'Le journal garde une trace : une ligne « Annulation de la modification n°'+e.jid+' » y sera ajoutée.','Annuler une modification','Annuler la modification');
+  if(!ok)return;
+  UNDO.pop();
+  // le journal et les réglages (meta) restent ceux d'aujourd'hui : seules les données reviennent en arrière
+  const jr=qy('SELECT id,ts,action,detail,sauve FROM journal ORDER BY id'),mt=qy('SELECT cle,valeur FROM meta');
+  db.close();db=new SQL.Database(e.avant);
+  run('DELETE FROM journal');jr.forEach(r=>run('INSERT INTO journal(id,ts,action,detail,sauve) VALUES(?,?,?,?,?)',[r.id,r.ts,r.action,r.detail,r.sauve]));
+  run('DELETE FROM meta');mt.forEach(r=>run('INSERT INTO meta(cle,valeur) VALUES(?,?)',[r.cle,r.valeur]));
+  run('INSERT INTO journal(ts,action,detail,sauve) VALUES(?,?,?,0)',[nowTS(),'Annulation de la modification n°'+e.jid,e.label]);
+  touch(null); // nouvelle photo de référence, sans créer d'entrée annulable
+  if(state.acc&&!scal('SELECT id FROM compte WHERE id=?',[state.acc]))state.acc=+scal('SELECT id FROM compte WHERE actif=1 ORDER BY ordre_affichage,id LIMIT 1');
+  closeModal();render();toast('Modification n°'+e.jid+' annulée');
+}
 /* ---------- persistance (différée, non bloquante) ---------- */
+/* ---------- annulation (Ctrl+Z) : photos de la base en mémoire ----------
+   À chaque modification journalisée, on garde l'état d'avant. Limité aux modifications
+   faites depuis l'ouverture de l'appli (les photos ne survivent pas à un rechargement). */
+const UNDO_MAX=10;
+let UNDO=[],undoBase=null;
+function undoReset(){UNDO=[];undoBase=db.export();majBoutonUndo();}
+function majBoutonUndo(){const b=document.getElementById('btn-undo');if(!b)return;
+  const e=UNDO[UNDO.length-1];b.disabled=!e;
+  b.title=e?'Annuler la dernière modification (Ctrl+Z) : n°'+e.jid+' '+e.label:'Rien à annuler (Ctrl+Z)';}
 function touch(action,detail){
-  if(action)run('INSERT INTO journal(ts,action,detail,sauve) VALUES(?,?,?,0)',[nowTS(),action,detail||'']);
+  let jid=null;
+  if(action){run('INSERT INTO journal(ts,action,detail,sauve) VALUES(?,?,?,0)',[nowTS(),action,detail||'']);jid=lastId();}
+  if(undoBase){
+    if(jid){UNDO.push({jid,label:action+(detail?' — '+detail:''),avant:undoBase});if(UNDO.length>UNDO_MAX)UNDO.shift();}
+    undoBase=db.export();majBoutonUndo();
+  }
   invalidateCaches();setMeta('updated',nowTS());refreshDirty();
   clearTimeout(saveTimer);saveTimer=setTimeout(flushIDB,900);}
 function refreshDirty(){try{dirty=scal('SELECT COUNT(*) FROM journal WHERE sauve=0')||0;}catch(e){dirty=0;}updateStatus();}
 async function voirModifications(){
-  const rows=qy("SELECT ts,action,detail FROM journal WHERE sauve=0 ORDER BY id DESC LIMIT 300");
+  const rows=qy("SELECT id,ts,action,detail FROM journal WHERE sauve=0 ORDER BY id DESC LIMIT 300");
   if(!rows.length){await dlgAlert('Aucune modification en attente : ta base est identique à ta dernière sauvegarde.','Modifications');return;}
   const html='<div style="max-height:44vh;overflow:auto;border:1px solid var(--line);border-radius:9px">'+
     '<table style="width:100%"><tbody>'+rows.map(r=>
-      '<tr><td class="num" style="white-space:nowrap;color:var(--ink-3);font-size:.78rem">'+esc(r.ts.slice(8,10)+'/'+r.ts.slice(5,7)+' '+r.ts.slice(11,16))+'</td>'+
+      '<tr><td class="num" style="white-space:nowrap;color:var(--ink-3);font-size:.78rem">n°'+r.id+'</td>'+
+      '<td class="num" style="white-space:nowrap;color:var(--ink-3);font-size:.78rem">'+esc(r.ts.slice(8,10)+'/'+r.ts.slice(5,7)+' '+r.ts.slice(11,16))+'</td>'+
       '<td style="font-size:.82rem"><b>'+esc(r.action)+'</b>'+(r.detail?'<div style="color:var(--ink-2)">'+esc(r.detail)+'</div>':'')+'</td></tr>').join('')+
     '</tbody></table></div>'+
     '<div style="font-size:.8rem;color:var(--ink-3);margin-top:10px">Version de tes données : révision '+getMeta('rev',0)+
     ', modifiée le '+(getMeta('updated','')||'—')+'.<br>Ces modifications sont bien enregistrées dans ce navigateur. '+
     'Elles ne sont simplement pas encore recopiées dans un fichier de sauvegarde.</div>';
   const go=await dlgOpen({title:rows.length+' modification'+(rows.length>1?'s':'')+' non sauvegardée'+(rows.length>1?'s':''),msg:'',html,
-    buttons:[{t:'Fermer',v:false},{t:'Sauvegarder maintenant',v:true,p:true}]});
-  if(go)sauvegarder();
+    buttons:[{t:'Fermer',v:false}].concat(UNDO.length?[{t:'Annuler la dernière (n°'+UNDO[UNDO.length-1].jid+')',v:'undo'}]:[]).concat([{t:'Sauvegarder maintenant',v:true,p:true}])});
+  if(go==='undo')annulerDerniere();
+  else if(go)sauvegarder();
 }
 async function flushIDB(){
   if(!idbOK||!db)return;
@@ -1162,7 +1197,7 @@ async function boot(){
     if(s.view==='releve'&&!(REL&&REL.res))s.view='registre';
     _navSuppress=true;restoreNav(s);_navSuppress=false;}}catch(e){}syncHist();},0);
   try{const _n=genererRecurrences();if(_n){touch('Échéances récurrentes',_n+' opération(s) générée(s)');}}catch(e){console.error('récurrences',e);}
-  unbusy();refreshDirty();render();
+  unbusy();refreshDirty();undoReset();render();
   state.jour=todayISO();
   const verifierJour=()=>{if(todayISO()===state.jour)return;state.jour=todayISO();
     try{const n=genererRecurrences();if(n)touch('Échéances récurrentes',n+' opération(s) générée(s)');}catch(e){console.error('récurrences',e);}
@@ -2426,7 +2461,7 @@ async function chargerFichier(inp){
     db.close();db=new SQL.Database(buf);db.run(SCHEMA);migrer();try{renommerVirements();}catch(_){}invalidateCaches();try{db.run('ANALYZE');}catch(_){}
     state.acc=+scal('SELECT id FROM compte WHERE actif=1 ORDER BY ordre_affichage,id LIMIT 1');
     state.page=1;try{run('UPDATE journal SET sauve=1 WHERE sauve=0');}catch(_){}
-    refreshDirty();await flushIDB();unbusy();render();
+    refreshDirty();undoReset();await flushIDB();unbusy();render();
     toast('Sauvegarde chargée');
   }catch(e){unbusy();await dlgAlert('Échec du chargement : '+e.message,'Erreur');}
 }
@@ -3691,6 +3726,7 @@ document.addEventListener('keydown',e=>{
   // Échap dans la recherche : 1re fois -> vider ; 2e fois (déjà vide) -> sortir du champ
   if(e.key==='Escape'&&dansChamp)return;
   if(dansChamp)return;
+  if((e.key==='z'||e.key==='Z')&&(e.ctrlKey||e.metaKey)&&!e.shiftKey&&!e.altKey){e.preventDefault();annulerDerniere();return;}
   // « ? » : afficher l'aide des raccourcis
   if(e.key==='?'){e.preventDefault();aideRaccourcis();return;}
   // « / » : aller à la recherche du registre
@@ -3720,7 +3756,7 @@ function changerSection(dir){
 function aideRaccourcis(){
   const cats=[
     ['Navigation',[['Alt+↑','Section suivante'],['Alt+↓','Section précédente'],['Alt+→','Section suivante'],['Alt+←','Section précédente']]],
-    ['Actions',[['A','Nouvelle opération (ou récurrence)'],['R','Rapprocher un relevé PDF'],['Ctrl+S','Sauvegarder'],['/','Rechercher dans le registre'],['Échap','Vider la recherche, puis en sortir'],['Entrée','Appliquer le rapprochement (dans un relevé)']]],
+    ['Actions',[['A','Nouvelle opération (ou récurrence)'],['R','Rapprocher un relevé PDF'],['Ctrl+S','Sauvegarder'],['Ctrl+Z','Annuler la dernière modification'],['/','Rechercher dans le registre'],['Échap','Vider la recherche, puis en sortir'],['Entrée','Appliquer le rapprochement (dans un relevé)']]],
     ['Astuce',[['?','Afficher cette aide']]]
   ];
   const keyCell=l=>l[0].split('+').map(k=>'<kbd>'+k+'</kbd>').join(' + ');
