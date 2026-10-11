@@ -452,7 +452,7 @@
       <span class="legend" id="legend"></span>
       <span class="hauteur-ctrl" style="display:inline-flex;align-items:center;gap:6px">
         <span title="Hauteur du tableau">⇕</span>
-        <input type="range" id="reg-hauteur" min="4" max="40" step="1" oninput="setHauteurRegistre(this.value)" style="width:120px;vertical-align:middle">
+        <input type="range" id="reg-hauteur" min="4" max="40" step="1" oninput="setHauteurRegistre(this.value)" onchange="this.blur()" style="width:120px;vertical-align:middle">
       </span>
       <span class="pager" id="pager"></span>
     </div>
@@ -1066,6 +1066,18 @@ function busy(txt){const b=document.getElementById('busy');document.getElementBy
 function unbusy(){document.getElementById('busy').classList.remove('show');}
 const nextFrame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
 
+/* ---------- écran tactile : le clavier ne doit s'ouvrir que sur un toucher volontaire ---------- */
+const ecranTactile=()=>window.matchMedia('(pointer:coarse)').matches;
+let _dernierToucher={el:null,t:0};
+document.addEventListener('pointerdown',e=>{_dernierToucher={el:e.target,t:Date.now()};},true);
+// champs de recherche : si le focus arrive sans qu'on les ait touchés (glissement du curseur, défilement,
+// mise à jour de l'écran…), on le retire aussitôt pour ne pas ouvrir le clavier
+document.addEventListener('focusin',e=>{
+  const el=e.target;
+  if(!ecranTactile()||!el||['f-search','ti-search','cat-search'].indexOf(el.id)<0)return;
+  const t=_dernierToucher;
+  if(!(t.el&&(t.el===el||el.contains(t.el))&&Date.now()-t.t<1000))el.blur();
+},true);
 /* ---------- formats ---------- */
 const fmt=new Intl.NumberFormat('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2});
 const fmt0=new Intl.NumberFormat('fr-FR',{maximumFractionDigits:0});
@@ -2206,6 +2218,8 @@ function openModal(id,focus){
   }
   closeAC();document.getElementById('overlay').classList.add('show');
   setTimeout(()=>{
+    // sur écran tactile, pas de placement automatique dans un champ : le clavier ne s'ouvre que si on touche un champ
+    if(ecranTactile()){if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();return;}
     const cible=focus==='montant'?document.getElementById('i-montant')
       :focus==='date'?document.getElementById('i-date')
       :focus==='num'?document.getElementById('i-num')
@@ -3693,7 +3707,7 @@ function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t
 
 function syncClear(){const v=document.getElementById('f-search').value;
   document.getElementById('f-clear').style.display=v?'block':'none';}
-function clearSearch(){const e=document.getElementById('f-search');e.value='';syncClear();goPage(1);e.focus();}
+function clearSearch(){const e=document.getElementById('f-search');e.value='';syncClear();goPage(1);if(!ecranTactile())e.focus();}
 bindDate('f-from',()=>goPage(1));bindDate('f-to',()=>goPage(1));
 bindDate('an-from',()=>renderAnalyse());bindDate('an-to',()=>renderAnalyse());
 let searchT;
