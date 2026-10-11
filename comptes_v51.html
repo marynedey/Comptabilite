@@ -1776,12 +1776,13 @@ function anOps(){
 }
 const isVirCat=c=>/^virement/i.test(c||'');
 
+/* boutons Dépenses / Revenus / Net / Virements alignés sur state.anSens (seule référence) */
+function majBoutonsSens(){const s=state.anSens||'debit';
+  [['an-dep','debit'],['an-cre','credit'],['an-net','net'],['an-vir','virement']].forEach(([id,v])=>{
+    const b=document.getElementById(id);if(b)b.classList.toggle('on',s===v);});}
 function anSetSens(s){state.anSens=s;
-  document.getElementById('an-dep').classList.toggle('on',s==='debit');
-  document.getElementById('an-cre').classList.toggle('on',s==='credit');
-  const net=document.getElementById('an-net');if(net)net.classList.toggle('on',s==='net');
-  const vir=document.getElementById('an-vir');if(vir)vir.classList.toggle('on',s==='virement');
-  state.anPath=[];renderAnalyse();}
+  state.anPath=[];renderAnalyse();
+  syncHist();} // l'historique mémorise le sens choisi (sinon « retour » restaurait un ancien sens)
 /* moyenne qui s'adapte à la période : par mois si longue, par semaine si moyenne, par jour si courte */
 function anMoyenne(total,mode,sel){
   if(!total)return null;
@@ -1804,6 +1805,7 @@ function renderAnalyse(){
   const cp=qy('SELECT nom FROM compte WHERE id=?',[state.acc])[0];
   document.getElementById('an-meta').textContent=cp?cp.nom:'';
 
+  majBoutonsSens();
   const sens=state.anSens||'debit';
   const virMode=(sens==='virement');
   // dépenses / revenus / net : hors virements intercomptes ; « Virements » : uniquement eux
