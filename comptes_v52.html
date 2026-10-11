@@ -335,7 +335,8 @@
   .acct-edit{background:none;border:none;color:var(--ink-3);cursor:pointer;font-size:.95rem;padding:2px 6px;margin-left:6px;border-radius:6px}
   .acct-edit:hover{background:var(--line);color:var(--ink)}
   .voircat{cursor:pointer;opacity:.55;font-size:.85em;margin-left:4px}
-  .voircat:hover{opacity:1}
+  .voircat:hover,.voircat.on{opacity:1}
+  .voircat.on{background:var(--brand-soft);border-radius:5px;padding:0 3px}
   .fstatuts{display:inline-flex;gap:4px;flex-wrap:wrap;align-items:center}
   .schip{padding:4px 9px;border:1px solid var(--line);border-radius:14px;font-size:.8rem;cursor:pointer;color:var(--ink-3);user-select:none;white-space:nowrap}
   .schip.on[data-s="non_pointe"]{background:#F59E0B;border-color:#F59E0B;color:#fff}
@@ -1232,7 +1233,7 @@ function snapshotNav(){
     fHorizon:(document.getElementById('f-horizon')||{}).value||'tout',
     catSearch:(document.getElementById('cat-search')||{}).value||'',
     tiSearch:(document.getElementById('ti-search')||{}).value||'',
-    catVides:!!state.catVides};
+    catVides:!!state.catVides,fSens:state.fSens||null};
 }
 let _navFlush=null;
 function persistNav(){try{const s=snapshotNav();if(s.view==='releve')return; // on ne restaure pas une comparaison en cours
@@ -1243,7 +1244,7 @@ function pushHist(){try{history.pushState(snapshotNav(),'');}catch(e){}persistNa
 function syncHist(){try{history.replaceState(snapshotNav(),'');}catch(e){}persistNav();}
 function restoreNav(s){
   if(!s)return;
-  state.anPath=(s.anPath||[]).slice();state.anSens=s.anSens||'debit';state.catVides=!!s.catVides;
+  state.anPath=(s.anPath||[]).slice();state.anSens=s.anSens||'debit';state.catVides=!!s.catVides;state.fSens=s.fSens||null;
   const set=(id,val)=>{const e=document.getElementById(id);if(e&&val!==undefined)e.value=val;};
   set('f-search',s.fSearch||'');set('cat-search',s.catSearch||'');set('ti-search',s.tiSearch||'');
   set('f-periode',s.fPeriode||'tout');set('f-horizon',s.fHorizon||'tout');
@@ -1477,6 +1478,10 @@ function buildWhere(params){
     if(sel.indexOf('previsionnel')>=0)parts.push("o.previsionnel=1");
     w+=parts.length?(" AND ("+parts.join(" OR ")+")"):" AND 0";
   }
+  // loupe des totaux : débits seuls / crédits seuls (hors virements) / virements seuls
+  if(state.fSens==='debit')w+=" AND NOT "+VIR_SQL+" AND o.montant<0";
+  else if(state.fSens==='credit')w+=" AND NOT "+VIR_SQL+" AND o.montant>0";
+  else if(state.fSens==='virement')w+=" AND "+VIR_SQL;
   const hm=horizonMax();
   if(hm==='MASQUE'){w+=" AND o.previsionnel=0";}
   else if(hm){params.$hmax=hm;w+=" AND (o.previsionnel=0 OR o.date_operation<=$hmax)";}
@@ -1543,7 +1548,10 @@ function setHauteurRegistre(rows){
 function statutsChips(){return [].slice.call(document.querySelectorAll('#f-statuts .schip'));}
 function toggleStatut(el){el.classList.toggle('on');goPage(1);}
 function setStatutsTous(){statutsChips().forEach(c=>c.classList.add('on'));}
-function resetFilters(){document.getElementById('f-search').value='';setStatutsTous();setPeriode('f','tout');
+const SENS_LIB={debit:'débits uniquement',credit:'crédits uniquement',virement:'virements uniquement'};
+function setFSens(v){state.fSens=(state.fSens===v)?null:v;goPage(1);
+  if(state.fSens)toast('Registre filtré : '+SENS_LIB[state.fSens]);}
+function resetFilters(){state.fSens=null;document.getElementById('f-search').value='';setStatutsTous();setPeriode('f','tout');
   ['f-from','f-to','f-sep'].forEach(i=>{const e=document.getElementById(i);if(e){if(e.value!==undefined)e.value='';e.style.display='none';if(e.classList)e.classList.remove('bad');}});
   state.sort='date';state.dir=-1;syncClear();goPage(1);}
 function filtreAttente(){const chips=statutsChips();
@@ -1648,12 +1656,14 @@ function renderRegistre(){
   const net=sums.cre-sums.deb+sums.vir;
   const per=textePeriode('f',sums.dmin,sums.dmax);
   if(per)document.getElementById('count').textContent+=' · '+per;
+  if(state.fSens)document.getElementById('count').insertAdjacentHTML('beforeend',
+    ' · <a style="color:var(--brand);cursor:pointer" title="Retirer ce filtre" onclick="setFSens(null)">filtre : '+SENS_LIB[state.fSens]+' ✕</a>');
   majInfoSoldes(sums.dmin,sums.dmax);
   const foot=document.getElementById('reg-sums');
   if(foot)foot.innerHTML=
-    '<span class="lb">Total négatif (hors virements)</span><span class="vl num '+clsSigne(-sums.deb)+'">'+eur(-sums.deb)+'</span>'+
-    '<span class="lb">Total positif (hors virements)</span><span class="vl num '+clsSigne(sums.cre)+'">'+eur(sums.cre)+'</span>'+
-    '<span class="lb">Total des virements</span><span class="vl num '+clsSigne(sums.vir)+'">'+eur(sums.vir)+'</span>'+
+    '<span class="lb">Total négatif (hors virements) <span class="voircat'+(state.fSens==='debit'?' on':'')+'" title="Afficher uniquement ces opérations (re-cliquer pour tout réafficher)" onclick="setFSens(&#39;debit&#39;)">🔍</span></span><span class="vl num '+clsSigne(-sums.deb)+'">'+eur(-sums.deb)+'</span>'+
+    '<span class="lb">Total positif (hors virements) <span class="voircat'+(state.fSens==='credit'?' on':'')+'" title="Afficher uniquement ces opérations (re-cliquer pour tout réafficher)" onclick="setFSens(&#39;credit&#39;)">🔍</span></span><span class="vl num '+clsSigne(sums.cre)+'">'+eur(sums.cre)+'</span>'+
+    '<span class="lb">Total des virements <span class="voircat'+(state.fSens==='virement'?' on':'')+'" title="Afficher uniquement ces opérations (re-cliquer pour tout réafficher)" onclick="setFSens(&#39;virement&#39;)">🔍</span></span><span class="vl num '+clsSigne(sums.vir)+'">'+eur(sums.vir)+'</span>'+
     '<span class="lb tot">Total net</span><span class="vl num tot '+clsSigne(net)+'">'+eur(net)+'</span>';
   appliquerLargeurs();syncScrollX();appliquerHauteurRegistre();
   document.getElementById('legend').innerHTML=Object.keys(META).map(s=>
