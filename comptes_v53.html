@@ -1245,7 +1245,7 @@ function snapshotNav(){
     fHorizon:(document.getElementById('f-horizon')||{}).value||'tout',
     catSearch:(document.getElementById('cat-search')||{}).value||'',
     tiSearch:(document.getElementById('ti-search')||{}).value||'',
-    catVides:!!state.catVides,fSens:state.fSens||null};
+    catVides:!!state.catVides,fSens:state.fSens||null,fCat:state.fCat||null};
 }
 let _navFlush=null;
 function persistNav(){try{const s=snapshotNav();if(s.view==='releve')return; // on ne restaure pas une comparaison en cours
@@ -1256,7 +1256,7 @@ function pushHist(){try{history.pushState(snapshotNav(),'');}catch(e){}persistNa
 function syncHist(){try{history.replaceState(snapshotNav(),'');}catch(e){}persistNav();}
 function restoreNav(s){
   if(!s)return;
-  state.anPath=(s.anPath||[]).slice();state.anSens=s.anSens||'debit';state.catVides=!!s.catVides;state.fSens=s.fSens||null;
+  state.anPath=(s.anPath||[]).slice();state.anSens=s.anSens||'debit';state.catVides=!!s.catVides;state.fSens=s.fSens||null;state.fCat=s.fCat||null;
   const set=(id,val)=>{const e=document.getElementById(id);if(e&&val!==undefined)e.value=val;};
   set('f-search',s.fSearch||'');set('cat-search',s.catSearch||'');set('ti-search',s.tiSearch||'');
   set('f-periode',s.fPeriode||'tout');set('f-horizon',s.fHorizon||'tout');
@@ -1490,6 +1490,8 @@ function buildWhere(params){
     if(sel.indexOf('previsionnel')>=0)parts.push("o.previsionnel=1");
     w+=parts.length?(" AND ("+parts.join(" OR ")+")"):" AND 0";
   }
+  // filtre catégorie (loupe de l'analyse) : opérations ayant une ligne dans cette catégorie ou ses sous-catégories
+  if(state.fCat){const c=filtreCatSQL(state.fCat,params);w+=" AND ("+c+")";}
   // loupe des totaux : débits seuls / crédits seuls (hors virements) / virements seuls
   if(state.fSens==='debit')w+=" AND NOT "+VIR_SQL+" AND o.montant<0";
   else if(state.fSens==='credit')w+=" AND NOT "+VIR_SQL+" AND o.montant>0";
@@ -1560,10 +1562,50 @@ function setHauteurRegistre(rows){
 function statutsChips(){return [].slice.call(document.querySelectorAll('#f-statuts .schip'));}
 function toggleStatut(el){el.classList.toggle('on');goPage(1);}
 function setStatutsTous(){statutsChips().forEach(c=>c.classList.add('on'));}
+/* ids d'une catégorie (chemin « A : B ») et de toutes ses sous-catégories */
+function idsCategorie(chemin){
+  const parts=catParts(chemin);if(!parts.length)return [];
+  let id=null;
+  for(const p of parts){id=scal('SELECT id FROM categorie WHERE libelle=? AND parent_id IS ?',[p,id]);if(id==null)return [];}
+  return qy(`WITH RECURSIVE d(id) AS (SELECT ? UNION ALL SELECT c.id FROM categorie c JOIN d ON c.parent_id=d.id) SELECT id FROM d`,[id]).map(r=>r.id);
+}
+function filtreCatSQL(chemin,params){
+  const ids=idsCategorie(chemin);
+  params.$fcat=chemin;params.$fcat2=chemin+' : %';
+  const parCat="(o.cat_path=$fcat OR o.cat_path LIKE $fcat2)";
+  if(!ids.length)return parCat;
+  return "o.id IN (SELECT v.operation_id FROM ventilation v WHERE v.categorie_id IN ("+ids.join(',')+"))"+
+    " OR ("+parCat+" AND NOT EXISTS (SELECT 1 FROM ventilation v2 WHERE v2.operation_id=o.id))";
+}
+/* part de la catégorie filtrée dans les opérations affichées (= montant de la barre dans l'analyse) */
+function partCategorie(w,p){
+  const ids=idsCategorie(state.fCat);
+  const lignes=ids.length?(scal(`SELECT COALESCE(SUM(v.montant),0) FROM ventilation v WHERE v.categorie_id IN (`+ids.join(',')+`)
+    AND v.operation_id IN (SELECT o.id FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id`+w+` AND o.statut<>'annule')`,p)||0):0;
+  const sansV=scal(`SELECT COALESCE(SUM(o.montant),0) FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id`+w+
+    ` AND o.statut<>'annule' AND NOT EXISTS (SELECT 1 FROM ventilation v2 WHERE v2.operation_id=o.id)`,p)||0;
+  return lignes+sansV;
+}
+/* loupe d'une barre de l'analyse : registre filtré exactement comme l'analyse
+   (même période, ni prévisionnels ni annulés, même sens, catégorie précise) */
+function voirDepuisAnalyse(chemin){
+  const sens=state.anSens||'debit';
+  ['periode','from','to'].forEach(k=>{const a=document.getElementById('an-'+k),f=document.getElementById('f-'+k);if(a&&f)f.value=a.value;});
+  const mode=document.getElementById('f-periode').value,perso=mode==='perso'?'':'none';
+  document.querySelectorAll('#f-periode-wrap .pchip').forEach(b=>b.classList.toggle('on',b.dataset.m===mode));
+  ['f-from','f-to','f-sep'].forEach(i=>{const e=document.getElementById(i);if(e)e.style.display=perso;});
+  statutsChips().forEach(c=>c.classList.toggle('on',['non_pointe','pointe','rapproche'].indexOf(c.dataset.s)>=0));
+  const s=document.getElementById('f-search');
+  if(sens==='virement'){state.fCat=null;state.fSens='virement';s.value=chemin;}   // virements : regroupés par compte
+  else{state.fCat=chemin;state.fSens=(sens==='net')?null:sens;s.value='';}
+  syncClear();setView('registre');goPage(1);
+  toast('Registre filtré comme l’analyse : « '+chemin+' »');
+}
 const SENS_LIB={debit:'débits uniquement',credit:'crédits uniquement',virement:'virements uniquement'};
 function setFSens(v){state.fSens=(state.fSens===v)?null:v;goPage(1);
   if(state.fSens)toast('Registre filtré : '+SENS_LIB[state.fSens]);}
-function resetFilters(){state.fSens=null;document.getElementById('f-search').value='';setStatutsTous();setPeriode('f','tout');
+function retirerFiltreCat(){state.fCat=null;goPage(1);}
+function resetFilters(){state.fSens=null;state.fCat=null;document.getElementById('f-search').value='';setStatutsTous();setPeriode('f','tout');
   ['f-from','f-to','f-sep'].forEach(i=>{const e=document.getElementById(i);if(e){if(e.value!==undefined)e.value='';e.style.display='none';if(e.classList)e.classList.remove('bad');}});
   state.sort='date';state.dir=-1;syncClear();goPage(1);}
 function filtreAttente(){const chips=statutsChips();
@@ -1668,6 +1710,8 @@ function renderRegistre(){
   const net=sums.cre-sums.deb+sums.vir;
   const per=textePeriode('f',sums.dmin,sums.dmax);
   if(per)document.getElementById('count').textContent+=' · '+per;
+  if(state.fCat)document.getElementById('count').insertAdjacentHTML('beforeend',
+    ' · <a style="color:var(--brand);cursor:pointer" title="Retirer ce filtre" onclick="retirerFiltreCat()">catégorie : '+esc(state.fCat)+' ✕</a>');
   if(state.fSens)document.getElementById('count').insertAdjacentHTML('beforeend',
     ' · <a style="color:var(--brand);cursor:pointer" title="Retirer ce filtre" onclick="setFSens(null)">filtre : '+SENS_LIB[state.fSens]+' ✕</a>');
   majInfoSoldes(sums.dmin,sums.dmax);
@@ -1676,7 +1720,10 @@ function renderRegistre(){
     '<span class="lb">Total négatif (hors virements) <span class="voircat'+(state.fSens==='debit'?' on':'')+'" title="Afficher uniquement ces opérations (re-cliquer pour tout réafficher)" onclick="setFSens(&#39;debit&#39;)">🔍</span></span><span class="vl num '+clsSigne(-sums.deb)+'">'+eur(-sums.deb)+'</span>'+
     '<span class="lb">Total positif (hors virements) <span class="voircat'+(state.fSens==='credit'?' on':'')+'" title="Afficher uniquement ces opérations (re-cliquer pour tout réafficher)" onclick="setFSens(&#39;credit&#39;)">🔍</span></span><span class="vl num '+clsSigne(sums.cre)+'">'+eur(sums.cre)+'</span>'+
     '<span class="lb">Total des virements <span class="voircat'+(state.fSens==='virement'?' on':'')+'" title="Afficher uniquement ces opérations (re-cliquer pour tout réafficher)" onclick="setFSens(&#39;virement&#39;)">🔍</span></span><span class="vl num '+clsSigne(sums.vir)+'">'+eur(sums.vir)+'</span>'+
-    '<span class="lb tot">Total net</span><span class="vl num tot '+clsSigne(net)+'">'+eur(net)+'</span>';
+    '<span class="lb tot">Total net</span><span class="vl num tot '+clsSigne(net)+'">'+eur(net)+'</span>'+
+    (state.fCat?(()=>{let pc=partCategorie(w,p);if(state.fSens==='debit')pc=-pc; // dépenses en positif, comme l'analyse
+      return '<span class="lb" style="padding-top:6px">dont part « '+esc(state.fCat)+' » <span class="hint">(= montant de l’analyse)</span></span>'+
+      '<span class="vl num" style="padding-top:6px;color:var(--brand)">'+eur(pc)+'</span>';})():'');
   appliquerLargeurs();syncScrollX();appliquerHauteurRegistre();
   document.getElementById('legend').innerHTML=Object.keys(META).map(s=>
     '<span><span class="dot" style="background:'+META[s].col+'"></span>'+META[s].label+'</span>').join('');
@@ -1986,7 +2033,7 @@ function renderAnalyse(){
       '<div class="barval num"><b style="'+coul+'">'+eur(x.v)+'</b> · '+pct.toFixed(1).replace('.',',')+' %<div class="sub" style="color:var(--accent,#2563EB)">'+moy+'</div></div></div>';
   }).join('');
   el.querySelectorAll('.barrow.drill').forEach(r=>r.addEventListener('click',e=>{if(e.target.closest('.voircat'))return;drillInto(+r.dataset.i);}));
-  el.querySelectorAll('.voircat').forEach(s=>s.addEventListener('click',e=>{e.stopPropagation();voirCategorieChemin(s.dataset.c);}));
+  el.querySelectorAll('.voircat').forEach(s=>s.addEventListener('click',e=>{e.stopPropagation();voirDepuisAnalyse(s.dataset.c);}));
 }
 
 /* --- diagnostic : écart entre les totaux du registre et l'analyse ---
