@@ -980,7 +980,7 @@ let UNDO=[],undoBase=null;
 function undoReset(){UNDO=[];undoBase=db.export();majBoutonUndo();}
 function majBoutonUndo(){const b=document.getElementById('btn-undo');if(!b)return;
   const e=UNDO[UNDO.length-1];b.disabled=!e;
-  b.title=e?'Annuler la dernière modification (Ctrl+Z) : n°'+e.jid+' '+e.label:'Rien à annuler (Ctrl+Z)';}
+  b.title=e?'Annuler la dernière modification (Ctrl+Z) : n°'+e.jid+' '+e.label:'Rien à annuler (Ctrl+Z — jusqu’à 10 modifications faites depuis l’ouverture)';}
 function touch(action,detail){
   let jid=null;
   if(action){run('INSERT INTO journal(ts,action,detail,sauve) VALUES(?,?,?,0)',[nowTS(),action,detail||'']);jid=lastId();}
@@ -1029,9 +1029,11 @@ function dlgClose(v){const b=document.getElementById('dlgBack');b.classList.remo
   document.getElementById('dlgProg').style.display='none';document.getElementById('dlgBody').innerHTML='';
   if(dlgKeyHandler){document.removeEventListener('keydown',dlgKeyHandler,true);dlgKeyHandler=null;}
   const r=dlgResolve;dlgResolve=null;if(r)r(v);}
-function dlgOpen({title,msg,html,buttons,onOpen,wide,focusBtn}){
+function dlgOpen({title,msg,html,buttons,onOpen,wide,focusBtn,fermeDehors}){
   return new Promise(res=>{
     dlgResolve=res;
+    // fermeDehors : un clic à côté de la boîte la ferme (comme le bouton Fermer)
+    document.getElementById('dlgBack').onclick=fermeDehors?(e=>{if(e.target.id==='dlgBack')dlgClose(false);}):null;
     document.getElementById('dlgTitle').textContent=title||'';
     document.getElementById('dlgMsg').textContent=msg||'';
     document.getElementById('dlgBody').innerHTML=html||'';
@@ -3756,7 +3758,7 @@ function changerSection(dir){
 function aideRaccourcis(){
   const cats=[
     ['Navigation',[['Alt+↑','Section suivante'],['Alt+↓','Section précédente'],['Alt+→','Section suivante'],['Alt+←','Section précédente']]],
-    ['Actions',[['A','Nouvelle opération (ou récurrence)'],['R','Rapprocher un relevé PDF'],['Ctrl+S','Sauvegarder'],['Ctrl+Z','Annuler la dernière modification'],['/','Rechercher dans le registre'],['Échap','Vider la recherche, puis en sortir'],['Entrée','Appliquer le rapprochement (dans un relevé)']]],
+    ['Actions',[['A','Nouvelle opération (ou récurrence)'],['R','Rapprocher un relevé PDF'],['Ctrl+S','Sauvegarder'],['Ctrl+Z','Annuler la dernière modification — jusqu’à 10 de suite, uniquement celles faites depuis l’ouverture de l’appli'],['/','Rechercher dans le registre'],['Échap','Vider la recherche, puis en sortir'],['Entrée','Appliquer le rapprochement (dans un relevé)']]],
     ['Astuce',[['?','Afficher cette aide']]]
   ];
   const keyCell=l=>l[0].split('+').map(k=>'<kbd>'+k+'</kbd>').join(' + ');
@@ -3767,7 +3769,7 @@ function aideRaccourcis(){
       '<td style="color:var(--ink-2);padding:4px 0">'+l[1]+'</td></tr>';});
   });
   const html='<table style="border-collapse:collapse">'+rows+'</table>';
-  dlgOpen({title:'Raccourcis clavier',msg:'',html,wide:true,buttons:[{t:'Fermer',v:true,p:true}]});
+  dlgOpen({title:'Raccourcis clavier',msg:'',html,wide:true,fermeDehors:true,buttons:[{t:'Fermer',v:true,p:true}]});
 }
 window.addEventListener('beforeunload',e=>{if(dirty>0){e.preventDefault();e.returnValue='';}});
 
