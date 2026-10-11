@@ -326,6 +326,8 @@
   .reg-sums .vl{text-align:right;font-weight:600;white-space:nowrap}
   .reg-sums .tot{border-top:1px solid var(--line);padding-top:5px;margin-top:2px;color:var(--ink);font-weight:600}
   .reg-sums .debit{color:var(--debit)} .reg-sums .credit{color:var(--credit)} .reg-sums .zero{color:var(--ink-3)}
+  .reg-info .titre{grid-column:1/-1;font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);margin-bottom:2px}
+  .reg-info .vl{color:var(--ink)}
   @media (max-width:700px){.reg-sums{grid-template-columns:1fr auto;column-gap:12px}}
   .acct-add{width:100%;margin-top:4px;padding:6px;border:none;background:none;color:var(--sidebar-ink-2,inherit);opacity:.6;cursor:pointer;font-size:.78rem;text-align:left}
   .acct-add:hover{opacity:1;color:var(--accent,#2563EB)}
@@ -458,6 +460,7 @@
       <table><colgroup><col style="width:18px"><col style="width:120px"><col style="width:100px"><col><col style="width:150px"><col style="width:150px"><col style="width:160px"></colgroup><tbody id="rows"></tbody></table>
     </div>
     <div class="reg-sums" id="reg-sums"></div>
+    <div class="reg-sums reg-info" id="reg-info"></div>
     <div class="foot"><span style="color:var(--ink-3)">Double-cliquez une ligne pour la modifier · cliquez la barre de statut à gauche pour pointer/dépointer</span></div>
   </section>
 
@@ -1364,6 +1367,23 @@ function periodeChanged(pfx){
     setTimeout(()=>{if(from){from.focus();from.select&&from.select();}},0);
   }
   pfx==='f'?goPage(1):renderAnalyse();}
+/* solde du compte à la fin d'une journée (comme la colonne Solde : opérations non annulées,
+   prévisionnelles comprises) */
+function soldeAu(iso){return scal(`SELECT (SELECT solde_initial FROM compte WHERE id=$a)+COALESCE(SUM(montant),0)
+  FROM operation WHERE compte_id=$a AND supprime=0 AND statut<>'annule' AND date_operation<=$d`,{$a:state.acc,$d:iso});}
+/* encadré « Pour info » : solde la veille de la période et à son dernier jour */
+function majInfoSoldes(dmin,dmax){
+  const el=document.getElementById('reg-info');if(!el)return;
+  const b=periodBounds('f')||{};const f=b.f||dmin,t=b.t||dmax;
+  if(!f||!t){el.style.display='none';return;}
+  el.style.display='';
+  const veille=avancerJours(f,-1),s1=soldeAu(veille),s2=soldeAu(t),v=s2-s1;
+  const futur=t>todayISO()?' <span class="hint">(prévisionnels compris)</span>':'';
+  el.innerHTML='<span class="titre">Pour info</span>'+
+    '<span class="lb">Solde au '+isoToFr(veille)+' (veille de la période)</span><span class="vl num">'+eur(s1)+'</span>'+
+    '<span class="lb">Solde au '+isoToFr(t)+' (fin de la période)'+futur+'</span><span class="vl num">'+eur(s2)+'</span>'+
+    '<span class="lb tot">Variation sur la période</span><span class="vl num tot '+clsSigne(v)+'">'+eur(v)+'</span>';
+}
 function setPeriode(pfx,mode){
   document.getElementById(pfx+'-periode').value=mode;
   document.querySelectorAll('#'+pfx+'-periode-wrap .pchip').forEach(b=>b.classList.toggle('on',b.dataset.m===mode));
@@ -1589,6 +1609,7 @@ function renderRegistre(){
   const net=sums.cre-sums.deb+sums.vir;
   const per=textePeriode('f',sums.dmin,sums.dmax);
   if(per)document.getElementById('count').textContent+=' · '+per;
+  majInfoSoldes(sums.dmin,sums.dmax);
   const foot=document.getElementById('reg-sums');
   if(foot)foot.innerHTML=
     '<span class="lb">Total négatif (hors virements)</span><span class="vl num '+clsSigne(-sums.deb)+'">'+eur(-sums.deb)+'</span>'+
