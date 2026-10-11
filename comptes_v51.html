@@ -243,7 +243,8 @@
   @media (prefers-color-scheme: dark){:root{--bar-flat:#4A6A5E}}
   .antot{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin:6px 0 14px}
   .antot .k{font-size:1.05rem;font-weight:600}
-  .antot .v{font-size:1.35rem;font-weight:600;color:var(--debit)}
+  .antot .v{font-size:1.35rem;font-weight:600}
+  .antot .v.debit{color:var(--debit)} .antot .v.credit{color:var(--credit)} .antot .v.zero{color:var(--ink-3)}
   .antot .d{font-size:.82rem;color:var(--ink-3)}
   /* ---- histogramme horizontal de l'analyse ---- */
   .bars{display:flex;flex-direction:column;gap:4px}
@@ -452,7 +453,8 @@
         <div class="seg" style="display:inline-flex;margin-right:8px;margin-bottom:0">
           <button id="an-dep" class="segbtn on" onclick="anSetSens('debit')">Dépenses</button>
           <button id="an-cre" class="segbtn" onclick="anSetSens('credit')">Revenus</button>
-          <button id="an-net" class="segbtn" onclick="anSetSens('net')" title="Dépenses et revenus combinés (solde net)">Net</button>
+          <button id="an-net" class="segbtn" onclick="anSetSens('net')" title="Dépenses et revenus combinés (solde net), hors virements">Net</button>
+          <button id="an-vir" class="segbtn" onclick="anSetSens('virement')" title="Virements entre tes comptes uniquement (net, par compte)">Virements</button>
         </div>
         <span class="periode" id="an-periode-wrap">
           <input type="hidden" id="an-periode" value="tout">
@@ -1343,21 +1345,26 @@ function setPeriode(pfx,mode){
   document.querySelectorAll('#'+pfx+'-periode-wrap .pchip').forEach(b=>b.classList.toggle('on',b.dataset.m===mode));
   periodeChanged(pfx);
 }
-function periodClause(pfx,params){
-  const mode=document.getElementById(pfx+'-periode').value;const now=new Date(),y=now.getFullYear();
-  const iso=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-  if(mode.indexOf('m:')===0){const mk=mode.slice(2);
-    params.$pf=mk+'-01';params.$pt=mk+'-31';return " AND o.date_operation BETWEEN $pf AND $pt";}
-  if(mode==='mois'){const m=String(now.getMonth()+1).padStart(2,'0');
-    params.$pf=y+'-'+m+'-01';params.$pt=y+'-'+m+'-31';return " AND o.date_operation BETWEEN $pf AND $pt";}
-  if(mode==='moisdernier'){const d1=new Date(y,now.getMonth()-1,1),d2=new Date(y,now.getMonth(),0);
-    params.$pf=iso(d1);params.$pt=iso(d2);return " AND o.date_operation BETWEEN $pf AND $pt";}
-  if(mode==='3mois'){const d1=new Date(now);d1.setMonth(d1.getMonth()-3);
-    params.$pf=iso(d1);params.$pt=iso(now);return " AND o.date_operation BETWEEN $pf AND $pt";}
-  if(mode==='annee'){params.$pf=y+'-01-01';params.$pt=y+'-12-31';return " AND o.date_operation BETWEEN $pf AND $pt";}
+/* bornes ISO {f,t} de la période choisie (f ou t peuvent manquer) ; null = toute la période.
+   Dans l'analyse : « Cette année » = du 1er janvier à aujourd'hui,
+   « 3 mois » = les 3 derniers mois pleins écoulés (hors mois en cours). */
+function periodBounds(pfx){
+  const mode=document.getElementById(pfx+'-periode').value;const now=new Date(),y=now.getFullYear(),mo=now.getMonth();
+  const an=(pfx==='an');
+  if(mode.indexOf('m:')===0){const pp=mode.slice(2).split('-');return {f:mode.slice(2)+'-01',t:isoDe(new Date(+pp[0],+pp[1],0))};}
+  if(mode==='mois')return {f:isoDe(new Date(y,mo,1)),t:isoDe(new Date(y,mo+1,0))};
+  if(mode==='moisdernier')return {f:isoDe(new Date(y,mo-1,1)),t:isoDe(new Date(y,mo,0))};
+  if(mode==='3mois'){
+    if(an)return {f:isoDe(new Date(y,mo-3,1)),t:isoDe(new Date(y,mo,0))};
+    const d1=new Date(now);d1.setMonth(d1.getMonth()-3);return {f:isoDe(d1),t:isoDe(now)};}
+  if(mode==='annee')return {f:y+'-01-01',t:an?isoDe(now):y+'-12-31'};
   if(mode==='perso'){const f=frToISO(document.getElementById(pfx+'-from').value),t=frToISO(document.getElementById(pfx+'-to').value);
-    let c='';if(f){params.$pf=f;c+=" AND o.date_operation>=$pf";}if(t){params.$pt=t;c+=" AND o.date_operation<=$pt";}return c;}
-  return '';
+    return (f||t)?{f:f||null,t:t||null}:null;}
+  return null;
+}
+function periodClause(pfx,params){
+  const b=periodBounds(pfx);if(!b)return '';
+  let c='';if(b.f){params.$pf=b.f;c+=" AND o.date_operation>=$pf";}if(b.t){params.$pt=b.t;c+=" AND o.date_operation<=$pt";}return c;
 }
 function avancerJours(iso,nb){const d=new Date(iso+'T00:00:00');d.setDate(d.getDate()+nb);
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
@@ -1745,28 +1752,33 @@ function anOps(){
   const p={$acc:state.acc};
   const w=" WHERE o.compte_id=$acc AND o.supprime=0 AND o.statut<>'annule' AND o.previsionnel=0"+periodClause('an',p);
   // une ligne par ventilation (opération éclatée comptée par catégorie) ; repli sur cat_path si aucune ventilation
-  const rows=qy('SELECT o.date_operation d,o.montant om,o.cat_path cp,v.montant vm,v.categorie_id c FROM operation o LEFT JOIN ventilation v ON v.operation_id=o.id'+w,p);
+  const rows=qy('SELECT o.id,o.type ty,o.date_operation d,o.montant om,o.cat_path cp,t.nom ti,v.montant vm,v.categorie_id c FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id LEFT JOIN ventilation v ON v.operation_id=o.id'+w,p);
   const path=_catPathFn();
-  return rows.map(r=> (r.c!=null) ? {d:r.d,m:r.vm,cat:path(r.c)} : {d:r.d,m:r.om,cat:r.cp});
+  // virement = opération de type virement / catégorie « Virement… » (comptée une fois, montant total),
+  // ou ligne de ventilation classée en « Virement… »
+  const vus=new Set();
+  return rows.flatMap(r=>{
+    if(r.ty==='virement'||isVirCat(r.cp)){if(vus.has(r.id))return [];vus.add(r.id);
+      return [{id:r.id,d:r.d,m:r.om,cat:r.cp,vir:true,ti:r.ti}];}
+    if(r.c!=null){const c=path(r.c);return [{id:r.id,d:r.d,m:r.vm,cat:c,vir:isVirCat(c),ti:r.ti}];}
+    return [{id:r.id,d:r.d,m:r.om,cat:r.cp,vir:false,ti:r.ti}];});
 }
 const isVirCat=c=>/^virement/i.test(c||'');
-const estVirement=o=>o.type==='virement'||isVirCat(o.cat);
 
 function anSetSens(s){state.anSens=s;
   document.getElementById('an-dep').classList.toggle('on',s==='debit');
   document.getElementById('an-cre').classList.toggle('on',s==='credit');
   const net=document.getElementById('an-net');if(net)net.classList.toggle('on',s==='net');
+  const vir=document.getElementById('an-vir');if(vir)vir.classList.toggle('on',s==='virement');
   state.anPath=[];renderAnalyse();}
 /* moyenne qui s'adapte à la période : par mois si longue, par semaine si moyenne, par jour si courte */
 function anMoyenne(total,mode,sel){
   if(!total)return null;
-  const y=new Date().getFullYear();let d1,d2;
-  if(mode==='annee'){d1=new Date(y,0,1);d2=new Date(y,11,31);}
-  else if(mode==='mois'){const m=new Date().getMonth();d1=new Date(y,m,1);d2=new Date(y,m+1,0);}
-  else if(mode.indexOf('m:')===0){const pp=mode.slice(2).split('-');d1=new Date(+pp[0],+pp[1]-1,1);d2=new Date(+pp[0],+pp[1],0);}
-  else{ // tout / perso : bornes réelles des opérations affichées
+  let d1,d2;const b=periodBounds('an');
+  if(b&&b.f&&b.t){d1=new Date(b.f+'T00:00:00');d2=new Date(b.t+'T00:00:00');}
+  else{ // tout / perso partiel : bornes réelles des opérations affichées
     if(!sel||!sel.length)return null;
-    const ds=sel.map(o=>o.d).sort();d1=new Date(ds[0]+'T00:00:00');d2=new Date(ds[ds.length-1]+'T00:00:00');
+    const ds=sel.map(o=>o.d).sort();d1=new Date((b&&b.f||ds[0])+'T00:00:00');d2=new Date((b&&b.t||ds[ds.length-1])+'T00:00:00');
   }
   const jours=Math.max(1,Math.round((d2-d1)/86400000)+1);
   let unite,div;
@@ -1782,26 +1794,30 @@ function renderAnalyse(){
   document.getElementById('an-meta').textContent=cp?cp.nom:'';
 
   const sens=state.anSens||'debit';
-  // toutes les opérations du sens choisi (hors virements internes)
-  const dep=anOps().filter(o=>(sens==='net'?o.m!==0:(sens==='debit'?o.m<0:o.m>0))&&!isVirCat(o.cat));
+  const virMode=(sens==='virement');
+  // dépenses / revenus / net : hors virements intercomptes ; « Virements » : uniquement eux
+  const dep=anOps().filter(o=>virMode?o.vir:(!o.vir&&(sens==='net'?o.m!==0:(sens==='debit'?o.m<0:o.m>0))));
+  // les virements sont regroupés par compte (« Virement vers … » / « Virement reçu de … »)
+  if(virMode)dep.forEach(o=>{o.cat=o.ti||o.cat||'Virement';});
 
   // on ne garde que celles qui appartiennent au chemin courant
   const depth=state.anPath.length;
   const sel=dep.filter(o=>{const p=catParts(o.cat);return state.anPath.every((s,i)=>p[i]===s);});
 
   // regroupement sur le niveau suivant
-  const net=(state.anSens==='net');
+  const net=(state.anSens==='net'||virMode);
   const g={},deeper=new Set(),nb={};
-  sel.forEach(o=>{const p=catParts(o.cat);const k=p[depth]||'(non précisé)';
-    g[k]=(g[k]||0)+(net?o.m:Math.abs(o.m));nb[k]=(nb[k]||0)+1;
+  sel.forEach(o=>{const p=virMode?[o.cat]:catParts(o.cat);const k=p[depth]||'(non précisé)';
+    g[k]=(g[k]||0)+(net?o.m:Math.abs(o.m));(nb[k]=nb[k]||new Set()).add(o.id);
     if(p[depth]&&p[depth+1]&&depth<2)deeper.add(k);});
-  anGroups=Object.entries(g).map(([c,v])=>({c,v,n:nb[c]})).sort((x,y)=>Math.abs(y.v)-Math.abs(x.v));
+  anGroups=Object.entries(g).map(([c,v])=>({c,v,n:nb[c].size})).sort((x,y)=>Math.abs(y.v)-Math.abs(x.v));
   const tot=anGroups.reduce((t,x)=>t+x.v,0);
   window.__deeper=deeper;
   window.__anMoy=anMoyenne(tot,document.getElementById('an-periode').value,sel);
 
   // fil d'Ariane
-  const motSens=state.anSens==='net'?'mouvements (net)':(state.anSens==='credit'?'revenus':'dépenses');
+  const motSens=virMode?'virements':state.anSens==='net'?'mouvements (net)':(state.anSens==='credit'?'revenus':'dépenses');
+  const nbOps=new Set(sel.map(o=>o.id)).size; // une opération ventilée compte une seule fois
   const sumAbs=anGroups.reduce((t,x)=>t+Math.abs(x.v),0)||1;
   let cr='<a onclick="goDepth(0)">Tous les '+motSens+'</a>';
   state.anPath.forEach((x,i)=>{cr+=' <span style="color:var(--ink-3)">›</span> '+
@@ -1811,11 +1827,11 @@ function renderAnalyse(){
 
   // total de référence des pourcentages
   document.getElementById('an-total').innerHTML=
-    '<span class="k">'+(state.anPath.length?esc(state.anPath[state.anPath.length-1]):(state.anSens==='net'?'Total net':'Total des '+motSens))+'</span>'+
-    '<span class="v num">'+eur(tot)+'</span>'+
+    '<span class="k">'+(state.anPath.length?esc(state.anPath[state.anPath.length-1]):(state.anSens==='net'?'Total net':virMode?'Total net des virements':'Total des '+motSens))+'</span>'+
+    '<span class="v num '+(net?clsSigne(tot):sens==='credit'?'credit':'debit')+'">'+eur(tot)+'</span>'+
     (window.__anMoy?'<span class="d" style="color:var(--accent,#2563EB)">Moyenne '+eur(window.__anMoy.montant)+' / '+window.__anMoy.unite+'</span>':'')+
-    '<span class="d">'+sel.length.toLocaleString('fr-FR')+' opération'+(sel.length>1?'s':'')+
-    ' · '+anGroups.length+' '+(depth===0?'catégorie':depth===1?'sous-catégorie':'sous-sous-catégorie')+(anGroups.length>1?'s':'')+'</span>';
+    '<span class="d">'+nbOps.toLocaleString('fr-FR')+' opération'+(nbOps>1?'s':'')+
+    ' · '+anGroups.length+' '+(virMode?'compte':depth===0?'catégorie':depth===1?'sous-catégorie':'sous-sous-catégorie')+(anGroups.length>1?'s':'')+'</span>';
 
   // les barres
   const el=document.getElementById('an-bars');
@@ -1826,7 +1842,7 @@ function renderAnalyse(){
     const deep=deeper.has(x.c);
     const chemin=state.anPath.concat([x.c]).join(' : ');
     const moy=eur(Math.round(x.v/div))+'/'+uni;
-    const coul=net?(x.v<0?'color:var(--debit)':'color:var(--credit)'):'';
+    const coul=net?(x.v<0?'color:var(--debit)':x.v>0?'color:var(--credit)':'color:var(--ink-3)'):'';
     return '<div class="barrow'+(deep?' drill':'')+'" '+(deep?'data-i="'+i+'"':'')+
       (deep?' title="Cliquer pour voir le détail"':'')+'>'+
       '<div class="bl">'+esc(x.c)+(deep?' <span class="chev">›</span>':'')+
