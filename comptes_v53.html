@@ -59,10 +59,7 @@
   .view{display:none}
   .reg-head{background:var(--card);border:1px solid var(--line);border-bottom:none;border-radius:var(--radius) var(--radius) 0 0;overflow:hidden}
   .reg-head table,#reg-scroll table{table-layout:fixed;border-collapse:collapse}
-  #reg-scroll{overflow-y:auto;overflow-x:auto;max-height:none;border-radius:0;border-top:none;scroll-behavior:smooth;scroll-snap-type:y proximity}
-  #reg-scroll tbody tr{scroll-snap-align:start}
-  #reg-scroll tfoot td{position:sticky;bottom:0;background:var(--card);z-index:4;padding:10px 12px;font-weight:600;box-shadow:inset 0 1px 0 var(--line)}
-  #reg-scroll tfoot .debit{color:var(--debit)} #reg-scroll tfoot .credit{color:var(--credit)}
+  #reg-scroll{overflow-y:auto;overflow-x:auto;max-height:none;border-radius:0;border-top:none}
   #reg-scroll{border-radius:0 0 var(--radius) var(--radius)}
   .view.on{display:block}
   .top{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:22px}
@@ -186,48 +183,51 @@
     .bar .search{padding-top:10px;padding-bottom:10px}
     .fstatuts{gap:6px}
     .schip,.pchip{padding:7px 11px}
-    .hauteur-ctrl{display:none}
   }
 
   @media (max-width:700px){
     .modal{padding:18px 16px}
     .row2{grid-template-columns:1fr}
     #reg-head{display:none}
-    #reg-scroll{overflow-x:hidden;height:auto!important;max-height:none;overflow-y:visible;border-radius:var(--radius)}
+    #reg-scroll{overflow-x:hidden;overflow-y:auto;max-height:none;border-radius:var(--radius)}
     #reg-scroll table{table-layout:auto;width:100%}
     #reg-scroll colgroup{display:none}
-    #reg-scroll tbody,#reg-scroll tfoot{display:block}
+    #reg-scroll tbody{display:block}
     #reg-scroll tr{display:grid;grid-template-columns:6px 1fr auto;column-gap:8px;row-gap:2px;
       padding:12px 14px;border-bottom:1px solid var(--line);align-items:start;
       grid-template-areas:"stat date amt" "stat dest amt" "stat dest solde"}
-    #reg-scroll tr#reg-sums-row{grid-template-columns:1fr auto;grid-template-areas:"lbl deb" "lbl cre" "lbl sol";
-      position:static;box-shadow:none;padding:14px 14px 4px;row-gap:4px}
     #reg-scroll td{padding:0;border:none;font-size:0.94rem}
-    #reg-scroll td.st{grid-area:stat;padding:0}
-    #reg-scroll td.st .stbar{width:100%;min-height:100%;border-radius:3px}
+    #reg-scroll td.st{grid-area:stat;padding:0;width:auto;align-self:stretch}
+    #reg-scroll td.st .stbar{position:static;width:100%;height:100%;min-height:34px;border-radius:3px}
     #reg-scroll td:nth-child(2){display:none} /* N° masqué sur la carte, visible dans le détail */
     #reg-scroll td:nth-child(3){grid-area:date;font-size:.78rem;color:var(--ink-3)}
     #reg-scroll td.dest{grid-area:dest;font-weight:500}
     #reg-scroll td:nth-child(5),#reg-scroll td:nth-child(6){grid-area:amt;text-align:right;font-size:1.02rem;align-self:start}
     #reg-scroll td:nth-child(7){grid-area:solde;text-align:right;font-size:.76rem;color:var(--ink-3);align-self:end}
-    #reg-sums-row td:nth-child(1),#reg-sums-row td:nth-child(2),#reg-sums-row td:nth-child(3){display:none}
-    #reg-sums-row td:nth-child(4){grid-area:lbl;text-align:left;color:var(--ink-3);font-size:.82rem}
-    #reg-sums-row td:nth-child(5){grid-area:deb;text-align:right}
-    #reg-sums-row td:nth-child(6){grid-area:cre;text-align:right}
-    #reg-sums-row td:nth-child(7){grid-area:sol;text-align:right;font-weight:700}
     #reg-scroll td.empty-msg{grid-column:1/-1}
   }
 
 /* ---- ajouts v7 : moteur SQLite, corbeille, pagination, dialogues ---- */
 
   .topbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+  /* barre du haut toujours visible : toute la barre sur PC ; sur mobile, seulement la 1re ligne (tb-main) */
+  .topbar{position:sticky;top:-26px;z-index:15;background:var(--paper);margin-top:-10px;padding-top:10px}
+  .tb-main,.tb-more{display:flex;align-items:center;gap:inherit;flex-wrap:wrap}
+  .tb-more{flex:1}
+  .topbar{align-items:flex-start}
+  @media (max-width:860px){
+    .topbar{display:contents}
+    .tb-main{position:sticky;top:-16px;z-index:15;background:var(--paper);gap:6px;margin:-16px -14px 0;padding:10px 14px 8px;box-shadow:0 1px 0 var(--line)}
+    .tb-more{gap:6px;margin:8px 0 18px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+  }
   .status{display:inline-flex;align-items:center;gap:7px;font-size:0.8rem;color:var(--ink-2);margin-left:auto}
   .status .sdot{width:9px;height:9px;border-radius:50%;background:var(--st-rap)}
   .status.dirty .sdot{background:var(--st-non)}
   .status.err .sdot{background:var(--debit)}
 
-  .stbar{width:8px;height:100%;min-height:38px;border-radius:0}
-  td.st{width:10px;padding:0;cursor:pointer}
+  /* pastille de statut : barre arrondie en retrait, même dessin que sur mobile */
+  td.st{width:18px;padding:0;cursor:pointer;position:relative}
+  .stbar{position:absolute;left:7px;top:8px;bottom:8px;width:6px;height:auto;min-height:0;border-radius:3px}
   td.st:hover .stbar{filter:brightness(1.25)}
 
   .listhead{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:4px 0 10px;font-size:0.8rem;color:var(--ink-3)}
@@ -254,7 +254,8 @@
   @media (prefers-color-scheme: dark){:root{--bar-flat:#4A6A5E}}
   .antot{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin:6px 0 14px}
   .antot .k{font-size:1.05rem;font-weight:600}
-  .antot .v{font-size:1.35rem;font-weight:600;color:var(--debit)}
+  .antot .v{font-size:1.35rem;font-weight:600}
+  .antot .v.debit{color:var(--debit)} .antot .v.credit{color:var(--credit)} .antot .v.zero{color:var(--ink-3)}
   .antot .d{font-size:.82rem;color:var(--ink-3)}
   /* ---- histogramme horizontal de l'analyse ---- */
   .bars{display:flex;flex-direction:column;gap:4px}
@@ -315,18 +316,27 @@
   #vent-tot.ok,#rc-vent-tot.ok{color:var(--credit);font-weight:600}
   #vent-tot.bad,#rc-vent-tot.bad{color:var(--debit);font-weight:600}
   .navbtn{padding:6px 8px}
+  .navbtn:disabled{opacity:.35;cursor:default}
   kbd{display:inline-block;padding:2px 7px;border:1px solid var(--line-2);border-bottom-width:2px;border-radius:6px;background:var(--card-alt);font-family:inherit;font-size:.82rem;font-weight:600;color:var(--ink)}
   .periode{display:inline-flex;gap:4px;flex-wrap:wrap;align-items:center}
   .pchip{padding:5px 10px;border:1px solid var(--line);border-radius:14px;font-size:.82rem;cursor:pointer;background:var(--card,#fff);color:var(--ink-2);white-space:nowrap}
   .pchip.on{background:var(--accent,#2563EB);border-color:var(--accent,#2563EB);color:#fff}
-  .reg-sums{display:flex;gap:18px;justify-content:flex-end;padding:10px 12px;border:1px solid var(--line);border-top:none;border-radius:0 0 var(--radius) var(--radius);font-size:.9rem;font-weight:600;flex-wrap:wrap;background:var(--card,#fff)}
-  .reg-sums .debit{color:var(--debit)} .reg-sums .credit{color:var(--credit)}
+  .reg-sums{display:grid;grid-template-columns:auto auto;justify-content:end;column-gap:28px;row-gap:3px;margin-top:8px;padding:10px 14px;
+            border:1px solid var(--line);border-radius:var(--radius);font-size:.88rem;background:var(--card)}
+  .reg-sums .lb{color:var(--ink-3)}
+  .reg-sums .vl{text-align:right;font-weight:600;white-space:nowrap}
+  .reg-sums .tot{border-top:1px solid var(--line);padding-top:5px;margin-top:2px;color:var(--ink);font-weight:600}
+  .reg-sums .debit{color:var(--debit)} .reg-sums .credit{color:var(--credit)} .reg-sums .zero{color:var(--ink-3)}
+  .reg-info .titre{grid-column:1/-1;font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);margin-bottom:2px}
+  .reg-info .vl{color:var(--ink)}
+  @media (max-width:700px){.reg-sums{grid-template-columns:1fr auto;column-gap:12px}}
   .acct-add{width:100%;margin-top:4px;padding:6px;border:none;background:none;color:var(--sidebar-ink-2,inherit);opacity:.6;cursor:pointer;font-size:.78rem;text-align:left}
   .acct-add:hover{opacity:1;color:var(--accent,#2563EB)}
   .acct-edit{background:none;border:none;color:var(--ink-3);cursor:pointer;font-size:.95rem;padding:2px 6px;margin-left:6px;border-radius:6px}
   .acct-edit:hover{background:var(--line);color:var(--ink)}
   .voircat{cursor:pointer;opacity:.55;font-size:.85em;margin-left:4px}
-  .voircat:hover{opacity:1}
+  .voircat:hover,.voircat.on{opacity:1}
+  .voircat.on{background:var(--brand-soft);border-radius:5px;padding:0 3px}
   .fstatuts{display:inline-flex;gap:4px;flex-wrap:wrap;align-items:center}
   .schip{padding:4px 9px;border:1px solid var(--line);border-radius:14px;font-size:.8rem;cursor:pointer;color:var(--ink-3);user-select:none;white-space:nowrap}
   .schip.on[data-s="non_pointe"]{background:#F59E0B;border-color:#F59E0B;color:#fff}
@@ -375,11 +385,15 @@
 
 <main>
   <div class="topbar">
+   <div class="tb-main">
     <button class="navbtn menubtn" id="btn-menu" onclick="toggleMenu()" title="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
     <button class="navbtn" onclick="navBack()" title="Retour (précédent)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>
     <button class="navbtn" onclick="navFwd()" title="Avancer (suivant)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg></button>
     <button class="navbtn" onclick="aideRaccourcis()" title="Raccourcis clavier ( ? )">?</button>
+    <button class="navbtn" id="btn-undo" onclick="annulerDerniere()" title="Annuler la dernière modification (Ctrl+Z)" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/></svg></button>
     <button onclick="sauvegarder()" title="Exporter la base vers un fichier"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Sauvegarder</button>
+   </div>
+   <div class="tb-more">
     <button onclick="document.getElementById('fileDb').click()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21V9M7 14l5-5 5 5M5 3h14"/></svg>Charger une sauvegarde</button>
     <button onclick="document.getElementById('fileQif').click()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h10l6 6v10H4z"/><path d="M14 4v6h6"/></svg>Importer un QIF</button>
     <input type="file" id="fileDb" accept=".sqlite,.db" style="display:none" onchange="chargerFichier(this)">
@@ -388,6 +402,7 @@
     <input type="file" id="filePdf" accept=".pdf" style="display:none" onchange="chargerReleve(this)">
     <input type="file" id="fileAmex" accept=".csv" style="display:none" onchange="chargerAmexCSV(this)">
     <span class="status" id="status" title="Cliquer pour voir le détail des modifications" onclick="voirModifications()" style="cursor:pointer"><span class="sdot"></span><span id="status-txt">—</span></span>
+   </div>
   </div>
 
   <section class="view on" id="v-registre">
@@ -437,16 +452,18 @@
       <span class="legend" id="legend"></span>
       <span class="hauteur-ctrl" style="display:inline-flex;align-items:center;gap:6px">
         <span title="Hauteur du tableau">⇕</span>
-        <input type="range" id="reg-hauteur" min="4" max="40" step="1" oninput="setHauteurRegistre(this.value)" style="width:120px;vertical-align:middle">
+        <input type="range" id="reg-hauteur" min="4" max="40" step="1" oninput="setHauteurRegistre(this.value)" onchange="this.blur()" style="width:120px;vertical-align:middle">
       </span>
       <span class="pager" id="pager"></span>
     </div>
     <div class="reg-head" id="reg-head">
-      <table><colgroup><col style="width:10px"><col style="width:120px"><col style="width:100px"><col><col style="width:150px"><col style="width:150px"><col style="width:160px"></colgroup><thead><tr id="head"></tr></thead></table>
+      <table><colgroup><col style="width:18px"><col style="width:120px"><col style="width:100px"><col><col style="width:150px"><col style="width:150px"><col style="width:160px"></colgroup><thead><tr id="head"></tr></thead></table>
     </div>
     <div class="tablecard reg-scroll" id="reg-scroll">
-      <table><colgroup><col style="width:10px"><col style="width:120px"><col style="width:100px"><col><col style="width:150px"><col style="width:150px"><col style="width:160px"></colgroup><tbody id="rows"></tbody><tfoot><tr id="reg-sums-row"></tr></tfoot></table>
+      <table><colgroup><col style="width:18px"><col style="width:120px"><col style="width:100px"><col><col style="width:150px"><col style="width:150px"><col style="width:160px"></colgroup><tbody id="rows"></tbody></table>
     </div>
+    <div class="reg-sums" id="reg-sums"></div>
+    <div class="reg-sums reg-info" id="reg-info"></div>
     <div class="foot"><span style="color:var(--ink-3)">Double-cliquez une ligne pour la modifier · cliquez la barre de statut à gauche pour pointer/dépointer</span></div>
   </section>
 
@@ -457,7 +474,8 @@
         <div class="seg" style="display:inline-flex;margin-right:8px;margin-bottom:0">
           <button id="an-dep" class="segbtn on" onclick="anSetSens('debit')">Dépenses</button>
           <button id="an-cre" class="segbtn" onclick="anSetSens('credit')">Revenus</button>
-          <button id="an-net" class="segbtn" onclick="anSetSens('net')" title="Dépenses et revenus combinés (solde net)">Net</button>
+          <button id="an-net" class="segbtn" onclick="anSetSens('net')" title="Dépenses et revenus combinés (solde net), hors virements">Net</button>
+          <button id="an-vir" class="segbtn" onclick="anSetSens('virement')" title="Virements entre tes comptes uniquement (net, par compte)">Virements</button>
         </div>
         <span class="periode" id="an-periode-wrap">
           <input type="hidden" id="an-periode" value="tout">
@@ -552,7 +570,7 @@
       <div class="ac-list" id="ac"></div>
     </div>
     <div class="field" id="vir-field" style="display:none">
-      <label>Compte de destination <span class="hint">le virement crée l’opération miroir dans l’autre compte</span></label>
+      <label><span id="vir-label">Compte de destination</span> <span class="hint">le virement crée l’opération miroir dans l’autre compte</span></label>
       <select id="i-vircompte"></select>
     </div>
     <label class="ventchk"><input type="checkbox" id="i-vent" onchange="ventToggle(this.checked)"> Répartir sur plusieurs catégories</label>
@@ -856,7 +874,7 @@ const WASM_B64="AGFzbQEAAAABoARFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/YAF/AGACf38AYAR/
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const APP_BUILD='v50';
+const APP_BUILD='v53';
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
 let SQL=null,db=null,idbOK=true,dirty=0,saveTimer=null;
@@ -935,26 +953,59 @@ function idbPutKey(k,v){return idbOpen().then(d=>new Promise((res,rej)=>{const t
   t.objectStore(STORE).put(v,k);t.oncomplete=()=>res();t.onerror=()=>rej(t.error);}));}
 function idbGetKey(k){return idbOpen().then(d=>new Promise((res,rej)=>{const t=d.transaction(STORE,'readonly');
   const g=t.objectStore(STORE).get(k);g.onsuccess=()=>res(g.result||null);g.onerror=()=>rej(g.error);}));}
+async function annulerDerniere(){
+  const e=UNDO[UNDO.length-1];
+  if(!e){await dlgAlert('Rien à annuler.\n\nSeules les modifications faites depuis l’ouverture de l’appli peuvent être annulées (les '+UNDO_MAX+' dernières).','Annuler');return;}
+  const ok=await dlgConfirm('Annuler la modification n°'+e.jid+' ?\n\n'+e.label+'\n\nLes données reviennent exactement à leur état d’avant cette modification. '+
+    'Le journal garde une trace : une ligne « Annulation de la modification n°'+e.jid+' » y sera ajoutée.','Annuler une modification','Annuler la modification');
+  if(!ok)return;
+  UNDO.pop();
+  // le journal et les réglages (meta) restent ceux d'aujourd'hui : seules les données reviennent en arrière
+  const jr=qy('SELECT id,ts,action,detail,sauve FROM journal ORDER BY id'),mt=qy('SELECT cle,valeur FROM meta');
+  db.close();db=new SQL.Database(e.avant);
+  run('DELETE FROM journal');jr.forEach(r=>run('INSERT INTO journal(id,ts,action,detail,sauve) VALUES(?,?,?,?,?)',[r.id,r.ts,r.action,r.detail,r.sauve]));
+  run('DELETE FROM meta');mt.forEach(r=>run('INSERT INTO meta(cle,valeur) VALUES(?,?)',[r.cle,r.valeur]));
+  run('INSERT INTO journal(ts,action,detail,sauve) VALUES(?,?,?,0)',[nowTS(),'Annulation de la modification n°'+e.jid,e.label]);
+  touch(null); // nouvelle photo de référence, sans créer d'entrée annulable
+  if(state.acc&&!scal('SELECT id FROM compte WHERE id=?',[state.acc]))state.acc=+scal('SELECT id FROM compte WHERE actif=1 ORDER BY ordre_affichage,id LIMIT 1');
+  closeModal();render();toast('Modification n°'+e.jid+' annulée');
+}
 /* ---------- persistance (différée, non bloquante) ---------- */
+/* ---------- annulation (Ctrl+Z) : photos de la base en mémoire ----------
+   À chaque modification journalisée, on garde l'état d'avant. Limité aux modifications
+   faites depuis l'ouverture de l'appli (les photos ne survivent pas à un rechargement). */
+const UNDO_MAX=10;
+let UNDO=[],undoBase=null;
+function undoReset(){UNDO=[];undoBase=db.export();majBoutonUndo();}
+function majBoutonUndo(){const b=document.getElementById('btn-undo');if(!b)return;
+  const e=UNDO[UNDO.length-1];b.disabled=!e;
+  b.title=e?'Annuler la dernière modification (Ctrl+Z) : n°'+e.jid+' '+e.label:'Rien à annuler (Ctrl+Z — jusqu’à 10 modifications faites depuis l’ouverture)';}
 function touch(action,detail){
-  if(action)run('INSERT INTO journal(ts,action,detail,sauve) VALUES(?,?,?,0)',[nowTS(),action,detail||'']);
+  let jid=null;
+  if(action){run('INSERT INTO journal(ts,action,detail,sauve) VALUES(?,?,?,0)',[nowTS(),action,detail||'']);jid=lastId();}
+  if(undoBase){
+    if(jid){UNDO.push({jid,label:action+(detail?' — '+detail:''),avant:undoBase});if(UNDO.length>UNDO_MAX)UNDO.shift();}
+    undoBase=db.export();majBoutonUndo();
+  }
   invalidateCaches();setMeta('updated',nowTS());refreshDirty();
   clearTimeout(saveTimer);saveTimer=setTimeout(flushIDB,900);}
 function refreshDirty(){try{dirty=scal('SELECT COUNT(*) FROM journal WHERE sauve=0')||0;}catch(e){dirty=0;}updateStatus();}
 async function voirModifications(){
-  const rows=qy("SELECT ts,action,detail FROM journal WHERE sauve=0 ORDER BY id DESC LIMIT 300");
+  const rows=qy("SELECT id,ts,action,detail FROM journal WHERE sauve=0 ORDER BY id DESC LIMIT 300");
   if(!rows.length){await dlgAlert('Aucune modification en attente : ta base est identique à ta dernière sauvegarde.','Modifications');return;}
   const html='<div style="max-height:44vh;overflow:auto;border:1px solid var(--line);border-radius:9px">'+
     '<table style="width:100%"><tbody>'+rows.map(r=>
-      '<tr><td class="num" style="white-space:nowrap;color:var(--ink-3);font-size:.78rem">'+esc(r.ts.slice(8,10)+'/'+r.ts.slice(5,7)+' '+r.ts.slice(11,16))+'</td>'+
+      '<tr><td class="num" style="white-space:nowrap;color:var(--ink-3);font-size:.78rem">n°'+r.id+'</td>'+
+      '<td class="num" style="white-space:nowrap;color:var(--ink-3);font-size:.78rem">'+esc(r.ts.slice(8,10)+'/'+r.ts.slice(5,7)+' '+r.ts.slice(11,16))+'</td>'+
       '<td style="font-size:.82rem"><b>'+esc(r.action)+'</b>'+(r.detail?'<div style="color:var(--ink-2)">'+esc(r.detail)+'</div>':'')+'</td></tr>').join('')+
     '</tbody></table></div>'+
     '<div style="font-size:.8rem;color:var(--ink-3);margin-top:10px">Version de tes données : révision '+getMeta('rev',0)+
     ', modifiée le '+(getMeta('updated','')||'—')+'.<br>Ces modifications sont bien enregistrées dans ce navigateur. '+
     'Elles ne sont simplement pas encore recopiées dans un fichier de sauvegarde.</div>';
   const go=await dlgOpen({title:rows.length+' modification'+(rows.length>1?'s':'')+' non sauvegardée'+(rows.length>1?'s':''),msg:'',html,
-    buttons:[{t:'Fermer',v:false},{t:'Sauvegarder maintenant',v:true,p:true}]});
-  if(go)sauvegarder();
+    buttons:[{t:'Fermer',v:false}].concat(UNDO.length?[{t:'Annuler la dernière (n°'+UNDO[UNDO.length-1].jid+')',v:'undo'}]:[]).concat([{t:'Sauvegarder maintenant',v:true,p:true}])});
+  if(go==='undo')annulerDerniere();
+  else if(go)sauvegarder();
 }
 async function flushIDB(){
   if(!idbOK||!db)return;
@@ -977,9 +1028,11 @@ function dlgClose(v){const b=document.getElementById('dlgBack');b.classList.remo
   document.getElementById('dlgProg').style.display='none';document.getElementById('dlgBody').innerHTML='';
   if(dlgKeyHandler){document.removeEventListener('keydown',dlgKeyHandler,true);dlgKeyHandler=null;}
   const r=dlgResolve;dlgResolve=null;if(r)r(v);}
-function dlgOpen({title,msg,html,buttons,onOpen,wide,focusBtn}){
+function dlgOpen({title,msg,html,buttons,onOpen,wide,focusBtn,fermeDehors}){
   return new Promise(res=>{
     dlgResolve=res;
+    // fermeDehors : un clic à côté de la boîte la ferme (comme le bouton Fermer)
+    document.getElementById('dlgBack').onclick=fermeDehors?(e=>{if(e.target.id==='dlgBack')dlgClose(false);}):null;
     document.getElementById('dlgTitle').textContent=title||'';
     document.getElementById('dlgMsg').textContent=msg||'';
     document.getElementById('dlgBody').innerHTML=html||'';
@@ -1011,11 +1064,24 @@ function busy(txt){const b=document.getElementById('busy');document.getElementBy
 function unbusy(){document.getElementById('busy').classList.remove('show');}
 const nextFrame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
 
+/* ---------- écran tactile : le clavier ne doit s'ouvrir que sur un toucher volontaire ---------- */
+const ecranTactile=()=>window.matchMedia('(pointer:coarse)').matches;
+let _dernierToucher={el:null,t:0};
+document.addEventListener('pointerdown',e=>{_dernierToucher={el:e.target,t:Date.now()};},true);
+// champs de recherche : si le focus arrive sans qu'on les ait touchés (glissement du curseur, défilement,
+// mise à jour de l'écran…), on le retire aussitôt pour ne pas ouvrir le clavier
+document.addEventListener('focusin',e=>{
+  const el=e.target;
+  if(!ecranTactile()||!el||['f-search','ti-search','cat-search'].indexOf(el.id)<0)return;
+  const t=_dernierToucher;
+  if(!(t.el&&(t.el===el||el.contains(t.el))&&Date.now()-t.t<1000))el.blur();
+},true);
 /* ---------- formats ---------- */
 const fmt=new Intl.NumberFormat('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2});
 const fmt0=new Intl.NumberFormat('fr-FR',{maximumFractionDigits:0});
 const eur=c=>(c<0?'-':'')+fmt.format(Math.abs(c)/100)+' €';
 const eur0=c=>fmt0.format(Math.round(c/100))+' €';
+const clsSigne=c=>c>0?'credit':c<0?'debit':'zero';
 const catParts=c=>(c||'').split(/\s*:\s*/).filter(Boolean);
 const catTop=c=>catParts(c)[0]||'Divers';
 function frToISO(s){return shortToISO(s);}
@@ -1130,6 +1196,7 @@ async function boot(){
   catch(e){idbOK=false;idbErr=e;}
   if(!db){db=new SQL.Database();}
   db.run(SCHEMA);migrer();
+  try{const nv=renommerVirements();if(nv)touch('Libellés des virements',nv+' opération(s) renommée(s)');}catch(e){console.error('virements',e);}
   if(!scal('SELECT COUNT(*) FROM compte'))
     run("INSERT INTO compte(nom,type,solde_initial,date_ouverture) VALUES('Compte courant','courant',0,?)",[todayISO()]);
   if(getMeta('app')==null){setMeta('app','mes-comptes');setMeta('rev',0);setMeta('updated',nowTS());}
@@ -1141,7 +1208,13 @@ async function boot(){
     if(s.view==='releve'&&!(REL&&REL.res))s.view='registre';
     _navSuppress=true;restoreNav(s);_navSuppress=false;}}catch(e){}syncHist();},0);
   try{const _n=genererRecurrences();if(_n){touch('Échéances récurrentes',_n+' opération(s) générée(s)');}}catch(e){console.error('récurrences',e);}
-  unbusy();refreshDirty();render();
+  unbusy();refreshDirty();undoReset();render();
+  state.jour=todayISO();
+  const verifierJour=()=>{if(todayISO()===state.jour)return;state.jour=todayISO();
+    try{const n=genererRecurrences();if(n)touch('Échéances récurrentes',n+' opération(s) générée(s)');}catch(e){console.error('récurrences',e);}
+    render();};
+  setInterval(verifierJour,60000);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)verifierJour();});
   if(restored){const n=scal('SELECT COUNT(*) FROM operation WHERE supprime=0');
     if(n)toast(n.toLocaleString('fr-FR')+' opérations chargées depuis ce navigateur');}
   if(!idbOK)dlgAlert("Le stockage local de ce navigateur n'est pas disponible ici.\nL'application fonctionne, mais pense à Sauvegarder avant de fermer.",'Attention');
@@ -1168,7 +1241,7 @@ function snapshotNav(){
     fHorizon:(document.getElementById('f-horizon')||{}).value||'tout',
     catSearch:(document.getElementById('cat-search')||{}).value||'',
     tiSearch:(document.getElementById('ti-search')||{}).value||'',
-    catVides:!!state.catVides};
+    catVides:!!state.catVides,fSens:state.fSens||null,fCat:state.fCat||null};
 }
 let _navFlush=null;
 function persistNav(){try{const s=snapshotNav();if(s.view==='releve')return; // on ne restaure pas une comparaison en cours
@@ -1179,7 +1252,7 @@ function pushHist(){try{history.pushState(snapshotNav(),'');}catch(e){}persistNa
 function syncHist(){try{history.replaceState(snapshotNav(),'');}catch(e){}persistNav();}
 function restoreNav(s){
   if(!s)return;
-  state.anPath=(s.anPath||[]).slice();state.anSens=s.anSens||'debit';state.catVides=!!s.catVides;
+  state.anPath=(s.anPath||[]).slice();state.anSens=s.anSens||'debit';state.catVides=!!s.catVides;state.fSens=s.fSens||null;state.fCat=s.fCat||null;
   const set=(id,val)=>{const e=document.getElementById(id);if(e&&val!==undefined)e.value=val;};
   set('f-search',s.fSearch||'');set('cat-search',s.catSearch||'');set('ti-search',s.tiSearch||'');
   set('f-periode',s.fPeriode||'tout');set('f-horizon',s.fHorizon||'tout');
@@ -1206,9 +1279,10 @@ function render(){
   document.getElementById('nav-trash-n').textContent=n?n:'';
   showVersion();
 }
+/* solde réel = opérations effectives datées jusqu'à aujourd'hui inclus (débits comme crédits) */
 function soldeReel(id){return scal(`SELECT (SELECT solde_initial FROM compte WHERE id=$i)
   +COALESCE(SUM(montant),0) FROM operation WHERE compte_id=$i AND supprime=0
-  AND statut IN('non_pointe','pointe','rapproche') AND previsionnel=0`,{$i:id});}
+  AND statut IN('non_pointe','pointe','rapproche') AND previsionnel=0 AND date_operation<=$t`,{$i:id,$t:todayISO()});}
 function _chiffres(s){return (s||'').replace(/\D/g,'');}
 function numeroDuTitre(rc){
   if(rc&&rc.cle&&rc.cle.indexOf('n:')===0)return rc.cle.slice(2);
@@ -1250,6 +1324,7 @@ async function editCompte(id){
   if(ok==='del'){return supprimerCompte(id);}
   if(!ok||!data)return;
   run('UPDATE compte SET nom=?,type=?,numero=? WHERE id=?',[data.nom,data.type,data.numero,id]);
+  renommerVirements();
   touch('Compte modifié',data.nom);render();
 }
 function remonterEnHaut(){
@@ -1340,26 +1415,53 @@ function periodeChanged(pfx){
     setTimeout(()=>{if(from){from.focus();from.select&&from.select();}},0);
   }
   pfx==='f'?goPage(1):renderAnalyse();}
+/* solde du compte à la fin d'une journée (comme la colonne Solde : opérations non annulées,
+   prévisionnelles comprises) */
+function soldeAu(iso){return scal(`SELECT (SELECT solde_initial FROM compte WHERE id=$a)+COALESCE(SUM(montant),0)
+  FROM operation WHERE compte_id=$a AND supprime=0 AND statut<>'annule' AND date_operation<=$d`,{$a:state.acc,$d:iso});}
+/* encadré « Pour info » : solde la veille de la période et à son dernier jour */
+function majInfoSoldes(dmin,dmax){
+  const el=document.getElementById('reg-info');if(!el)return;
+  const b=periodBounds('f')||{};const f=b.f||dmin,t=b.t||dmax;
+  if(!f||!t){el.style.display='none';return;}
+  el.style.display='';
+  const veille=avancerJours(f,-1),s1=soldeAu(veille),s2=soldeAu(t),v=s2-s1;
+  const futur=t>todayISO()?' <span class="hint">(prévisionnels compris)</span>':'';
+  el.innerHTML='<span class="titre">Pour info</span>'+
+    '<span class="lb">Solde au '+isoToFr(veille)+' (veille de la période)</span><span class="vl num">'+eur(s1)+'</span>'+
+    '<span class="lb">Solde au '+isoToFr(t)+' (fin de la période)'+futur+'</span><span class="vl num">'+eur(s2)+'</span>'+
+    '<span class="lb tot">Variation sur la période</span><span class="vl num tot '+clsSigne(v)+'">'+eur(v)+'</span>';
+}
 function setPeriode(pfx,mode){
   document.getElementById(pfx+'-periode').value=mode;
   document.querySelectorAll('#'+pfx+'-periode-wrap .pchip').forEach(b=>b.classList.toggle('on',b.dataset.m===mode));
   periodeChanged(pfx);
 }
-function periodClause(pfx,params){
-  const mode=document.getElementById(pfx+'-periode').value;const now=new Date(),y=now.getFullYear();
-  const iso=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-  if(mode.indexOf('m:')===0){const mk=mode.slice(2);
-    params.$pf=mk+'-01';params.$pt=mk+'-31';return " AND o.date_operation BETWEEN $pf AND $pt";}
-  if(mode==='mois'){const m=String(now.getMonth()+1).padStart(2,'0');
-    params.$pf=y+'-'+m+'-01';params.$pt=y+'-'+m+'-31';return " AND o.date_operation BETWEEN $pf AND $pt";}
-  if(mode==='moisdernier'){const d1=new Date(y,now.getMonth()-1,1),d2=new Date(y,now.getMonth(),0);
-    params.$pf=iso(d1);params.$pt=iso(d2);return " AND o.date_operation BETWEEN $pf AND $pt";}
-  if(mode==='3mois'){const d1=new Date(now);d1.setMonth(d1.getMonth()-3);
-    params.$pf=iso(d1);params.$pt=iso(now);return " AND o.date_operation BETWEEN $pf AND $pt";}
-  if(mode==='annee'){params.$pf=y+'-01-01';params.$pt=y+'-12-31';return " AND o.date_operation BETWEEN $pf AND $pt";}
+/* texte « du JJ/MM/AAAA au JJ/MM/AAAA » des dates réellement prises en compte ;
+   une borne absente (Tout, dates partielles) est remplacée par la 1re / dernière opération retenue */
+function textePeriode(pfx,dmin,dmax){
+  const b=periodBounds(pfx)||{};const f=b.f||dmin,t=b.t||dmax;
+  if(!f&&!t)return '';
+  return (b.f||b.t?'Période':'Toutes les dates')+' : du '+isoToFr(f||'')+' au '+isoToFr(t||'');
+}
+/* bornes ISO {f,t} de la période choisie (f ou t peuvent manquer) ; null = toute la période.
+   Mêmes définitions dans le registre et l'analyse :
+   « Cette année » = du 1er janvier à aujourd'hui,
+   « 3 mois » = les 3 derniers mois pleins écoulés (hors mois en cours). */
+function periodBounds(pfx){
+  const mode=document.getElementById(pfx+'-periode').value;const now=new Date(),y=now.getFullYear(),mo=now.getMonth();
+  if(mode.indexOf('m:')===0){const pp=mode.slice(2).split('-');return {f:mode.slice(2)+'-01',t:isoDe(new Date(+pp[0],+pp[1],0))};}
+  if(mode==='mois')return {f:isoDe(new Date(y,mo,1)),t:isoDe(new Date(y,mo+1,0))};
+  if(mode==='moisdernier')return {f:isoDe(new Date(y,mo-1,1)),t:isoDe(new Date(y,mo,0))};
+  if(mode==='3mois')return {f:isoDe(new Date(y,mo-3,1)),t:isoDe(new Date(y,mo,0))};
+  if(mode==='annee')return {f:y+'-01-01',t:isoDe(now)};
   if(mode==='perso'){const f=frToISO(document.getElementById(pfx+'-from').value),t=frToISO(document.getElementById(pfx+'-to').value);
-    let c='';if(f){params.$pf=f;c+=" AND o.date_operation>=$pf";}if(t){params.$pt=t;c+=" AND o.date_operation<=$pt";}return c;}
-  return '';
+    return (f||t)?{f:f||null,t:t||null}:null;}
+  return null;
+}
+function periodClause(pfx,params){
+  const b=periodBounds(pfx);if(!b)return '';
+  let c='';if(b.f){params.$pf=b.f;c+=" AND o.date_operation>=$pf";}if(b.t){params.$pt=b.t;c+=" AND o.date_operation<=$pt";}return c;
 }
 function avancerJours(iso,nb){const d=new Date(iso+'T00:00:00');d.setDate(d.getDate()+nb);
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
@@ -1388,10 +1490,15 @@ function buildWhere(params){
   if(hm==='MASQUE'){w+=" AND o.previsionnel=0";}
   else if(hm){params.$hmax=hm;w+=" AND (o.previsionnel=0 OR o.date_operation<=$hmax)";}
   w+=periodClause('f',params);
+  // loupes (catégorie / débits / crédits / virements) : on garde les opérations ayant au moins une ligne retenue
+  if(state.fCat||state.fSens){
+    const ids=[...new Set(lignesOps(w,params).filter(ligneFiltre).map(l=>l.id))];
+    w+=ids.length?" AND o.id IN ("+ids.join(',')+")":" AND 0";
+  }
   return w;
 }
 function goPage(p){state.page=Math.max(1,p||1);renderRegistre();syncHist();}
-const COL_DEF=[10,120,100,null,150,150,160];
+const COL_DEF=[18,120,100,null,150,150,160];
 const COL_DEST_MIN=180; // largeur minimale de la colonne Destinataire avant défilement horizontal
 function appliquerLargeurs(){
   // largeurs fixes (toutes les colonnes sauf Destinataire)
@@ -1426,10 +1533,23 @@ function syncScrollX(){
   });sc._xbound=true;}
 }
 function syncHeadWidth(){syncScrollX();}
+const estMobile=()=>window.matchMedia('(max-width:700px)').matches;
+/* hauteur moyenne réelle d'une ligne (sur mobile les lignes sont des cartes de hauteur variable) */
+function hauteurLigneMesuree(){
+  let s=0,n=0;
+  for(const tr of document.querySelectorAll('#rows tr')){const h=tr.offsetHeight;if(h>0){s+=h;n++;}if(n>=20)break;}
+  return n?s/n:null;
+}
+function appliquerHauteurRegistre(){
+  const el=document.getElementById('reg-scroll');if(!el)return;
+  const rows=state.regRows||12;
+  const hl=estMobile()?hauteurLigneMesuree():null;
+  // hauteur maximale (et non fixe) : s'il y a moins de lignes, le tableau se resserre, sans blanc avant les totaux
+  el.style.height='';el.style.maxHeight=hl?Math.round(rows*hl)+'px':(rows*2.55)+'rem';   // ~ nb de lignes visibles
+}
 function setHauteurRegistre(rows){
   rows=Math.max(4,Math.min(60,+rows||12));
-  const el=document.getElementById('reg-scroll');
-  if(el)el.style.height=(rows*2.55)+'rem';   // ~ nb de lignes visibles
+  state.regRows=rows;appliquerHauteurRegistre();
   const sl=document.getElementById('reg-hauteur');if(sl&&+sl.value!==rows)sl.value=rows;
   try{setMeta('regRows',rows);}catch(e){}
   setTimeout(syncHeadWidth,0);
@@ -1437,7 +1557,26 @@ function setHauteurRegistre(rows){
 function statutsChips(){return [].slice.call(document.querySelectorAll('#f-statuts .schip'));}
 function toggleStatut(el){el.classList.toggle('on');goPage(1);}
 function setStatutsTous(){statutsChips().forEach(c=>c.classList.add('on'));}
-function resetFilters(){document.getElementById('f-search').value='';setStatutsTous();setPeriode('f','tout');
+/* loupe d'une barre de l'analyse : registre filtré exactement comme l'analyse
+   (même période, ni prévisionnels ni annulés, même sens, catégorie précise) */
+function voirDepuisAnalyse(chemin){
+  const sens=state.anSens||'debit';
+  ['periode','from','to'].forEach(k=>{const a=document.getElementById('an-'+k),f=document.getElementById('f-'+k);if(a&&f)f.value=a.value;});
+  const mode=document.getElementById('f-periode').value,perso=mode==='perso'?'':'none';
+  document.querySelectorAll('#f-periode-wrap .pchip').forEach(b=>b.classList.toggle('on',b.dataset.m===mode));
+  ['f-from','f-to','f-sep'].forEach(i=>{const e=document.getElementById(i);if(e)e.style.display=perso;});
+  statutsChips().forEach(c=>c.classList.toggle('on',['non_pointe','pointe','rapproche'].indexOf(c.dataset.s)>=0));
+  const s=document.getElementById('f-search');
+  if(sens==='virement'){state.fCat=null;state.fSens='virement';s.value=chemin;}   // virements : regroupés par compte
+  else{state.fCat=chemin;state.fSens=(sens==='net')?null:sens;s.value='';}
+  syncClear();setView('registre');goPage(1);
+  toast('Registre filtré comme l’analyse : « '+chemin+' »');
+}
+const SENS_LIB={debit:'débits uniquement',credit:'crédits uniquement',virement:'virements uniquement'};
+function setFSens(v){state.fSens=(state.fSens===v)?null:v;goPage(1);
+  if(state.fSens)toast('Registre filtré : '+SENS_LIB[state.fSens]);}
+function retirerFiltreCat(){state.fCat=null;goPage(1);}
+function resetFilters(){state.fSens=null;state.fCat=null;document.getElementById('f-search').value='';setStatutsTous();setPeriode('f','tout');
   ['f-from','f-to','f-sep'].forEach(i=>{const e=document.getElementById(i);if(e){if(e.value!==undefined)e.value='';e.style.display='none';if(e.classList)e.classList.remove('bad');}});
   state.sort='date';state.dir=-1;syncClear();goPage(1);}
 function filtreAttente(){const chips=statutsChips();
@@ -1452,10 +1591,10 @@ function tiles(){
   const a=state.acc;
   const r=qy(`SELECT
     (SELECT solde_initial FROM compte WHERE id=$a)+COALESCE(SUM(CASE WHEN statut='rapproche' THEN montant END),0) rap,
-    (SELECT solde_initial FROM compte WHERE id=$a)+COALESCE(SUM(CASE WHEN statut IN('non_pointe','pointe','rapproche') AND previsionnel=0 THEN montant END),0) reel,
+    (SELECT solde_initial FROM compte WHERE id=$a)+COALESCE(SUM(CASE WHEN statut IN('non_pointe','pointe','rapproche') AND previsionnel=0 AND date_operation<=$t THEN montant END),0) reel,
     COALESCE(SUM(CASE WHEN statut IN('non_pointe','pointe') AND previsionnel=0 THEN montant END),0) att,
-    COALESCE(SUM(CASE WHEN previsionnel=1 AND ($hm IS NULL OR date_operation<=$hm) THEN montant END),0) prv
-    FROM operation o WHERE compte_id=$a AND supprime=0`,{$a:a,$hm:_hmPrv()})[0];
+    COALESCE(SUM(CASE WHEN statut<>'annule' AND (previsionnel=1 OR date_operation>$t) AND ($hm IS NULL OR date_operation<=$hm) THEN montant END),0) prv
+    FROM operation o WHERE compte_id=$a AND supprime=0`,{$a:a,$hm:_hmPrv(),$t:todayISO()})[0];
   const cards=[
     {k:'Solde rapproché',v:eur(r.rap),c:'var(--ink)',d:'Confirmé par la banque'},
     {k:'Solde réel',v:eur(r.reel),c:'var(--ink)',d:'Tout jusqu’à aujourd’hui'},
@@ -1531,18 +1670,28 @@ function renderRegistre(){
 
   document.getElementById('count').textContent=total.toLocaleString('fr-FR')+' opération'+(total>1?'s':'')+
     (total>PAGE_SIZE?(' · '+(off+1)+'–'+Math.min(off+PAGE_SIZE,total)+' affichées'):'');
-  // sommes débit / crédit adaptées au filtre courant (toutes pages)
-  const sums=qy(`SELECT
-      COALESCE(SUM(CASE WHEN o.montant<0 THEN -o.montant ELSE 0 END),0) deb,
-      COALESCE(SUM(CASE WHEN o.montant>0 THEN o.montant ELSE 0 END),0) cre
-    FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id`+w,p)[0]||{deb:0,cre:0};
-  const foot=document.getElementById('reg-sums-row');
-  if(foot)foot.innerHTML='<td></td><td></td><td></td>'+
-    '<td style="text-align:right;color:var(--ink-3)">Total filtré</td>'+
-    '<td class="r num debit">'+eur(sums.deb)+'</td>'+
-    '<td class="r num credit">'+eur(sums.cre)+'</td>'+
-    '<td class="r num">'+eur(sums.cre-sums.deb)+'</td>';
-  appliquerLargeurs();syncScrollX();
+  // totaux adaptés au filtre courant (toutes pages), calculés ligne par ligne comme l'analyse :
+  // débits et crédits hors virements, virements à part ; les opérations annulées ne comptent pas.
+  // Avec une loupe active, seules les lignes concernées comptent (ex. catégorie Salaire = montant de l'analyse).
+  const sums={deb:0,cre:0,vir:0};
+  lignesOps(w,p).forEach(l=>{if(l.st==='annule'||!ligneFiltre(l))return;
+    if(l.vir)sums.vir+=l.m;else if(l.m<0)sums.deb-=l.m;else sums.cre+=l.m;});
+  Object.assign(sums,qy('SELECT MIN(o.date_operation) dmin,MAX(o.date_operation) dmax FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id'+w,p)[0]||{});
+  const net=sums.cre-sums.deb+sums.vir;
+  const per=textePeriode('f',sums.dmin,sums.dmax);
+  if(per)document.getElementById('count').textContent+=' · '+per;
+  if(state.fCat)document.getElementById('count').insertAdjacentHTML('beforeend',
+    ' · <a style="color:var(--brand);cursor:pointer" title="Retirer ce filtre" onclick="retirerFiltreCat()">catégorie : '+esc(state.fCat)+' ✕</a>');
+  if(state.fSens)document.getElementById('count').insertAdjacentHTML('beforeend',
+    ' · <a style="color:var(--brand);cursor:pointer" title="Retirer ce filtre" onclick="setFSens(null)">filtre : '+SENS_LIB[state.fSens]+' ✕</a>');
+  majInfoSoldes(sums.dmin,sums.dmax);
+  const foot=document.getElementById('reg-sums');
+  if(foot)foot.innerHTML=
+    '<span class="lb">Total négatif (hors virements) <span class="voircat'+(state.fSens==='debit'?' on':'')+'" title="Afficher uniquement ces opérations (re-cliquer pour tout réafficher)" onclick="setFSens(&#39;debit&#39;)">🔍</span></span><span class="vl num '+clsSigne(-sums.deb)+'">'+eur(-sums.deb)+'</span>'+
+    '<span class="lb">Total positif (hors virements) <span class="voircat'+(state.fSens==='credit'?' on':'')+'" title="Afficher uniquement ces opérations (re-cliquer pour tout réafficher)" onclick="setFSens(&#39;credit&#39;)">🔍</span></span><span class="vl num '+clsSigne(sums.cre)+'">'+eur(sums.cre)+'</span>'+
+    '<span class="lb">Total des virements <span class="voircat'+(state.fSens==='virement'?' on':'')+'" title="Afficher uniquement ces opérations (re-cliquer pour tout réafficher)" onclick="setFSens(&#39;virement&#39;)">🔍</span></span><span class="vl num '+clsSigne(sums.vir)+'">'+eur(sums.vir)+'</span>'+
+    '<span class="lb tot">Total net</span><span class="vl num tot '+clsSigne(net)+'">'+eur(net)+'</span>';
+  appliquerLargeurs();syncScrollX();appliquerHauteurRegistre();
   document.getElementById('legend').innerHTML=Object.keys(META).map(s=>
     '<span><span class="dot" style="background:'+META[s].col+'"></span>'+META[s].label+'</span>').join('');
   document.getElementById('pager').innerHTML=pages>1?
@@ -1610,6 +1759,8 @@ function renderCorbeille(){
 }
 function restaurer(id){const l=libOp(id);
   run('UPDATE operation SET supprime=0,date_suppression=NULL,date_modification=? WHERE id=?',[nowTS(),id]);
+  run(`UPDATE operation SET miroir_id=$i WHERE id=(SELECT miroir_id FROM operation WHERE id=$i)
+    AND miroir_id IS NULL AND supprime=0`,{$i:id});
   touch('Restauration depuis la corbeille',l);render();toast('Opération restaurée');}
 async function supprDef(id){
   const o=qy('SELECT o.montant m,t.nom dest FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id WHERE o.id=?',[id])[0];
@@ -1662,7 +1813,8 @@ function cheminCategorie(id){
 /* clique une catégorie -> registre filtré sur son chemin */
 function voirCategorieChemin(chemin){
   if(!chemin)return;
-  const s=document.getElementById('f-search');if(s)s.value=chemin;
+  const s=document.getElementById('f-search');if(s)s.value='';
+  state.fCat=chemin;state.fSens=null;syncClear();
   setStatutsTous();
   setView('registre');goPage(1);
   toast('Opérations de « '+chemin+' »');
@@ -1729,31 +1881,62 @@ function _catPathFn(){
     return cache[id]=parts.join(' : ');
   };
 }
+/* Lignes comptables d'un ensemble d'opérations — MÊME règle pour le registre et l'analyse :
+   - une opération répartie compte ligne par ligne, chaque ligne selon SON signe
+     (salaire 3 000 € = Salaire +3 500 € en revenu et Impôts −500 € en dépense) ;
+   - une opération non répartie compte pour son montant ;
+   - si les lignes ne font pas le montant de l'opération, la différence forme une ligne
+     « (répartition incomplète) », pour que la somme des lignes = montant de l'opération ;
+   - virement = opération de type virement / catégorie « Virement… » (une ligne, montant total),
+     ou ligne classée en « Virement… ». */
+function lignesOps(w,p){
+  const rows=qy('SELECT o.id,o.type ty,o.date_operation d,o.montant om,o.cat_path cp,o.statut st,t.nom ti,v.montant vm,v.categorie_id c '+
+    'FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id LEFT JOIN ventilation v ON v.operation_id=o.id'+w,p);
+  const path=_catPathFn();const ops=new Map();
+  rows.forEach(r=>{let o=ops.get(r.id);if(!o){o={r,lignes:[]};ops.set(r.id,o);}
+    if(r.c!=null)o.lignes.push({m:r.vm,cat:path(r.c)});});
+  const out=[];
+  ops.forEach(({r,lignes})=>{
+    const base={id:r.id,d:r.d,ti:r.ti,om:r.om,st:r.st};
+    if(r.ty==='virement'||isVirCat(r.cp)){out.push(Object.assign({m:r.om,cat:r.cp,vir:true,opVir:true},base));return;}
+    if(!lignes.length)lignes.push({m:r.om,cat:r.cp});
+    const somme=lignes.reduce((t,l)=>t+l.m,0);
+    if(somme!==r.om)lignes.push({m:r.om-somme,cat:'(répartition incomplète)',adj:true});
+    lignes.forEach(l=>out.push(Object.assign({m:l.m,cat:l.cat,vir:isVirCat(l.cat),adj:!!l.adj},base)));
+  });
+  return out;
+}
+/* filtres des loupes du registre, appliqués ligne par ligne */
+const memeCat=(cat,chemin)=>{const a=catParts(cat).join(' : '),b=catParts(chemin).join(' : ');return a===b||a.indexOf(b+' : ')===0;};
+function ligneFiltre(l){
+  if(state.fSens==='debit'&&!(!l.vir&&l.m<0))return false;
+  if(state.fSens==='credit'&&!(!l.vir&&l.m>0))return false;
+  if(state.fSens==='virement'&&!l.vir)return false;
+  if(state.fCat&&!memeCat(l.cat,state.fCat))return false;
+  return true;
+}
 function anOps(){
   const p={$acc:state.acc};
   const w=" WHERE o.compte_id=$acc AND o.supprime=0 AND o.statut<>'annule' AND o.previsionnel=0"+periodClause('an',p);
-  // une ligne par ventilation (opération éclatée comptée par catégorie) ; repli sur cat_path si aucune ventilation
-  const rows=qy('SELECT o.date_operation d,o.montant om,o.cat_path cp,v.montant vm,v.categorie_id c FROM operation o LEFT JOIN ventilation v ON v.operation_id=o.id'+w,p);
-  const path=_catPathFn();
-  return rows.map(r=> (r.c!=null) ? {d:r.d,m:r.vm,cat:path(r.c)} : {d:r.d,m:r.om,cat:r.cp});
+  return lignesOps(w,p);
 }
 const isVirCat=c=>/^virement/i.test(c||'');
 
+/* boutons Dépenses / Revenus / Net / Virements alignés sur state.anSens (seule référence) */
+function majBoutonsSens(){const s=state.anSens||'debit';
+  [['an-dep','debit'],['an-cre','credit'],['an-net','net'],['an-vir','virement']].forEach(([id,v])=>{
+    const b=document.getElementById(id);if(b)b.classList.toggle('on',s===v);});}
 function anSetSens(s){state.anSens=s;
-  document.getElementById('an-dep').classList.toggle('on',s==='debit');
-  document.getElementById('an-cre').classList.toggle('on',s==='credit');
-  const net=document.getElementById('an-net');if(net)net.classList.toggle('on',s==='net');
-  state.anPath=[];renderAnalyse();}
+  state.anPath=[];renderAnalyse();
+  syncHist();} // l'historique mémorise le sens choisi (sinon « retour » restaurait un ancien sens)
 /* moyenne qui s'adapte à la période : par mois si longue, par semaine si moyenne, par jour si courte */
 function anMoyenne(total,mode,sel){
   if(!total)return null;
-  const y=new Date().getFullYear();let d1,d2;
-  if(mode==='annee'){d1=new Date(y,0,1);d2=new Date(y,11,31);}
-  else if(mode==='mois'){const m=new Date().getMonth();d1=new Date(y,m,1);d2=new Date(y,m+1,0);}
-  else if(mode.indexOf('m:')===0){const pp=mode.slice(2).split('-');d1=new Date(+pp[0],+pp[1]-1,1);d2=new Date(+pp[0],+pp[1],0);}
-  else{ // tout / perso : bornes réelles des opérations affichées
+  let d1,d2;const b=periodBounds('an');
+  if(b&&b.f&&b.t){d1=new Date(b.f+'T00:00:00');d2=new Date(b.t+'T00:00:00');}
+  else{ // tout / perso partiel : bornes réelles des opérations affichées
     if(!sel||!sel.length)return null;
-    const ds=sel.map(o=>o.d).sort();d1=new Date(ds[0]+'T00:00:00');d2=new Date(ds[ds.length-1]+'T00:00:00');
+    const ds=sel.map(o=>o.d).sort();d1=new Date((b&&b.f||ds[0])+'T00:00:00');d2=new Date((b&&b.t||ds[ds.length-1])+'T00:00:00');
   }
   const jours=Math.max(1,Math.round((d2-d1)/86400000)+1);
   let unite,div;
@@ -1768,27 +1951,34 @@ function renderAnalyse(){
   const cp=qy('SELECT nom FROM compte WHERE id=?',[state.acc])[0];
   document.getElementById('an-meta').textContent=cp?cp.nom:'';
 
+  majBoutonsSens();
   const sens=state.anSens||'debit';
-  // toutes les opérations du sens choisi (hors virements internes)
-  const dep=anOps().filter(o=>(sens==='net'?o.m!==0:(sens==='debit'?o.m<0:o.m>0))&&!isVirCat(o.cat));
+  const virMode=(sens==='virement');
+  // dépenses / revenus / net : hors virements intercomptes ; « Virements » : uniquement eux
+  const dep=anOps().filter(o=>o.m!==0&&(virMode?o.vir:(!o.vir&&(sens==='net'||(sens==='debit'?o.m<0:o.m>0)))));
+  // les virements sont regroupés par compte (« Virement vers … » / « Virement reçu de … »)
+  if(virMode)dep.forEach(o=>{o.cat=o.ti||o.cat||'Virement';});
 
   // on ne garde que celles qui appartiennent au chemin courant
   const depth=state.anPath.length;
   const sel=dep.filter(o=>{const p=catParts(o.cat);return state.anPath.every((s,i)=>p[i]===s);});
 
   // regroupement sur le niveau suivant
-  const net=(state.anSens==='net');
+  const net=(state.anSens==='net'||virMode);
   const g={},deeper=new Set(),nb={};
-  sel.forEach(o=>{const p=catParts(o.cat);const k=p[depth]||'(non précisé)';
-    g[k]=(g[k]||0)+(net?o.m:Math.abs(o.m));nb[k]=(nb[k]||0)+1;
+  sel.forEach(o=>{const p=virMode?[o.cat]:catParts(o.cat);const k=p[depth]||'(non précisé)';
+    g[k]=(g[k]||0)+(net||sens==='credit'?o.m:-o.m);(nb[k]=nb[k]||new Set()).add(o.id);
     if(p[depth]&&p[depth+1]&&depth<2)deeper.add(k);});
-  anGroups=Object.entries(g).map(([c,v])=>({c,v,n:nb[c]})).sort((x,y)=>Math.abs(y.v)-Math.abs(x.v));
+  anGroups=Object.entries(g).map(([c,v])=>({c,v,n:nb[c].size})).sort((x,y)=>Math.abs(y.v)-Math.abs(x.v));
   const tot=anGroups.reduce((t,x)=>t+x.v,0);
   window.__deeper=deeper;
   window.__anMoy=anMoyenne(tot,document.getElementById('an-periode').value,sel);
 
   // fil d'Ariane
-  const motSens=state.anSens==='net'?'mouvements (net)':(state.anSens==='credit'?'revenus':'dépenses');
+  const motSens=virMode?'virements':state.anSens==='net'?'mouvements (net)':(state.anSens==='credit'?'revenus':'dépenses');
+  const nbOps=new Set(sel.map(o=>o.id)).size; // une opération ventilée compte une seule fois
+  {const ds=sel.map(o=>o.d).sort();const per=textePeriode('an',ds[0],ds[ds.length-1]);
+   document.getElementById('an-meta').textContent=(cp?cp.nom:'')+(per?' · '+per:'');}
   const sumAbs=anGroups.reduce((t,x)=>t+Math.abs(x.v),0)||1;
   let cr='<a onclick="goDepth(0)">Tous les '+motSens+'</a>';
   state.anPath.forEach((x,i)=>{cr+=' <span style="color:var(--ink-3)">›</span> '+
@@ -1798,11 +1988,11 @@ function renderAnalyse(){
 
   // total de référence des pourcentages
   document.getElementById('an-total').innerHTML=
-    '<span class="k">'+(state.anPath.length?esc(state.anPath[state.anPath.length-1]):(state.anSens==='net'?'Total net':'Total des '+motSens))+'</span>'+
-    '<span class="v num">'+eur(tot)+'</span>'+
+    '<span class="k">'+(state.anPath.length?esc(state.anPath[state.anPath.length-1]):(state.anSens==='net'?'Total net':virMode?'Total net des virements':'Total des '+motSens))+'</span>'+
+    '<span class="v num '+(net?clsSigne(tot):sens==='credit'?'credit':'debit')+'">'+eur(tot)+'</span>'+
     (window.__anMoy?'<span class="d" style="color:var(--accent,#2563EB)">Moyenne '+eur(window.__anMoy.montant)+' / '+window.__anMoy.unite+'</span>':'')+
-    '<span class="d">'+sel.length.toLocaleString('fr-FR')+' opération'+(sel.length>1?'s':'')+
-    ' · '+anGroups.length+' '+(depth===0?'catégorie':depth===1?'sous-catégorie':'sous-sous-catégorie')+(anGroups.length>1?'s':'')+'</span>';
+    '<span class="d">'+nbOps.toLocaleString('fr-FR')+' opération'+(nbOps>1?'s':'')+
+    ' · '+anGroups.length+' '+(virMode?'compte':depth===0?'catégorie':depth===1?'sous-catégorie':'sous-sous-catégorie')+(anGroups.length>1?'s':'')+'</span>';
 
   // les barres
   const el=document.getElementById('an-bars');
@@ -1813,7 +2003,7 @@ function renderAnalyse(){
     const deep=deeper.has(x.c);
     const chemin=state.anPath.concat([x.c]).join(' : ');
     const moy=eur(Math.round(x.v/div))+'/'+uni;
-    const coul=net?(x.v<0?'color:var(--debit)':'color:var(--credit)'):'';
+    const coul=net?(x.v<0?'color:var(--debit)':x.v>0?'color:var(--credit)':'color:var(--ink-3)'):(x.v<0?'color:var(--debit)':''); // déduction en rouge
     return '<div class="barrow'+(deep?' drill':'')+'" '+(deep?'data-i="'+i+'"':'')+
       (deep?' title="Cliquer pour voir le détail"':'')+'>'+
       '<div class="bl">'+esc(x.c)+(deep?' <span class="chev">›</span>':'')+
@@ -1822,7 +2012,7 @@ function renderAnalyse(){
       '<div class="barval num"><b style="'+coul+'">'+eur(x.v)+'</b> · '+pct.toFixed(1).replace('.',',')+' %<div class="sub" style="color:var(--accent,#2563EB)">'+moy+'</div></div></div>';
   }).join('');
   el.querySelectorAll('.barrow.drill').forEach(r=>r.addEventListener('click',e=>{if(e.target.closest('.voircat'))return;drillInto(+r.dataset.i);}));
-  el.querySelectorAll('.voircat').forEach(s=>s.addEventListener('click',e=>{e.stopPropagation();voirCategorieChemin(s.dataset.c);}));
+  el.querySelectorAll('.voircat').forEach(s=>s.addEventListener('click',e=>{e.stopPropagation();voirDepuisAnalyse(s.dataset.c);}));
 }
 
 /* --- descente / remontée dans les niveaux --- */
@@ -1840,7 +2030,7 @@ function goDepth(d){
 function anBack(){ if(state.anPath.length){history.back();return true;} return false; }
 
 // bouton « retour » de la souris / du navigateur
-window.addEventListener('resize',()=>{if(state.view==='registre')syncHeadWidth();});
+window.addEventListener('resize',()=>{if(state.view==='registre'){syncHeadWidth();appliquerHauteurRegistre();}});
 window.addEventListener('popstate',e=>{ if(e.state)restoreNav(e.state);
   else{ _navSuppress=true;setView('registre',true);_navSuppress=false; } });
 
@@ -1955,6 +2145,8 @@ function setType(t){state.addType=t;document.querySelectorAll('#seg button').for
   const destField=document.getElementById('i-dest').closest('.field');
   const vf=document.getElementById('vir-field');
   if(destField)destField.style.display=vir?'none':'';
+  const vl=document.getElementById('vir-label');
+  if(vl)vl.textContent=state.virEntrant?'Compte expéditeur':'Compte de destination';
   if(vf){vf.style.display=vir?'':'none';
     if(vir){const sel=document.getElementById('i-vircompte');
       const comptes=qy('SELECT id,nom FROM compte WHERE actif=1 AND id<>? ORDER BY ordre_affichage,id',[state.acc]);
@@ -1968,6 +2160,7 @@ function openModal(id,focus){
   const o=id?qy(`SELECT o.*,t.nom dest FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id WHERE o.id=?`,[id])[0]:null;
   if(id&&!o)return;
   state.editing=o?o.id:null;
+  state.virEntrant=!!(o&&o.montant>0); // virement reçu : le compte lié est l'expéditeur
   document.getElementById('modal-title').textContent=o?'Modifier l’opération':'Nouvelle opération';
   setType(o?(isVirCat(o.cat_path)?'virement':(o.montant>0?'credit':'debit')):'debit');
   if(o&&isVirCat(o.cat_path)){const mid=scal('SELECT miroir_id FROM operation WHERE id=?',[o.id]);
@@ -2018,6 +2211,8 @@ function openModal(id,focus){
   }
   closeAC();document.getElementById('overlay').classList.add('show');
   setTimeout(()=>{
+    // sur écran tactile, pas de placement automatique dans un champ : le clavier ne s'ouvre que si on touche un champ
+    if(ecranTactile()){if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();return;}
     const cible=focus==='montant'?document.getElementById('i-montant')
       :focus==='date'?document.getElementById('i-date')
       :focus==='num'?document.getElementById('i-num')
@@ -2070,7 +2265,7 @@ function makeHay(dest,cat,num,comm,mc,dateISO){
 function firstMissing(){
   if(state.addType==='virement'){
     const s=document.getElementById('i-vircompte');
-    if(!s||!s.value)return ['i-vircompte','un compte de destination'];
+    if(!s||!s.value)return ['i-vircompte',state.virEntrant?'un compte expéditeur':'un compte de destination'];
     if(!frToISO(document.getElementById('i-date').value))return ['i-date','une date valide (JJ/MM/AA)'];
     if(parseMontantC(document.getElementById('i-montant').value)==null)return ['i-montant','le montant'];
     return null;
@@ -2150,11 +2345,18 @@ async function saveVirement(){
   let prev=document.getElementById('i-prev').checked?1:0;
   let catV=getCat();if(!isVirCat(catV))catV='Virement interne'+(catV&&catV!=='Divers'?' : '+catV:'');
   const cid=upsertCategorie(catV);
-  const nomSrc=scal('SELECT nom FROM compte WHERE id=?',[state.acc]);
-  const nomDst=scal('SELECT nom FROM compte WHERE id=?',[cible]);
-  const tSrc=upsertTiers(nomDst),tDst=upsertTiers(nomSrc);
-  const haySrc=makeHay(nomDst,catV,null,comm,-abs,dISO);
-  const hayDst=makeHay(nomSrc,catV,null,comm,abs,dISO);
+  // sens : virement reçu (édité depuis le compte destinataire) ou émis depuis le compte courant
+  const entrant=!!(state.editing&&state.virEntrant);
+  const src=entrant?cible:state.acc,dst=entrant?state.acc:cible;
+  const nomSrc=scal('SELECT nom FROM compte WHERE id=?',[src]);
+  const nomDst=scal('SELECT nom FROM compte WHERE id=?',[dst]);
+  const libSrc=nomTiersVir(-1,nomDst),libDst=nomTiersVir(1,nomSrc);
+  const tSrc=upsertTiers(libSrc),tDst=upsertTiers(libDst);
+  const haySrc=makeHay(libSrc,catV,null,comm,-abs,dISO);
+  const hayDst=makeHay(libDst,catV,null,comm,abs,dISO);
+  // côté de l'opération éditée (moi) et côté miroir (lui)
+  const moi=entrant?{c:dst,m:abs,t:tDst,h:hayDst}:{c:src,m:-abs,t:tSrc,h:haySrc};
+  const lui=entrant?{c:src,m:-abs,t:tSrc,h:haySrc}:{c:dst,m:abs,t:tDst,h:hayDst};
   if(state.editing){
     const cur=qy('SELECT statut,miroir_id,montant FROM operation WHERE id=?',[state.editing])[0];
     if(cur&&cur.statut==='rapproche'){
@@ -2164,20 +2366,20 @@ async function saveVirement(){
       if(!ok)return;
     }
     run(`UPDATE operation SET compte_id=?,type='virement',date_operation=?,montant=?,tiers_id=?,commentaire=?,previsionnel=?,cat_path=?,hay=?,date_modification=? WHERE id=?`,
-      [state.acc,dISO,-abs,tSrc,comm,prev,catV,haySrc,nowTS(),state.editing]);
+      [moi.c,dISO,moi.m,moi.t,comm,prev,catV,moi.h,nowTS(),state.editing]);
     run('DELETE FROM ventilation WHERE operation_id=?',[state.editing]);
-    run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)',[state.editing,cid,-abs]);
+    run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)',[state.editing,cid,moi.m]);
     let mid=cur&&cur.miroir_id;
     if(mid){
       run(`UPDATE operation SET compte_id=?,type='virement',date_operation=?,montant=?,tiers_id=?,commentaire=?,previsionnel=?,cat_path=?,hay=?,date_modification=? WHERE id=?`,
-        [cible,dISO,abs,tDst,comm,prev,catV,hayDst,nowTS(),mid]);
+        [lui.c,dISO,lui.m,lui.t,comm,prev,catV,lui.h,nowTS(),mid]);
       run('DELETE FROM ventilation WHERE operation_id=?',[mid]);
-      run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)',[mid,cid,abs]);
+      run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)',[mid,cid,lui.m]);
     }else{
       run(`INSERT INTO operation(compte_id,type,date_operation,montant,tiers_id,commentaire,statut,previsionnel,supprime,cat_path,hay,miroir_id,date_creation)
-        VALUES(?,'virement',?,?,?,?,'non_pointe',?,0,?,?,?,?)`,[cible,dISO,abs,tDst,comm,prev,catV,hayDst,state.editing,nowTS()]);
+        VALUES(?,'virement',?,?,?,?,'non_pointe',?,0,?,?,?,?)`,[lui.c,dISO,lui.m,lui.t,comm,prev,catV,lui.h,state.editing,nowTS()]);
       mid=lastId();run('UPDATE operation SET miroir_id=? WHERE id=?',[mid,state.editing]);
-      run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)',[mid,cid,abs]);
+      run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)',[mid,cid,lui.m]);
     }
     toast('Virement modifi\u00e9');
   }else{
@@ -2192,12 +2394,30 @@ async function saveVirement(){
     run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)',[oidDst,cid,abs]);
     toast('Virement cr\u00e9\u00e9 (op\u00e9ration miroir ajout\u00e9e dans \u00ab '+nomDst+' \u00bb)');
   }
-  closeModal();touch('Virement',eur(-abs)+' vers '+nomDst);render();
+  closeModal();touch('Virement',eur(abs)+' de '+nomSrc+' vers '+nomDst);render();
 }
 async function deleteOp(){
   const id=state.editing;if(!id)return;
   const o=qy('SELECT statut FROM operation WHERE id=?',[id])[0];
   if(!o||o.statut==='rapproche'){toast('Opération rapprochée : suppression impossible');return;}
+  const jum=qy(`SELECT m.id,m.statut,c.nom cpt FROM operation o JOIN operation m ON m.id=o.miroir_id
+    LEFT JOIN compte c ON c.id=m.compte_id WHERE o.id=? AND m.supprime=0`,[id])[0];
+  if(jum&&jum.statut==='rapproche'){
+    const go=await dlgOpen({title:'Opération jumelle déjà rapprochée',
+      msg:'Ce virement a une opération jumelle dans « '+(jum.cpt||'autre compte')+' » qui est déjà rapprochée.\n\n'+
+        'Il est préférable de ne pas supprimer cette opération.\n\n'+
+        'Si tu la supprimes quand même, seule l’opération de ce compte ira à la corbeille : '+
+        'l’opération rapprochée de « '+(jum.cpt||'autre compte')+' » ne sera PAS supprimée, '+
+        'ce qui peut créer une incohérence entre les deux comptes.',
+      buttons:[{t:'Ne pas supprimer',v:false,p:true},{t:'Supprimer uniquement celle-ci',v:true,d:true}]});
+    if(!go)return;
+    const l=libOp(id);
+    run('UPDATE operation SET supprime=1,date_suppression=?,date_modification=? WHERE id=?',[nowTS(),nowTS(),id]);
+    run('UPDATE operation SET miroir_id=NULL WHERE id=?',[jum.id]); // la jumelle rapprochée n'est plus liée
+    closeModal();touch('Mise à la corbeille (jumelle rapprochée conservée)',l);render();
+    toast('Opération mise à la corbeille — l’opération rapprochée de « '+(jum.cpt||'')+' » est conservée');
+    return;
+  }
   const ok=await dlgConfirm('Mettre cette opération à la corbeille ?\n\nTu pourras la restaurer depuis l’écran Corbeille.','Suppression','Mettre à la corbeille',true);
   if(!ok)return;
   const l=libOp(id);
@@ -2257,10 +2477,10 @@ async function chargerFichier(inp){
   if(!ok)return;
   busy('Chargement…');await nextFrame();
   try{
-    db.close();db=new SQL.Database(buf);db.run(SCHEMA);migrer();invalidateCaches();try{db.run('ANALYZE');}catch(_){}
+    db.close();db=new SQL.Database(buf);db.run(SCHEMA);migrer();try{renommerVirements();}catch(_){}invalidateCaches();try{db.run('ANALYZE');}catch(_){}
     state.acc=+scal('SELECT id FROM compte WHERE actif=1 ORDER BY ordre_affichage,id LIMIT 1');
     state.page=1;try{run('UPDATE journal SET sauve=1 WHERE sauve=0');}catch(_){}
-    refreshDirty();await flushIDB();unbusy();render();
+    refreshDirty();undoReset();await flushIDB();unbusy();render();
     toast('Sauvegarde chargée');
   }catch(e){unbusy();await dlgAlert('Échec du chargement : '+e.message,'Erreur');}
 }
@@ -2473,6 +2693,24 @@ function isoDe(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'
 function colonneExiste(table,col){
   try{return qy('PRAGMA table_info('+table+')').some(r=>r.name===col);}catch(e){return false;}
 }
+/* libellé d'un virement vu depuis un compte : sortant (montant<0) ou entrant */
+function nomTiersVir(montant,nomAutre){return (montant<0?'Virement vers ':'Virement reçu de ')+nomAutre;}
+/* met à jour le libellé (tiers) des virements liés d'après le compte d'en face ;
+   retourne le nombre d'opérations modifiées */
+function renommerVirements(){
+  let n=0;
+  qy(`SELECT o.id,o.montant,o.date_operation d,o.numero,o.commentaire,o.cat_path,o.tiers_id,c.nom autre
+      FROM operation o JOIN operation m ON m.id=o.miroir_id JOIN compte c ON c.id=m.compte_id
+      WHERE o.type='virement'`).forEach(o=>{
+    const nom=nomTiersVir(o.montant,o.autre),tid=upsertTiers(nom);
+    if(tid===o.tiers_id)return;
+    run('UPDATE operation SET tiers_id=?,hay=? WHERE id=?',[tid,makeHay(nom,o.cat_path,o.numero,o.commentaire,o.montant,o.d),o.id]);n++;
+  });
+  // anciens tiers au nom d'un compte, devenus inutilisés
+  if(n)run(`DELETE FROM tiers WHERE nom IN (SELECT nom FROM compte)
+    AND id NOT IN (SELECT tiers_id FROM operation WHERE tiers_id IS NOT NULL)`);
+  return n;
+}
 function migrer(){
   // opérations générées reliées à leur récurrence (permet la régénération propre)
   if(!colonneExiste('operation','recurrence_id')){
@@ -2518,15 +2756,15 @@ function _creerOccVirement(r,date,prev){
   const abs=Math.abs(r.montant);
   const nomSrc=scal('SELECT nom FROM compte WHERE id=?',[r.compte_id]);
   const nomDst=scal('SELECT nom FROM compte WHERE id=?',[r.compte_cible]);
-  const tSrc=upsertTiers(nomDst),tDst=upsertTiers(nomSrc);
+  const tSrc=upsertTiers(nomTiersVir(-1,nomDst)),tDst=upsertTiers(nomTiersVir(1,nomSrc));
   const insere=(compte,montant,tid,hay)=>{
     run(`INSERT INTO operation(compte_id,type,date_operation,montant,tiers_id,numero,commentaire,statut,previsionnel,supprime,cat_path,hay,recurrence_id,date_creation)
       VALUES(?,'virement',?,?,?,NULL,?,'non_pointe',?,0,?,?,?,?)`,
       [compte,date,montant,tid,r.commentaire||null,prev,r.cat_path||'Virement interne',hay,r.id,nowTS()]);
     const oid=lastId();run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)',[oid,cid,montant]);return oid;
   };
-  const oSrc=insere(r.compte_id,-abs,tSrc,makeHay(nomDst,'Virement interne',null,r.commentaire||'',-abs,date));
-  const oDst=insere(r.compte_cible,abs,tDst,makeHay(nomSrc,'Virement interne',null,r.commentaire||'',abs,date));
+  const oSrc=insere(r.compte_id,-abs,tSrc,makeHay(nomTiersVir(-1,nomDst),'Virement interne',null,r.commentaire||'',-abs,date));
+  const oDst=insere(r.compte_cible,abs,tDst,makeHay(nomTiersVir(1,nomSrc),'Virement interne',null,r.commentaire||'',abs,date));
   run('UPDATE operation SET miroir_id=? WHERE id=?',[oDst,oSrc]);
   run('UPDATE operation SET miroir_id=? WHERE id=?',[oSrc,oDst]);
 }
@@ -3462,7 +3700,7 @@ function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t
 
 function syncClear(){const v=document.getElementById('f-search').value;
   document.getElementById('f-clear').style.display=v?'block':'none';}
-function clearSearch(){const e=document.getElementById('f-search');e.value='';syncClear();goPage(1);e.focus();}
+function clearSearch(){const e=document.getElementById('f-search');e.value='';syncClear();goPage(1);if(!ecranTactile())e.focus();}
 bindDate('f-from',()=>goPage(1));bindDate('f-to',()=>goPage(1));
 bindDate('an-from',()=>renderAnalyse());bindDate('an-to',()=>renderAnalyse());
 let searchT;
@@ -3507,6 +3745,7 @@ document.addEventListener('keydown',e=>{
   // Échap dans la recherche : 1re fois -> vider ; 2e fois (déjà vide) -> sortir du champ
   if(e.key==='Escape'&&dansChamp)return;
   if(dansChamp)return;
+  if((e.key==='z'||e.key==='Z')&&(e.ctrlKey||e.metaKey)&&!e.shiftKey&&!e.altKey){e.preventDefault();annulerDerniere();return;}
   // « ? » : afficher l'aide des raccourcis
   if(e.key==='?'){e.preventDefault();aideRaccourcis();return;}
   // « / » : aller à la recherche du registre
@@ -3536,7 +3775,7 @@ function changerSection(dir){
 function aideRaccourcis(){
   const cats=[
     ['Navigation',[['Alt+↑','Section suivante'],['Alt+↓','Section précédente'],['Alt+→','Section suivante'],['Alt+←','Section précédente']]],
-    ['Actions',[['A','Nouvelle opération (ou récurrence)'],['R','Rapprocher un relevé PDF'],['Ctrl+S','Sauvegarder'],['/','Rechercher dans le registre'],['Échap','Vider la recherche, puis en sortir'],['Entrée','Appliquer le rapprochement (dans un relevé)']]],
+    ['Actions',[['A','Nouvelle opération (ou récurrence)'],['R','Rapprocher un relevé PDF'],['Ctrl+S','Sauvegarder'],['Ctrl+Z','Annuler la dernière modification (10 max, depuis l’ouverture)'],['/','Rechercher dans le registre'],['Échap','Vider la recherche, puis en sortir'],['Entrée','Appliquer le rapprochement (dans un relevé)']]],
     ['Astuce',[['?','Afficher cette aide']]]
   ];
   const keyCell=l=>l[0].split('+').map(k=>'<kbd>'+k+'</kbd>').join(' + ');
@@ -3544,10 +3783,10 @@ function aideRaccourcis(){
   cats.forEach(([titre,lignes])=>{
     rows+='<tr><td colspan="2" style="font-weight:600;padding:12px 0 4px">'+titre+'</td></tr>';
     lignes.forEach(l=>{rows+='<tr><td style="padding:4px 20px 4px 0;white-space:nowrap;vertical-align:top;min-width:118px">'+keyCell(l)+'</td>'+
-      '<td style="color:var(--ink-2);padding:4px 0">'+l[1]+'</td></tr>';});
+      '<td style="color:var(--ink-2);padding:4px 0;white-space:normal;overflow-wrap:anywhere">'+l[1]+'</td></tr>';});
   });
-  const html='<table style="border-collapse:collapse">'+rows+'</table>';
-  dlgOpen({title:'Raccourcis clavier',msg:'',html,wide:true,buttons:[{t:'Fermer',v:true,p:true}]});
+  const html='<table style="border-collapse:collapse;width:100%;table-layout:auto">'+rows+'</table>';
+  dlgOpen({title:'Raccourcis clavier',msg:'',html,wide:true,fermeDehors:true,buttons:[{t:'Fermer',v:true,p:true}]});
 }
 window.addEventListener('beforeunload',e=>{if(dirty>0){e.preventDefault();e.returnValue='';}});
 
