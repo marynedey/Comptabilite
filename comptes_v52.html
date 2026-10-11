@@ -198,7 +198,7 @@
       grid-template-areas:"stat date amt" "stat dest amt" "stat dest solde"}
     #reg-scroll td{padding:0;border:none;font-size:0.94rem}
     #reg-scroll td.st{grid-area:stat;padding:0;width:auto;align-self:stretch}
-    #reg-scroll td.st .stbar{width:100%;height:100%;min-height:34px;border-radius:3px}
+    #reg-scroll td.st .stbar{position:static;width:100%;height:100%;min-height:34px;border-radius:3px}
     #reg-scroll td:nth-child(2){display:none} /* N° masqué sur la carte, visible dans le détail */
     #reg-scroll td:nth-child(3){grid-area:date;font-size:.78rem;color:var(--ink-3)}
     #reg-scroll td.dest{grid-area:dest;font-weight:500}
@@ -214,6 +214,7 @@
   .topbar{position:sticky;top:-26px;z-index:15;background:var(--paper);margin-top:-10px;padding-top:10px}
   .tb-main,.tb-more{display:flex;align-items:center;gap:inherit;flex-wrap:wrap}
   .tb-more{flex:1}
+  .topbar{align-items:flex-start}
   @media (max-width:860px){
     .topbar{display:contents}
     .tb-main{position:sticky;top:-16px;z-index:15;background:var(--paper);gap:6px;margin:-16px -14px 0;padding:10px 14px 8px;box-shadow:0 1px 0 var(--line)}
@@ -224,8 +225,9 @@
   .status.dirty .sdot{background:var(--st-non)}
   .status.err .sdot{background:var(--debit)}
 
-  .stbar{width:8px;height:100%;min-height:38px;border-radius:0}
-  td.st{width:10px;padding:0;cursor:pointer}
+  /* pastille de statut : barre arrondie en retrait, même dessin que sur mobile */
+  td.st{width:18px;padding:0;cursor:pointer;position:relative}
+  .stbar{position:absolute;left:7px;top:8px;bottom:8px;width:6px;height:auto;min-height:0;border-radius:3px}
   td.st:hover .stbar{filter:brightness(1.25)}
 
   .listhead{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:4px 0 10px;font-size:0.8rem;color:var(--ink-3)}
@@ -450,10 +452,10 @@
       <span class="pager" id="pager"></span>
     </div>
     <div class="reg-head" id="reg-head">
-      <table><colgroup><col style="width:10px"><col style="width:120px"><col style="width:100px"><col><col style="width:150px"><col style="width:150px"><col style="width:160px"></colgroup><thead><tr id="head"></tr></thead></table>
+      <table><colgroup><col style="width:18px"><col style="width:120px"><col style="width:100px"><col><col style="width:150px"><col style="width:150px"><col style="width:160px"></colgroup><thead><tr id="head"></tr></thead></table>
     </div>
     <div class="tablecard reg-scroll" id="reg-scroll">
-      <table><colgroup><col style="width:10px"><col style="width:120px"><col style="width:100px"><col><col style="width:150px"><col style="width:150px"><col style="width:160px"></colgroup><tbody id="rows"></tbody></table>
+      <table><colgroup><col style="width:18px"><col style="width:120px"><col style="width:100px"><col><col style="width:150px"><col style="width:150px"><col style="width:160px"></colgroup><tbody id="rows"></tbody></table>
     </div>
     <div class="reg-sums" id="reg-sums"></div>
     <div class="foot"><span style="color:var(--ink-3)">Double-cliquez une ligne pour la modifier · cliquez la barre de statut à gauche pour pointer/dépointer</span></div>
@@ -866,7 +868,7 @@ const WASM_B64="AGFzbQEAAAABoARFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/YAF/AGACf38AYAR/
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const APP_BUILD='v51';
+const APP_BUILD='v52';
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
 let SQL=null,db=null,idbOK=true,dirty=0,saveTimer=null;
@@ -1418,7 +1420,7 @@ function buildWhere(params){
   return w;
 }
 function goPage(p){state.page=Math.max(1,p||1);renderRegistre();syncHist();}
-const COL_DEF=[10,120,100,null,150,150,160];
+const COL_DEF=[18,120,100,null,150,150,160];
 const COL_DEST_MIN=180; // largeur minimale de la colonne Destinataire avant défilement horizontal
 function appliquerLargeurs(){
   // largeurs fixes (toutes les colonnes sauf Destinataire)
@@ -1464,7 +1466,8 @@ function appliquerHauteurRegistre(){
   const el=document.getElementById('reg-scroll');if(!el)return;
   const rows=state.regRows||12;
   const hl=estMobile()?hauteurLigneMesuree():null;
-  el.style.height=hl?Math.round(rows*hl)+'px':(rows*2.55)+'rem';   // ~ nb de lignes visibles
+  // hauteur maximale (et non fixe) : s'il y a moins de lignes, le tableau se resserre, sans blanc avant les totaux
+  el.style.height='';el.style.maxHeight=hl?Math.round(rows*hl)+'px':(rows*2.55)+'rem';   // ~ nb de lignes visibles
 }
 function setHauteurRegistre(rows){
   rows=Math.max(4,Math.min(60,+rows||12));
@@ -1580,8 +1583,8 @@ function renderRegistre(){
   const net=sums.cre-sums.deb+sums.vir;
   const foot=document.getElementById('reg-sums');
   if(foot)foot.innerHTML=
-    '<span class="lb">Total négatif (hors virements)</span><span class="vl num debit">'+eur(-sums.deb)+'</span>'+
-    '<span class="lb">Total positif (hors virements)</span><span class="vl num credit">'+eur(sums.cre)+'</span>'+
+    '<span class="lb">Total négatif (hors virements)</span><span class="vl num '+clsSigne(-sums.deb)+'">'+eur(-sums.deb)+'</span>'+
+    '<span class="lb">Total positif (hors virements)</span><span class="vl num '+clsSigne(sums.cre)+'">'+eur(sums.cre)+'</span>'+
     '<span class="lb">Total des virements</span><span class="vl num '+clsSigne(sums.vir)+'">'+eur(sums.vir)+'</span>'+
     '<span class="lb tot">Total net</span><span class="vl num tot '+clsSigne(net)+'">'+eur(net)+'</span>';
   appliquerLargeurs();syncScrollX();appliquerHauteurRegistre();
