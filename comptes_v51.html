@@ -549,7 +549,7 @@
       <div class="ac-list" id="ac"></div>
     </div>
     <div class="field" id="vir-field" style="display:none">
-      <label>Compte de destination <span class="hint">le virement crée l’opération miroir dans l’autre compte</span></label>
+      <label><span id="vir-label">Compte de destination</span> <span class="hint">le virement crée l’opération miroir dans l’autre compte</span></label>
       <select id="i-vircompte"></select>
     </div>
     <label class="ventchk"><input type="checkbox" id="i-vent" onchange="ventToggle(this.checked)"> Répartir sur plusieurs catégories</label>
@@ -1130,6 +1130,7 @@ async function boot(){
   catch(e){idbOK=false;idbErr=e;}
   if(!db){db=new SQL.Database();}
   db.run(SCHEMA);migrer();
+  try{const nv=renommerVirements();if(nv)touch('Libellés des virements',nv+' opération(s) renommée(s)');}catch(e){console.error('virements',e);}
   if(!scal('SELECT COUNT(*) FROM compte'))
     run("INSERT INTO compte(nom,type,solde_initial,date_ouverture) VALUES('Compte courant','courant',0,?)",[todayISO()]);
   if(getMeta('app')==null){setMeta('app','mes-comptes');setMeta('rev',0);setMeta('updated',nowTS());}
@@ -1257,6 +1258,7 @@ async function editCompte(id){
   if(ok==='del'){return supprimerCompte(id);}
   if(!ok||!data)return;
   run('UPDATE compte SET nom=?,type=?,numero=? WHERE id=?',[data.nom,data.type,data.numero,id]);
+  renommerVirements();
   touch('Compte modifié',data.nom);render();
 }
 function remonterEnHaut(){
@@ -1636,6 +1638,8 @@ function renderCorbeille(){
 }
 function restaurer(id){const l=libOp(id);
   run('UPDATE operation SET supprime=0,date_suppression=NULL,date_modification=? WHERE id=?',[nowTS(),id]);
+  run(`UPDATE operation SET miroir_id=$i WHERE id=(SELECT miroir_id FROM operation WHERE id=$i)
+    AND miroir_id IS NULL AND supprime=0`,{$i:id});
   touch('Restauration depuis la corbeille',l);render();toast('Opération restaurée');}
 async function supprDef(id){
   const o=qy('SELECT o.montant m,t.nom dest FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id WHERE o.id=?',[id])[0];
@@ -1991,6 +1995,8 @@ function setType(t){state.addType=t;document.querySelectorAll('#seg button').for
   const destField=document.getElementById('i-dest').closest('.field');
   const vf=document.getElementById('vir-field');
   if(destField)destField.style.display=vir?'none':'';
+  const vl=document.getElementById('vir-label');
+  if(vl)vl.textContent=state.virEntrant?'Compte expéditeur':'Compte de destination';
   if(vf){vf.style.display=vir?'':'none';
     if(vir){const sel=document.getElementById('i-vircompte');
       const comptes=qy('SELECT id,nom FROM compte WHERE actif=1 AND id<>? ORDER BY ordre_affichage,id',[state.acc]);
@@ -2004,6 +2010,7 @@ function openModal(id,focus){
   const o=id?qy(`SELECT o.*,t.nom dest FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id WHERE o.id=?`,[id])[0]:null;
   if(id&&!o)return;
   state.editing=o?o.id:null;
+  state.virEntrant=!!(o&&o.montant>0); // virement reçu : le compte lié est l'expéditeur
   document.getElementById('modal-title').textContent=o?'Modifier l’opération':'Nouvelle opération';
   setType(o?(isVirCat(o.cat_path)?'virement':(o.montant>0?'credit':'debit')):'debit');
   if(o&&isVirCat(o.cat_path)){const mid=scal('SELECT miroir_id FROM operation WHERE id=?',[o.id]);
@@ -2106,7 +2113,7 @@ function makeHay(dest,cat,num,comm,mc,dateISO){
 function firstMissing(){
   if(state.addType==='virement'){
     const s=document.getElementById('i-vircompte');
-    if(!s||!s.value)return ['i-vircompte','un compte de destination'];
+    if(!s||!s.value)return ['i-vircompte',state.virEntrant?'un compte expéditeur':'un compte de destination'];
     if(!frToISO(document.getElementById('i-date').value))return ['i-date','une date valide (JJ/MM/AA)'];
     if(parseMontantC(document.getElementById('i-montant').value)==null)return ['i-montant','le montant'];
     return null;
@@ -2186,11 +2193,18 @@ async function saveVirement(){
   let prev=document.getElementById('i-prev').checked?1:0;
   let catV=getCat();if(!isVirCat(catV))catV='Virement interne'+(catV&&catV!=='Divers'?' : '+catV:'');
   const cid=upsertCategorie(catV);
-  const nomSrc=scal('SELECT nom FROM compte WHERE id=?',[state.acc]);
-  const nomDst=scal('SELECT nom FROM compte WHERE id=?',[cible]);
-  const tSrc=upsertTiers(nomDst),tDst=upsertTiers(nomSrc);
-  const haySrc=makeHay(nomDst,catV,null,comm,-abs,dISO);
-  const hayDst=makeHay(nomSrc,catV,null,comm,abs,dISO);
+  // sens : virement reçu (édité depuis le compte destinataire) ou émis depuis le compte courant
+  const entrant=!!(state.editing&&state.virEntrant);
+  const src=entrant?cible:state.acc,dst=entrant?state.acc:cible;
+  const nomSrc=scal('SELECT nom FROM compte WHERE id=?',[src]);
+  const nomDst=scal('SELECT nom FROM compte WHERE id=?',[dst]);
+  const libSrc=nomTiersVir(-1,nomDst),libDst=nomTiersVir(1,nomSrc);
+  const tSrc=upsertTiers(libSrc),tDst=upsertTiers(libDst);
+  const haySrc=makeHay(libSrc,catV,null,comm,-abs,dISO);
+  const hayDst=makeHay(libDst,catV,null,comm,abs,dISO);
+  // côté de l'opération éditée (moi) et côté miroir (lui)
+  const moi=entrant?{c:dst,m:abs,t:tDst,h:hayDst}:{c:src,m:-abs,t:tSrc,h:haySrc};
+  const lui=entrant?{c:src,m:-abs,t:tSrc,h:haySrc}:{c:dst,m:abs,t:tDst,h:hayDst};
   if(state.editing){
     const cur=qy('SELECT statut,miroir_id,montant FROM operation WHERE id=?',[state.editing])[0];
     if(cur&&cur.statut==='rapproche'){
@@ -2200,20 +2214,20 @@ async function saveVirement(){
       if(!ok)return;
     }
     run(`UPDATE operation SET compte_id=?,type='virement',date_operation=?,montant=?,tiers_id=?,commentaire=?,previsionnel=?,cat_path=?,hay=?,date_modification=? WHERE id=?`,
-      [state.acc,dISO,-abs,tSrc,comm,prev,catV,haySrc,nowTS(),state.editing]);
+      [moi.c,dISO,moi.m,moi.t,comm,prev,catV,moi.h,nowTS(),state.editing]);
     run('DELETE FROM ventilation WHERE operation_id=?',[state.editing]);
-    run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)',[state.editing,cid,-abs]);
+    run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)',[state.editing,cid,moi.m]);
     let mid=cur&&cur.miroir_id;
     if(mid){
       run(`UPDATE operation SET compte_id=?,type='virement',date_operation=?,montant=?,tiers_id=?,commentaire=?,previsionnel=?,cat_path=?,hay=?,date_modification=? WHERE id=?`,
-        [cible,dISO,abs,tDst,comm,prev,catV,hayDst,nowTS(),mid]);
+        [lui.c,dISO,lui.m,lui.t,comm,prev,catV,lui.h,nowTS(),mid]);
       run('DELETE FROM ventilation WHERE operation_id=?',[mid]);
-      run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)',[mid,cid,abs]);
+      run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)',[mid,cid,lui.m]);
     }else{
       run(`INSERT INTO operation(compte_id,type,date_operation,montant,tiers_id,commentaire,statut,previsionnel,supprime,cat_path,hay,miroir_id,date_creation)
-        VALUES(?,'virement',?,?,?,?,'non_pointe',?,0,?,?,?,?)`,[cible,dISO,abs,tDst,comm,prev,catV,hayDst,state.editing,nowTS()]);
+        VALUES(?,'virement',?,?,?,?,'non_pointe',?,0,?,?,?,?)`,[lui.c,dISO,lui.m,lui.t,comm,prev,catV,lui.h,state.editing,nowTS()]);
       mid=lastId();run('UPDATE operation SET miroir_id=? WHERE id=?',[mid,state.editing]);
-      run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)',[mid,cid,abs]);
+      run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)',[mid,cid,lui.m]);
     }
     toast('Virement modifi\u00e9');
   }else{
@@ -2228,12 +2242,30 @@ async function saveVirement(){
     run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)',[oidDst,cid,abs]);
     toast('Virement cr\u00e9\u00e9 (op\u00e9ration miroir ajout\u00e9e dans \u00ab '+nomDst+' \u00bb)');
   }
-  closeModal();touch('Virement',eur(-abs)+' vers '+nomDst);render();
+  closeModal();touch('Virement',eur(abs)+' de '+nomSrc+' vers '+nomDst);render();
 }
 async function deleteOp(){
   const id=state.editing;if(!id)return;
   const o=qy('SELECT statut FROM operation WHERE id=?',[id])[0];
   if(!o||o.statut==='rapproche'){toast('Opération rapprochée : suppression impossible');return;}
+  const jum=qy(`SELECT m.id,m.statut,c.nom cpt FROM operation o JOIN operation m ON m.id=o.miroir_id
+    LEFT JOIN compte c ON c.id=m.compte_id WHERE o.id=? AND m.supprime=0`,[id])[0];
+  if(jum&&jum.statut==='rapproche'){
+    const go=await dlgOpen({title:'Opération jumelle déjà rapprochée',
+      msg:'Ce virement a une opération jumelle dans « '+(jum.cpt||'autre compte')+' » qui est déjà rapprochée.\n\n'+
+        'Il est préférable de ne pas supprimer cette opération.\n\n'+
+        'Si tu la supprimes quand même, seule l’opération de ce compte ira à la corbeille : '+
+        'l’opération rapprochée de « '+(jum.cpt||'autre compte')+' » ne sera PAS supprimée, '+
+        'ce qui peut créer une incohérence entre les deux comptes.',
+      buttons:[{t:'Ne pas supprimer',v:false,p:true},{t:'Supprimer uniquement celle-ci',v:true,d:true}]});
+    if(!go)return;
+    const l=libOp(id);
+    run('UPDATE operation SET supprime=1,date_suppression=?,date_modification=? WHERE id=?',[nowTS(),nowTS(),id]);
+    run('UPDATE operation SET miroir_id=NULL WHERE id=?',[jum.id]); // la jumelle rapprochée n'est plus liée
+    closeModal();touch('Mise à la corbeille (jumelle rapprochée conservée)',l);render();
+    toast('Opération mise à la corbeille — l’opération rapprochée de « '+(jum.cpt||'')+' » est conservée');
+    return;
+  }
   const ok=await dlgConfirm('Mettre cette opération à la corbeille ?\n\nTu pourras la restaurer depuis l’écran Corbeille.','Suppression','Mettre à la corbeille',true);
   if(!ok)return;
   const l=libOp(id);
@@ -2293,7 +2325,7 @@ async function chargerFichier(inp){
   if(!ok)return;
   busy('Chargement…');await nextFrame();
   try{
-    db.close();db=new SQL.Database(buf);db.run(SCHEMA);migrer();invalidateCaches();try{db.run('ANALYZE');}catch(_){}
+    db.close();db=new SQL.Database(buf);db.run(SCHEMA);migrer();try{renommerVirements();}catch(_){}invalidateCaches();try{db.run('ANALYZE');}catch(_){}
     state.acc=+scal('SELECT id FROM compte WHERE actif=1 ORDER BY ordre_affichage,id LIMIT 1');
     state.page=1;try{run('UPDATE journal SET sauve=1 WHERE sauve=0');}catch(_){}
     refreshDirty();await flushIDB();unbusy();render();
@@ -2509,6 +2541,24 @@ function isoDe(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'
 function colonneExiste(table,col){
   try{return qy('PRAGMA table_info('+table+')').some(r=>r.name===col);}catch(e){return false;}
 }
+/* libellé d'un virement vu depuis un compte : sortant (montant<0) ou entrant */
+function nomTiersVir(montant,nomAutre){return (montant<0?'Virement vers ':'Virement reçu de ')+nomAutre;}
+/* met à jour le libellé (tiers) des virements liés d'après le compte d'en face ;
+   retourne le nombre d'opérations modifiées */
+function renommerVirements(){
+  let n=0;
+  qy(`SELECT o.id,o.montant,o.date_operation d,o.numero,o.commentaire,o.cat_path,o.tiers_id,c.nom autre
+      FROM operation o JOIN operation m ON m.id=o.miroir_id JOIN compte c ON c.id=m.compte_id
+      WHERE o.type='virement'`).forEach(o=>{
+    const nom=nomTiersVir(o.montant,o.autre),tid=upsertTiers(nom);
+    if(tid===o.tiers_id)return;
+    run('UPDATE operation SET tiers_id=?,hay=? WHERE id=?',[tid,makeHay(nom,o.cat_path,o.numero,o.commentaire,o.montant,o.d),o.id]);n++;
+  });
+  // anciens tiers au nom d'un compte, devenus inutilisés
+  if(n)run(`DELETE FROM tiers WHERE nom IN (SELECT nom FROM compte)
+    AND id NOT IN (SELECT tiers_id FROM operation WHERE tiers_id IS NOT NULL)`);
+  return n;
+}
 function migrer(){
   // opérations générées reliées à leur récurrence (permet la régénération propre)
   if(!colonneExiste('operation','recurrence_id')){
@@ -2554,15 +2604,15 @@ function _creerOccVirement(r,date,prev){
   const abs=Math.abs(r.montant);
   const nomSrc=scal('SELECT nom FROM compte WHERE id=?',[r.compte_id]);
   const nomDst=scal('SELECT nom FROM compte WHERE id=?',[r.compte_cible]);
-  const tSrc=upsertTiers(nomDst),tDst=upsertTiers(nomSrc);
+  const tSrc=upsertTiers(nomTiersVir(-1,nomDst)),tDst=upsertTiers(nomTiersVir(1,nomSrc));
   const insere=(compte,montant,tid,hay)=>{
     run(`INSERT INTO operation(compte_id,type,date_operation,montant,tiers_id,numero,commentaire,statut,previsionnel,supprime,cat_path,hay,recurrence_id,date_creation)
       VALUES(?,'virement',?,?,?,NULL,?,'non_pointe',?,0,?,?,?,?)`,
       [compte,date,montant,tid,r.commentaire||null,prev,r.cat_path||'Virement interne',hay,r.id,nowTS()]);
     const oid=lastId();run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)',[oid,cid,montant]);return oid;
   };
-  const oSrc=insere(r.compte_id,-abs,tSrc,makeHay(nomDst,'Virement interne',null,r.commentaire||'',-abs,date));
-  const oDst=insere(r.compte_cible,abs,tDst,makeHay(nomSrc,'Virement interne',null,r.commentaire||'',abs,date));
+  const oSrc=insere(r.compte_id,-abs,tSrc,makeHay(nomTiersVir(-1,nomDst),'Virement interne',null,r.commentaire||'',-abs,date));
+  const oDst=insere(r.compte_cible,abs,tDst,makeHay(nomTiersVir(1,nomSrc),'Virement interne',null,r.commentaire||'',abs,date));
   run('UPDATE operation SET miroir_id=? WHERE id=?',[oDst,oSrc]);
   run('UPDATE operation SET miroir_id=? WHERE id=?',[oSrc,oDst]);
 }
