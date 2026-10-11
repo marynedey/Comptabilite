@@ -1227,7 +1227,7 @@ async function boot(){
   remplirMois();brancherMasqueDates();setTimeout(()=>setHauteurRegistre(+getMeta('regRows',12)),0);setTimeout(appliquerLargeurs,0);
   setTimeout(()=>{try{const nav=getMeta('nav');if(nav){const s=JSON.parse(nav);
     if(s.view==='releve'&&!(REL&&REL.res))s.view='registre';
-    _navSuppress=true;restoreNav(s);_navSuppress=false;}}catch(e){}syncHist();},0);
+    _navSuppress=true;restoreNav(s);_navSuppress=false;}}catch(e){}syncHist();installerGardeRetour();},0);
   try{const _n=genererRecurrences();if(_n){touch('Échéances récurrentes',_n+' opération(s) générée(s)');}}catch(e){console.error('récurrences',e);}
   unbusy();refreshDirty();undoReset();majBoutonPleinEcran();render();
   state.jour=todayISO();
@@ -1270,7 +1270,24 @@ function persistNav(){try{const s=snapshotNav();if(s.view==='releve')return; // 
     clearTimeout(_navFlush);_navFlush=setTimeout(()=>{try{flushIDB();}catch(e){}},800);
   }catch(e){}}
 function pushHist(){try{history.pushState(snapshotNav(),'');}catch(e){}persistNav();}
-function syncHist(){try{history.replaceState(snapshotNav(),'');}catch(e){}persistNav();}
+function syncHist(){try{history.replaceState(Object.assign(snapshotNav(),estBase()?{__base:true}:{}),'');}catch(e){}persistNav();}
+/* ---- garde-fou « Retour » : la 1re entrée de l'historique (__base) sert de tampon.
+   Y revenir par « retour » ne ferme pas l'appli : on demande d'abord confirmation. ---- */
+const estBase=()=>!!(history.state&&history.state.__base);
+function armerGardeRetour(){ // ajoute une entrée au-dessus du tampon (à faire pendant un geste de l'utilisateur, sinon Chrome l'ignore)
+  if(estBase())try{history.pushState(snapshotNav(),'');}catch(e){}
+}
+function installerGardeRetour(){
+  try{history.replaceState(Object.assign(snapshotNav(),{__base:true}),'');}catch(e){}
+  ['pointerdown','keydown'].forEach(t=>document.addEventListener(t,armerGardeRetour,{capture:true,once:true}));
+}
+async function demanderQuitter(){
+  const msg='Tu as appuyé sur Retour : veux-tu vraiment quitter l’application ?'+
+    (dirty>0?'\n\nAttention : '+dirty+' modification'+(dirty>1?'s':'')+' pas encore sauvegardée'+(dirty>1?'s':'')+' dans un fichier (elles restent dans ce navigateur).':'');
+  const v=await dlgOpen({title:'Quitter ?',msg,buttons:[{t:'Quitter',v:'q',d:true},{t:'Rester',v:false,p:true}]});
+  if(v==='q'){toast('Appuie encore sur Retour pour quitter');try{history.back();}catch(e){}return;}
+  armerGardeRetour(); // on reste : le tampon est de nouveau protégé
+}
 function restoreNav(s){
   if(!s)return;
   state.anPath=(s.anPath||[]).slice();state.anSens=s.anSens||'debit';state.catVides=!!s.catVides;state.fSens=s.fSens||null;state.fCat=s.fCat||null;
@@ -2052,7 +2069,9 @@ function anBack(){ if(state.anPath.length){history.back();return true;} return f
 
 // bouton « retour » de la souris / du navigateur
 window.addEventListener('resize',()=>{if(state.view==='registre'){syncHeadWidth();appliquerHauteurRegistre();}});
-window.addEventListener('popstate',e=>{ if(e.state)restoreNav(e.state);
+window.addEventListener('popstate',e=>{
+  if(e.state&&e.state.__base){restoreNav(e.state);demanderQuitter();return;} // un « retour » de trop
+  if(e.state)restoreNav(e.state);
   else{ _navSuppress=true;setView('registre',true);_navSuppress=false; } });
 
 /* ============================================================
