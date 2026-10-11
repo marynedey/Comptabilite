@@ -59,8 +59,7 @@
   .view{display:none}
   .reg-head{background:var(--card);border:1px solid var(--line);border-bottom:none;border-radius:var(--radius) var(--radius) 0 0;overflow:hidden}
   .reg-head table,#reg-scroll table{table-layout:fixed;border-collapse:collapse}
-  #reg-scroll{overflow-y:auto;overflow-x:auto;max-height:none;border-radius:0;border-top:none;scroll-behavior:smooth;scroll-snap-type:y proximity}
-  #reg-scroll tbody tr{scroll-snap-align:start}
+  #reg-scroll{overflow-y:auto;overflow-x:auto;max-height:none;border-radius:0;border-top:none}
   #reg-scroll tfoot td{position:sticky;bottom:0;background:var(--card);z-index:4;padding:10px 12px;font-weight:600;box-shadow:inset 0 1px 0 var(--line)}
   #reg-scroll tfoot .debit{color:var(--debit)} #reg-scroll tfoot .credit{color:var(--credit)}
   #reg-scroll{border-radius:0 0 var(--radius) var(--radius)}
@@ -856,7 +855,7 @@ const WASM_B64="AGFzbQEAAAABoARFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/YAF/AGACf38AYAR/
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const APP_BUILD='v50';
+const APP_BUILD='v51';
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
 let SQL=null,db=null,idbOK=true,dirty=0,saveTimer=null;
