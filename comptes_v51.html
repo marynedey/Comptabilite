@@ -210,6 +210,15 @@
 /* ---- ajouts v7 : moteur SQLite, corbeille, pagination, dialogues ---- */
 
   .topbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+  /* barre du haut toujours visible : toute la barre sur PC ; sur mobile, seulement la 1re ligne (tb-main) */
+  .topbar{position:sticky;top:-26px;z-index:15;background:var(--paper);margin-top:-10px;padding-top:10px}
+  .tb-main,.tb-more{display:flex;align-items:center;gap:inherit;flex-wrap:wrap}
+  .tb-more{flex:1}
+  @media (max-width:860px){
+    .topbar{display:contents}
+    .tb-main{position:sticky;top:-16px;z-index:15;background:var(--paper);gap:6px;margin:-16px -14px 0;padding:10px 14px 8px;box-shadow:0 1px 0 var(--line)}
+    .tb-more{gap:6px;margin:8px 0 18px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+  }
   .status{display:inline-flex;align-items:center;gap:7px;font-size:0.8rem;color:var(--ink-2);margin-left:auto}
   .status .sdot{width:9px;height:9px;border-radius:50%;background:var(--st-rap)}
   .status.dirty .sdot{background:var(--st-non)}
@@ -370,11 +379,14 @@
 
 <main>
   <div class="topbar">
+   <div class="tb-main">
     <button class="navbtn menubtn" id="btn-menu" onclick="toggleMenu()" title="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
     <button class="navbtn" onclick="navBack()" title="Retour (précédent)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>
     <button class="navbtn" onclick="navFwd()" title="Avancer (suivant)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg></button>
     <button class="navbtn" onclick="aideRaccourcis()" title="Raccourcis clavier ( ? )">?</button>
     <button onclick="sauvegarder()" title="Exporter la base vers un fichier"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Sauvegarder</button>
+   </div>
+   <div class="tb-more">
     <button onclick="document.getElementById('fileDb').click()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21V9M7 14l5-5 5 5M5 3h14"/></svg>Charger une sauvegarde</button>
     <button onclick="document.getElementById('fileQif').click()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h10l6 6v10H4z"/><path d="M14 4v6h6"/></svg>Importer un QIF</button>
     <input type="file" id="fileDb" accept=".sqlite,.db" style="display:none" onchange="chargerFichier(this)">
@@ -383,6 +395,7 @@
     <input type="file" id="filePdf" accept=".pdf" style="display:none" onchange="chargerReleve(this)">
     <input type="file" id="fileAmex" accept=".csv" style="display:none" onchange="chargerAmexCSV(this)">
     <span class="status" id="status" title="Cliquer pour voir le détail des modifications" onclick="voirModifications()" style="cursor:pointer"><span class="sdot"></span><span id="status-txt">—</span></span>
+   </div>
   </div>
 
   <section class="view on" id="v-registre">
