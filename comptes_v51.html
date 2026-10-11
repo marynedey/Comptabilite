@@ -185,14 +185,13 @@
     .bar .search{padding-top:10px;padding-bottom:10px}
     .fstatuts{gap:6px}
     .schip,.pchip{padding:7px 11px}
-    .hauteur-ctrl{display:none}
   }
 
   @media (max-width:700px){
     .modal{padding:18px 16px}
     .row2{grid-template-columns:1fr}
     #reg-head{display:none}
-    #reg-scroll{overflow-x:hidden;height:auto!important;max-height:none;overflow-y:visible;border-radius:var(--radius)}
+    #reg-scroll{overflow-x:hidden;overflow-y:auto;max-height:none;border-radius:var(--radius)}
     #reg-scroll table{table-layout:auto;width:100%}
     #reg-scroll colgroup{display:none}
     #reg-scroll tbody,#reg-scroll tfoot{display:block}
@@ -202,8 +201,8 @@
     #reg-scroll tr#reg-sums-row{grid-template-columns:1fr auto;grid-template-areas:"lbl deb" "lbl cre" "lbl sol";
       position:static;box-shadow:none;padding:14px 14px 4px;row-gap:4px}
     #reg-scroll td{padding:0;border:none;font-size:0.94rem}
-    #reg-scroll td.st{grid-area:stat;padding:0}
-    #reg-scroll td.st .stbar{width:100%;min-height:100%;border-radius:3px}
+    #reg-scroll td.st{grid-area:stat;padding:0;width:auto;align-self:stretch}
+    #reg-scroll td.st .stbar{width:100%;height:100%;min-height:34px;border-radius:3px}
     #reg-scroll td:nth-child(2){display:none} /* N° masqué sur la carte, visible dans le détail */
     #reg-scroll td:nth-child(3){grid-area:date;font-size:.78rem;color:var(--ink-3)}
     #reg-scroll td.dest{grid-area:dest;font-weight:500}
@@ -1425,10 +1424,22 @@ function syncScrollX(){
   });sc._xbound=true;}
 }
 function syncHeadWidth(){syncScrollX();}
+const estMobile=()=>window.matchMedia('(max-width:700px)').matches;
+/* hauteur moyenne réelle d'une ligne (sur mobile les lignes sont des cartes de hauteur variable) */
+function hauteurLigneMesuree(){
+  let s=0,n=0;
+  for(const tr of document.querySelectorAll('#rows tr')){const h=tr.offsetHeight;if(h>0){s+=h;n++;}if(n>=20)break;}
+  return n?s/n:null;
+}
+function appliquerHauteurRegistre(){
+  const el=document.getElementById('reg-scroll');if(!el)return;
+  const rows=state.regRows||12;
+  const hl=estMobile()?hauteurLigneMesuree():null;
+  el.style.height=hl?Math.round(rows*hl)+'px':(rows*2.55)+'rem';   // ~ nb de lignes visibles
+}
 function setHauteurRegistre(rows){
   rows=Math.max(4,Math.min(60,+rows||12));
-  const el=document.getElementById('reg-scroll');
-  if(el)el.style.height=(rows*2.55)+'rem';   // ~ nb de lignes visibles
+  state.regRows=rows;appliquerHauteurRegistre();
   const sl=document.getElementById('reg-hauteur');if(sl&&+sl.value!==rows)sl.value=rows;
   try{setMeta('regRows',rows);}catch(e){}
   setTimeout(syncHeadWidth,0);
@@ -1541,7 +1552,7 @@ function renderRegistre(){
     '<td class="r num debit">'+eur(sums.deb)+'</td>'+
     '<td class="r num credit">'+eur(sums.cre)+'</td>'+
     '<td class="r num">'+eur(sums.cre-sums.deb)+'</td>';
-  appliquerLargeurs();syncScrollX();
+  appliquerLargeurs();syncScrollX();appliquerHauteurRegistre();
   document.getElementById('legend').innerHTML=Object.keys(META).map(s=>
     '<span><span class="dot" style="background:'+META[s].col+'"></span>'+META[s].label+'</span>').join('');
   document.getElementById('pager').innerHTML=pages>1?
@@ -1839,7 +1850,7 @@ function goDepth(d){
 function anBack(){ if(state.anPath.length){history.back();return true;} return false; }
 
 // bouton « retour » de la souris / du navigateur
-window.addEventListener('resize',()=>{if(state.view==='registre')syncHeadWidth();});
+window.addEventListener('resize',()=>{if(state.view==='registre'){syncHeadWidth();appliquerHauteurRegistre();}});
 window.addEventListener('popstate',e=>{ if(e.state)restoreNav(e.state);
   else{ _navSuppress=true;setView('registre',true);_navSuppress=false; } });
 
