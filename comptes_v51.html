@@ -1142,6 +1142,12 @@ async function boot(){
     _navSuppress=true;restoreNav(s);_navSuppress=false;}}catch(e){}syncHist();},0);
   try{const _n=genererRecurrences();if(_n){touch('Échéances récurrentes',_n+' opération(s) générée(s)');}}catch(e){console.error('récurrences',e);}
   unbusy();refreshDirty();render();
+  state.jour=todayISO();
+  const verifierJour=()=>{if(todayISO()===state.jour)return;state.jour=todayISO();
+    try{const n=genererRecurrences();if(n)touch('Échéances récurrentes',n+' opération(s) générée(s)');}catch(e){console.error('récurrences',e);}
+    render();};
+  setInterval(verifierJour,60000);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)verifierJour();});
   if(restored){const n=scal('SELECT COUNT(*) FROM operation WHERE supprime=0');
     if(n)toast(n.toLocaleString('fr-FR')+' opérations chargées depuis ce navigateur');}
   if(!idbOK)dlgAlert("Le stockage local de ce navigateur n'est pas disponible ici.\nL'application fonctionne, mais pense à Sauvegarder avant de fermer.",'Attention');
@@ -1206,9 +1212,10 @@ function render(){
   document.getElementById('nav-trash-n').textContent=n?n:'';
   showVersion();
 }
+/* solde réel = opérations effectives datées jusqu'à aujourd'hui inclus (débits comme crédits) */
 function soldeReel(id){return scal(`SELECT (SELECT solde_initial FROM compte WHERE id=$i)
   +COALESCE(SUM(montant),0) FROM operation WHERE compte_id=$i AND supprime=0
-  AND statut IN('non_pointe','pointe','rapproche') AND previsionnel=0`,{$i:id});}
+  AND statut IN('non_pointe','pointe','rapproche') AND previsionnel=0 AND date_operation<=$t`,{$i:id,$t:todayISO()});}
 function _chiffres(s){return (s||'').replace(/\D/g,'');}
 function numeroDuTitre(rc){
   if(rc&&rc.cle&&rc.cle.indexOf('n:')===0)return rc.cle.slice(2);
@@ -1469,10 +1476,10 @@ function tiles(){
   const a=state.acc;
   const r=qy(`SELECT
     (SELECT solde_initial FROM compte WHERE id=$a)+COALESCE(SUM(CASE WHEN statut='rapproche' THEN montant END),0) rap,
-    (SELECT solde_initial FROM compte WHERE id=$a)+COALESCE(SUM(CASE WHEN statut IN('non_pointe','pointe','rapproche') AND previsionnel=0 THEN montant END),0) reel,
+    (SELECT solde_initial FROM compte WHERE id=$a)+COALESCE(SUM(CASE WHEN statut IN('non_pointe','pointe','rapproche') AND previsionnel=0 AND date_operation<=$t THEN montant END),0) reel,
     COALESCE(SUM(CASE WHEN statut IN('non_pointe','pointe') AND previsionnel=0 THEN montant END),0) att,
-    COALESCE(SUM(CASE WHEN previsionnel=1 AND ($hm IS NULL OR date_operation<=$hm) THEN montant END),0) prv
-    FROM operation o WHERE compte_id=$a AND supprime=0`,{$a:a,$hm:_hmPrv()})[0];
+    COALESCE(SUM(CASE WHEN statut<>'annule' AND (previsionnel=1 OR date_operation>$t) AND ($hm IS NULL OR date_operation<=$hm) THEN montant END),0) prv
+    FROM operation o WHERE compte_id=$a AND supprime=0`,{$a:a,$hm:_hmPrv(),$t:todayISO()})[0];
   const cards=[
     {k:'Solde rapproché',v:eur(r.rap),c:'var(--ink)',d:'Confirmé par la banque'},
     {k:'Solde réel',v:eur(r.reel),c:'var(--ink)',d:'Tout jusqu’à aujourd’hui'},
