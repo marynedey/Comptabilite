@@ -34,10 +34,10 @@
   html{font-size:var(--fs)}
   html,body{margin:0;height:100%}
   body{font-family:var(--sans);background:var(--paper);color:var(--ink);font-size:1rem;line-height:1.5;
-       -webkit-font-smoothing:antialiased;display:grid;grid-template-columns:240px 1fr;height:100vh;overflow:hidden}
+       -webkit-font-smoothing:antialiased;display:grid;grid-template-columns:240px 1fr;height:100vh;height:100dvh;overflow:hidden}
   .num{font-family:var(--mono);font-variant-numeric:tabular-nums lining-nums;letter-spacing:-0.01em}
 
-  aside{background:var(--sidebar);color:var(--sidebar-ink);padding:20px 14px;display:flex;flex-direction:column;gap:4px;height:100vh;overflow-y:auto}
+  aside{background:var(--sidebar);color:var(--sidebar-ink);padding:20px 14px;display:flex;flex-direction:column;gap:4px;height:100vh;height:100dvh;overflow-y:auto}
   .brand{display:flex;align-items:center;gap:9px;padding:4px 8px 10px}
   .brand b{font-weight:600;font-size:1.05rem;letter-spacing:-0.01em}
   .side-h{font-size:0.72rem;text-transform:uppercase;letter-spacing:0.09em;color:var(--sidebar-ink-2);padding:14px 10px 6px}
@@ -55,7 +55,7 @@
   .nav a:hover{color:var(--sidebar-ink)}
   .nav svg{flex:none;width:17px;height:17px}
 
-  main{height:100vh;overflow-y:auto;padding:26px 30px 48px;min-width:0}
+  main{height:100vh;height:100dvh;overflow-y:auto;padding:26px 30px 48px;min-width:0}
   .view{display:none}
   .reg-head{background:var(--card);border:1px solid var(--line);border-bottom:none;border-radius:var(--radius) var(--radius) 0 0;overflow:hidden}
   .reg-head table,#reg-scroll table{table-layout:fixed;border-collapse:collapse}
@@ -162,14 +162,14 @@
   .menubtn{display:none}
   .menu-backdrop{display:none;position:fixed;inset:0;background:rgba(10,14,12,.5)}
   @media (max-width:860px){
-    body{grid-template-columns:1fr;height:100vh;overflow:hidden}
+    body{grid-template-columns:1fr;height:100vh;height:100dvh;overflow:hidden}
     aside{position:fixed;top:0;left:0;bottom:0;width:280px;max-width:85vw;z-index:50;
       transform:translateX(-100%);transition:transform .22s ease;box-shadow:3px 0 28px rgba(0,0,0,.28)}
     body.menu-open aside{transform:translateX(0)}
     body.menu-open .menu-backdrop{display:block;z-index:45}
     body.menu-open main{overflow:hidden}
     .menubtn{display:inline-flex}
-    main{height:100vh;overflow-y:auto;padding:16px 14px 40px}
+    main{height:100vh;height:100dvh;overflow-y:auto;padding:16px 14px calc(40px + env(safe-area-inset-bottom, 0px))}
     .nav{display:flex;flex-wrap:wrap;gap:4px}
     .nav a{padding:11px 10px}
     .tiles{grid-template-columns:repeat(2,1fr)}
@@ -214,6 +214,7 @@
   .topbar{position:sticky;top:-26px;z-index:15;background:var(--paper);margin-top:-10px;padding-top:10px}
   .tb-main,.tb-more{display:flex;align-items:center;gap:inherit;flex-wrap:wrap}
   .tb-more{flex:1}
+  @media (max-width:420px){.lbl-save{display:none}} /* très petit écran : icône seule, la 1re ligne tient sur une ligne */
   .topbar{align-items:flex-start}
   @media (max-width:860px){
     .topbar{display:contents}
@@ -390,8 +391,9 @@
     <button class="navbtn" onclick="navBack()" title="Retour (précédent)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>
     <button class="navbtn" onclick="navFwd()" title="Avancer (suivant)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg></button>
     <button class="navbtn" onclick="aideRaccourcis()" title="Raccourcis clavier ( ? )">?</button>
+    <button class="navbtn" id="btn-fs" onclick="basculerPleinEcran()" title="Plein écran" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path id="fs-ico" d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
     <button class="navbtn" id="btn-undo" onclick="annulerDerniere()" title="Annuler la dernière modification (Ctrl+Z)" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/></svg></button>
-    <button onclick="sauvegarder()" title="Exporter la base vers un fichier"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Sauvegarder</button>
+    <button onclick="sauvegarder()" title="Exporter la base vers un fichier"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg><span class="lbl-save">Sauvegarder</span></button>
    </div>
    <div class="tb-more">
     <button onclick="document.getElementById('fileDb').click()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21V9M7 14l5-5 5 5M5 3h14"/></svg>Charger une sauvegarde</button>
@@ -874,7 +876,7 @@ const WASM_B64="AGFzbQEAAAABoARFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/YAF/AGACf38AYAR/
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const APP_BUILD='v53';
+const APP_BUILD='v54';
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
 let SQL=null,db=null,idbOK=true,dirty=0,saveTimer=null;
@@ -953,6 +955,25 @@ function idbPutKey(k,v){return idbOpen().then(d=>new Promise((res,rej)=>{const t
   t.objectStore(STORE).put(v,k);t.oncomplete=()=>res();t.onerror=()=>rej(t.error);}));}
 function idbGetKey(k){return idbOpen().then(d=>new Promise((res,rej)=>{const t=d.transaction(STORE,'readonly');
   const g=t.objectStore(STORE).get(k);g.onsuccess=()=>res(g.result||null);g.onerror=()=>rej(g.error);}));}
+/* ---------- plein écran (tablette / téléphone : masque les barres du navigateur) ---------- */
+function pleinEcranActif(){return !!(document.fullscreenElement||document.webkitFullscreenElement);}
+async function basculerPleinEcran(){
+  const d=document,el=d.documentElement;
+  try{
+    if(pleinEcranActif())await (d.exitFullscreen||d.webkitExitFullscreen).call(d);
+    else await (el.requestFullscreen||el.webkitRequestFullscreen).call(el,{navigationUI:'hide'});
+  }catch(e){toast('Plein écran non disponible sur cet appareil');}
+}
+function majBoutonPleinEcran(){
+  const b=document.getElementById('btn-fs'),ico=document.getElementById('fs-ico');if(!b)return;
+  const dispo=!!(document.fullscreenEnabled||document.webkitFullscreenEnabled);
+  b.style.display=dispo?'':'none';
+  const on=pleinEcranActif();
+  b.title=on?'Quitter le plein écran':'Plein écran';
+  if(ico)ico.setAttribute('d',on?'M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5':'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5');
+}
+document.addEventListener('fullscreenchange',majBoutonPleinEcran);
+document.addEventListener('webkitfullscreenchange',majBoutonPleinEcran);
 async function annulerDerniere(){
   const e=UNDO[UNDO.length-1];
   if(!e){await dlgAlert('Rien à annuler.\n\nSeules les modifications faites depuis l’ouverture de l’appli peuvent être annulées (les '+UNDO_MAX+' dernières).','Annuler');return;}
@@ -1208,7 +1229,7 @@ async function boot(){
     if(s.view==='releve'&&!(REL&&REL.res))s.view='registre';
     _navSuppress=true;restoreNav(s);_navSuppress=false;}}catch(e){}syncHist();},0);
   try{const _n=genererRecurrences();if(_n){touch('Échéances récurrentes',_n+' opération(s) générée(s)');}}catch(e){console.error('récurrences',e);}
-  unbusy();refreshDirty();undoReset();render();
+  unbusy();refreshDirty();undoReset();majBoutonPleinEcran();render();
   state.jour=todayISO();
   const verifierJour=()=>{if(todayISO()===state.jour)return;state.jour=todayISO();
     try{const n=genererRecurrences();if(n)touch('Échéances récurrentes',n+' opération(s) générée(s)');}catch(e){console.error('récurrences',e);}
