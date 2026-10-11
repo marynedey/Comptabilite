@@ -1369,19 +1369,24 @@ function setPeriode(pfx,mode){
   document.querySelectorAll('#'+pfx+'-periode-wrap .pchip').forEach(b=>b.classList.toggle('on',b.dataset.m===mode));
   periodeChanged(pfx);
 }
+/* texte « du JJ/MM/AAAA au JJ/MM/AAAA » des dates réellement prises en compte ;
+   une borne absente (Tout, dates partielles) est remplacée par la 1re / dernière opération retenue */
+function textePeriode(pfx,dmin,dmax){
+  const b=periodBounds(pfx)||{};const f=b.f||dmin,t=b.t||dmax;
+  if(!f&&!t)return '';
+  return (b.f||b.t?'Période':'Toutes les dates')+' : du '+isoToFr(f||'')+' au '+isoToFr(t||'');
+}
 /* bornes ISO {f,t} de la période choisie (f ou t peuvent manquer) ; null = toute la période.
-   Dans l'analyse : « Cette année » = du 1er janvier à aujourd'hui,
+   Mêmes définitions dans le registre et l'analyse :
+   « Cette année » = du 1er janvier à aujourd'hui,
    « 3 mois » = les 3 derniers mois pleins écoulés (hors mois en cours). */
 function periodBounds(pfx){
   const mode=document.getElementById(pfx+'-periode').value;const now=new Date(),y=now.getFullYear(),mo=now.getMonth();
-  const an=(pfx==='an');
   if(mode.indexOf('m:')===0){const pp=mode.slice(2).split('-');return {f:mode.slice(2)+'-01',t:isoDe(new Date(+pp[0],+pp[1],0))};}
   if(mode==='mois')return {f:isoDe(new Date(y,mo,1)),t:isoDe(new Date(y,mo+1,0))};
   if(mode==='moisdernier')return {f:isoDe(new Date(y,mo-1,1)),t:isoDe(new Date(y,mo,0))};
-  if(mode==='3mois'){
-    if(an)return {f:isoDe(new Date(y,mo-3,1)),t:isoDe(new Date(y,mo,0))};
-    const d1=new Date(now);d1.setMonth(d1.getMonth()-3);return {f:isoDe(d1),t:isoDe(now)};}
-  if(mode==='annee')return {f:y+'-01-01',t:an?isoDe(now):y+'-12-31'};
+  if(mode==='3mois')return {f:isoDe(new Date(y,mo-3,1)),t:isoDe(new Date(y,mo,0))};
+  if(mode==='annee')return {f:y+'-01-01',t:isoDe(now)};
   if(mode==='perso'){const f=frToISO(document.getElementById(pfx+'-from').value),t=frToISO(document.getElementById(pfx+'-to').value);
     return (f||t)?{f:f||null,t:t||null}:null;}
   return null;
@@ -1578,9 +1583,12 @@ function renderRegistre(){
   const sums=qy(`SELECT
       COALESCE(SUM(CASE WHEN NOT `+VIR_SQL+` AND o.montant<0 THEN -o.montant ELSE 0 END),0) deb,
       COALESCE(SUM(CASE WHEN NOT `+VIR_SQL+` AND o.montant>0 THEN o.montant ELSE 0 END),0) cre,
-      COALESCE(SUM(CASE WHEN `+VIR_SQL+` THEN o.montant ELSE 0 END),0) vir
+      COALESCE(SUM(CASE WHEN `+VIR_SQL+` THEN o.montant ELSE 0 END),0) vir,
+      MIN(o.date_operation) dmin,MAX(o.date_operation) dmax
     FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id`+w+` AND o.statut<>'annule'`,p)[0]||{deb:0,cre:0,vir:0};
   const net=sums.cre-sums.deb+sums.vir;
+  const per=textePeriode('f',sums.dmin,sums.dmax);
+  if(per)document.getElementById('count').textContent+=' · '+per;
   const foot=document.getElementById('reg-sums');
   if(foot)foot.innerHTML=
     '<span class="lb">Total négatif (hors virements)</span><span class="vl num '+clsSigne(-sums.deb)+'">'+eur(-sums.deb)+'</span>'+
@@ -1848,6 +1856,8 @@ function renderAnalyse(){
   // fil d'Ariane
   const motSens=virMode?'virements':state.anSens==='net'?'mouvements (net)':(state.anSens==='credit'?'revenus':'dépenses');
   const nbOps=new Set(sel.map(o=>o.id)).size; // une opération ventilée compte une seule fois
+  {const ds=sel.map(o=>o.d).sort();const per=textePeriode('an',ds[0],ds[ds.length-1]);
+   document.getElementById('an-meta').textContent=(cp?cp.nom:'')+(per?' · '+per:'');}
   const sumAbs=anGroups.reduce((t,x)=>t+Math.abs(x.v),0)||1;
   let cr='<a onclick="goDepth(0)">Tous les '+motSens+'</a>';
   state.anPath.forEach((x,i)=>{cr+=' <span style="color:var(--ink-3)">›</span> '+
