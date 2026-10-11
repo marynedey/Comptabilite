@@ -876,7 +876,7 @@ const WASM_B64="AGFzbQEAAAABoARFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/YAF/AGACf38AYAR/
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const APP_BUILD='v52';
+const APP_BUILD='v53';
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
 let SQL=null,db=null,idbOK=true,dirty=0,saveTimer=null;
@@ -1872,14 +1872,25 @@ function anOps(){
   // une ligne par ventilation (opération éclatée comptée par catégorie) ; repli sur cat_path si aucune ventilation
   const rows=qy('SELECT o.id,o.type ty,o.date_operation d,o.montant om,o.cat_path cp,t.nom ti,v.montant vm,v.categorie_id c FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id LEFT JOIN ventilation v ON v.operation_id=o.id'+w,p);
   const path=_catPathFn();
-  // virement = opération de type virement / catégorie « Virement… » (comptée une fois, montant total),
-  // ou ligne de ventilation classée en « Virement… »
-  const vus=new Set();
-  return rows.flatMap(r=>{
-    if(r.ty==='virement'||isVirCat(r.cp)){if(vus.has(r.id))return [];vus.add(r.id);
-      return [{id:r.id,d:r.d,m:r.om,cat:r.cp,vir:true,opVir:true,ti:r.ti,om:r.om}];}
-    if(r.c!=null){const c=path(r.c);return [{id:r.id,d:r.d,m:r.vm,cat:c,vir:isVirCat(c),ti:r.ti,om:r.om}];}
-    return [{id:r.id,d:r.d,m:r.om,cat:r.cp,vir:false,ti:r.ti,om:r.om}];});
+  // Comme le registre, une opération est classée selon le signe de SON montant (débit -> dépenses,
+  // crédit -> revenus). Ses lignes de répartition se répartissent ce montant entre catégories : une ligne
+  // de sens inverse (impôts prélevés sur un salaire, remboursement dans une dépense) vient en déduction.
+  // Une répartition incomplète est complétée par une ligne « (répartition incomplète) » pour retomber
+  // exactement sur le montant de l'opération. Virement = opération de type virement / catégorie « Virement… ».
+  const ops=new Map();
+  rows.forEach(r=>{let o=ops.get(r.id);
+    if(!o){o={r,lignes:[]};ops.set(r.id,o);}
+    if(r.c!=null)o.lignes.push({m:r.vm,cat:path(r.c)});});
+  const out=[];
+  ops.forEach(({r,lignes})=>{
+    const base={id:r.id,d:r.d,ti:r.ti,om:r.om};
+    if(r.ty==='virement'||isVirCat(r.cp)){out.push(Object.assign({m:r.om,cat:r.cp,vir:true,opVir:true},base));return;}
+    if(!lignes.length)lignes.push({m:r.om,cat:r.cp});
+    const somme=lignes.reduce((t,l)=>t+l.m,0);
+    if(somme!==r.om)lignes.push({m:r.om-somme,cat:'(répartition incomplète)',adj:true});
+    lignes.forEach(l=>out.push(Object.assign({m:l.m,cat:l.cat,vir:false,adj:!!l.adj},base)));
+  });
+  return out;
 }
 const isVirCat=c=>/^virement/i.test(c||'');
 
@@ -1917,7 +1928,7 @@ function renderAnalyse(){
   document.getElementById('an-diag-wrap').style.display=sens==='virement'?'none':'';
   const virMode=(sens==='virement');
   // dépenses / revenus / net : hors virements intercomptes ; « Virements » : uniquement eux
-  const dep=anOps().filter(o=>virMode?o.vir:(!o.vir&&(sens==='net'?o.m!==0:(sens==='debit'?o.m<0:o.m>0))));
+  const dep=anOps().filter(o=>o.m!==0&&(virMode?o.vir:(!o.vir&&(sens==='net'||(sens==='debit'?o.om<0:o.om>0)))));
   // les virements sont regroupés par compte (« Virement vers … » / « Virement reçu de … »)
   if(virMode)dep.forEach(o=>{o.cat=o.ti||o.cat||'Virement';});
 
@@ -1929,7 +1940,8 @@ function renderAnalyse(){
   const net=(state.anSens==='net'||virMode);
   const g={},deeper=new Set(),nb={};
   sel.forEach(o=>{const p=virMode?[o.cat]:catParts(o.cat);const k=p[depth]||'(non précisé)';
-    g[k]=(g[k]||0)+(net?o.m:Math.abs(o.m));(nb[k]=nb[k]||new Set()).add(o.id);
+    // une ligne de sens inverse (ex. impôts sur salaire) vient en déduction
+    g[k]=(g[k]||0)+(net||sens==='credit'?o.m:-o.m);(nb[k]=nb[k]||new Set()).add(o.id);
     if(p[depth]&&p[depth+1]&&depth<2)deeper.add(k);});
   anGroups=Object.entries(g).map(([c,v])=>({c,v,n:nb[c].size})).sort((x,y)=>Math.abs(y.v)-Math.abs(x.v));
   const tot=anGroups.reduce((t,x)=>t+x.v,0);
@@ -1965,7 +1977,7 @@ function renderAnalyse(){
     const deep=deeper.has(x.c);
     const chemin=state.anPath.concat([x.c]).join(' : ');
     const moy=eur(Math.round(x.v/div))+'/'+uni;
-    const coul=net?(x.v<0?'color:var(--debit)':x.v>0?'color:var(--credit)':'color:var(--ink-3)'):'';
+    const coul=net?(x.v<0?'color:var(--debit)':x.v>0?'color:var(--credit)':'color:var(--ink-3)'):(x.v<0?'color:var(--debit)':''); // déduction en rouge
     return '<div class="barrow'+(deep?' drill':'')+'" '+(deep?'data-i="'+i+'"':'')+
       (deep?' title="Cliquer pour voir le détail"':'')+'>'+
       '<div class="bl">'+esc(x.c)+(deep?' <span class="chev">›</span>':'')+
@@ -1991,12 +2003,13 @@ async function anDiagEcart(){
   const motsSens={debit:'dépense',credit:'revenu'};
   parOp.forEach(o=>{
     const reg=o.opVir?0:f(o.om);
-    const an=o.lignes.filter(l=>!l.vir).reduce((t,l)=>t+f(l.m),0);
+    const garde=!o.opVir&&(sens==='net'||(sens==='debit'?o.om<0:o.om>0));
+    const an=garde?o.lignes.reduce((t,l)=>t+(sens==='debit'?-l.m:l.m),0):0;
     totReg+=reg;totAn+=an;
     if(reg===an)return;
     const raisons=[];let cause=null;
     if(o.lignes.some(l=>l.vir)){raisons.push('une ligne de répartition est classée en « Virement… » (sortie de l’analyse)');cause=cause||'vir';}
-    const somme=o.lignes.reduce((t,l)=>t+l.m,0);
+    const somme=o.lignes.filter(l=>!l.adj).reduce((t,l)=>t+l.m,0);
     if(somme!==o.om){raisons.push('répartition déséquilibrée : lignes = '+eur(somme)+' pour une opération de '+eur(o.om));cause=cause||'deseq';}
     if(o.lignes.some(l=>l.m!==0&&Math.sign(l.m)!==Math.sign(o.om))){
       raisons.push('une ligne de répartition est de sens inverse ('+(o.om<0?'revenu dans une dépense, ex. remboursement':'dépense dans un revenu, ex. retenue')+')');cause=cause||'inverse';}
@@ -3792,7 +3805,7 @@ function changerSection(dir){
 function aideRaccourcis(){
   const cats=[
     ['Navigation',[['Alt+↑','Section suivante'],['Alt+↓','Section précédente'],['Alt+→','Section suivante'],['Alt+←','Section précédente']]],
-    ['Actions',[['A','Nouvelle opération (ou récurrence)'],['R','Rapprocher un relevé PDF'],['Ctrl+S','Sauvegarder'],['Ctrl+Z','Annuler la dernière modification — jusqu’à 10 de suite, uniquement celles faites depuis l’ouverture de l’appli'],['/','Rechercher dans le registre'],['Échap','Vider la recherche, puis en sortir'],['Entrée','Appliquer le rapprochement (dans un relevé)']]],
+    ['Actions',[['A','Nouvelle opération (ou récurrence)'],['R','Rapprocher un relevé PDF'],['Ctrl+S','Sauvegarder'],['Ctrl+Z','Annuler la dernière modification (10 max, depuis l’ouverture)'],['/','Rechercher dans le registre'],['Échap','Vider la recherche, puis en sortir'],['Entrée','Appliquer le rapprochement (dans un relevé)']]],
     ['Astuce',[['?','Afficher cette aide']]]
   ];
   const keyCell=l=>l[0].split('+').map(k=>'<kbd>'+k+'</kbd>').join(' + ');
@@ -3800,9 +3813,9 @@ function aideRaccourcis(){
   cats.forEach(([titre,lignes])=>{
     rows+='<tr><td colspan="2" style="font-weight:600;padding:12px 0 4px">'+titre+'</td></tr>';
     lignes.forEach(l=>{rows+='<tr><td style="padding:4px 20px 4px 0;white-space:nowrap;vertical-align:top;min-width:118px">'+keyCell(l)+'</td>'+
-      '<td style="color:var(--ink-2);padding:4px 0">'+l[1]+'</td></tr>';});
+      '<td style="color:var(--ink-2);padding:4px 0;white-space:normal;overflow-wrap:anywhere">'+l[1]+'</td></tr>';});
   });
-  const html='<table style="border-collapse:collapse">'+rows+'</table>';
+  const html='<table style="border-collapse:collapse;width:100%;table-layout:auto">'+rows+'</table>';
   dlgOpen({title:'Raccourcis clavier',msg:'',html,wide:true,fermeDehors:true,buttons:[{t:'Fermer',v:true,p:true}]});
 }
 window.addEventListener('beforeunload',e=>{if(dirty>0){e.preventDefault();e.returnValue='';}});
