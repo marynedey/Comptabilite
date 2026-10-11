@@ -493,8 +493,6 @@
     </div>
     <div class="crumb" id="an-crumb"></div>
     <div class="antot" id="an-total"></div>
-    <div id="an-diag-wrap" style="margin:-6px 0 12px"><button class="ghost" style="padding:4px 8px;font-size:.8rem" onclick="anDiagEcart()"
-      title="Explique, opération par opération, pourquoi ce total diffère des totaux du registre">🔎 Pourquoi ce total diffère-t-il du registre ?</button></div>
     <div class="card"><div class="bars" id="an-bars"></div></div>
   </section>
 
@@ -1084,8 +1082,6 @@ const fmt0=new Intl.NumberFormat('fr-FR',{maximumFractionDigits:0});
 const eur=c=>(c<0?'-':'')+fmt.format(Math.abs(c)/100)+' €';
 const eur0=c=>fmt0.format(Math.round(c/100))+' €';
 const clsSigne=c=>c>0?'credit':c<0?'debit':'zero';
-/* opération « virement » (intercomptes) : type virement ou catégorie Virement… */
-const VIR_SQL="(o.type='virement' OR LOWER(COALESCE(o.cat_path,'')) LIKE 'virement%')";
 const catParts=c=>(c||'').split(/\s*:\s*/).filter(Boolean);
 const catTop=c=>catParts(c)[0]||'Divers';
 function frToISO(s){return shortToISO(s);}
@@ -1490,16 +1486,15 @@ function buildWhere(params){
     if(sel.indexOf('previsionnel')>=0)parts.push("o.previsionnel=1");
     w+=parts.length?(" AND ("+parts.join(" OR ")+")"):" AND 0";
   }
-  // filtre catégorie (loupe de l'analyse) : opérations ayant une ligne dans cette catégorie ou ses sous-catégories
-  if(state.fCat){const c=filtreCatSQL(state.fCat,params);w+=" AND ("+c+")";}
-  // loupe des totaux : débits seuls / crédits seuls (hors virements) / virements seuls
-  if(state.fSens==='debit')w+=" AND NOT "+VIR_SQL+" AND o.montant<0";
-  else if(state.fSens==='credit')w+=" AND NOT "+VIR_SQL+" AND o.montant>0";
-  else if(state.fSens==='virement')w+=" AND "+VIR_SQL;
   const hm=horizonMax();
   if(hm==='MASQUE'){w+=" AND o.previsionnel=0";}
   else if(hm){params.$hmax=hm;w+=" AND (o.previsionnel=0 OR o.date_operation<=$hmax)";}
   w+=periodClause('f',params);
+  // loupes (catégorie / débits / crédits / virements) : on garde les opérations ayant au moins une ligne retenue
+  if(state.fCat||state.fSens){
+    const ids=[...new Set(lignesOps(w,params).filter(ligneFiltre).map(l=>l.id))];
+    w+=ids.length?" AND o.id IN ("+ids.join(',')+")":" AND 0";
+  }
   return w;
 }
 function goPage(p){state.page=Math.max(1,p||1);renderRegistre();syncHist();}
@@ -1562,30 +1557,6 @@ function setHauteurRegistre(rows){
 function statutsChips(){return [].slice.call(document.querySelectorAll('#f-statuts .schip'));}
 function toggleStatut(el){el.classList.toggle('on');goPage(1);}
 function setStatutsTous(){statutsChips().forEach(c=>c.classList.add('on'));}
-/* ids d'une catégorie (chemin « A : B ») et de toutes ses sous-catégories */
-function idsCategorie(chemin){
-  const parts=catParts(chemin);if(!parts.length)return [];
-  let id=null;
-  for(const p of parts){id=scal('SELECT id FROM categorie WHERE libelle=? AND parent_id IS ?',[p,id]);if(id==null)return [];}
-  return qy(`WITH RECURSIVE d(id) AS (SELECT ? UNION ALL SELECT c.id FROM categorie c JOIN d ON c.parent_id=d.id) SELECT id FROM d`,[id]).map(r=>r.id);
-}
-function filtreCatSQL(chemin,params){
-  const ids=idsCategorie(chemin);
-  params.$fcat=chemin;params.$fcat2=chemin+' : %';
-  const parCat="(o.cat_path=$fcat OR o.cat_path LIKE $fcat2)";
-  if(!ids.length)return parCat;
-  return "o.id IN (SELECT v.operation_id FROM ventilation v WHERE v.categorie_id IN ("+ids.join(',')+"))"+
-    " OR ("+parCat+" AND NOT EXISTS (SELECT 1 FROM ventilation v2 WHERE v2.operation_id=o.id))";
-}
-/* part de la catégorie filtrée dans les opérations affichées (= montant de la barre dans l'analyse) */
-function partCategorie(w,p){
-  const ids=idsCategorie(state.fCat);
-  const lignes=ids.length?(scal(`SELECT COALESCE(SUM(v.montant),0) FROM ventilation v WHERE v.categorie_id IN (`+ids.join(',')+`)
-    AND v.operation_id IN (SELECT o.id FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id`+w+` AND o.statut<>'annule')`,p)||0):0;
-  const sansV=scal(`SELECT COALESCE(SUM(o.montant),0) FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id`+w+
-    ` AND o.statut<>'annule' AND NOT EXISTS (SELECT 1 FROM ventilation v2 WHERE v2.operation_id=o.id)`,p)||0;
-  return lignes+sansV;
-}
 /* loupe d'une barre de l'analyse : registre filtré exactement comme l'analyse
    (même période, ni prévisionnels ni annulés, même sens, catégorie précise) */
 function voirDepuisAnalyse(chemin){
@@ -1699,14 +1670,13 @@ function renderRegistre(){
 
   document.getElementById('count').textContent=total.toLocaleString('fr-FR')+' opération'+(total>1?'s':'')+
     (total>PAGE_SIZE?(' · '+(off+1)+'–'+Math.min(off+PAGE_SIZE,total)+' affichées'):'');
-  // totaux adaptés au filtre courant (toutes pages) : débits et crédits hors virements, virements à part ;
-  // les opérations annulées (barrées) ne comptent pas, comme dans l'analyse
-  const sums=qy(`SELECT
-      COALESCE(SUM(CASE WHEN NOT `+VIR_SQL+` AND o.montant<0 THEN -o.montant ELSE 0 END),0) deb,
-      COALESCE(SUM(CASE WHEN NOT `+VIR_SQL+` AND o.montant>0 THEN o.montant ELSE 0 END),0) cre,
-      COALESCE(SUM(CASE WHEN `+VIR_SQL+` THEN o.montant ELSE 0 END),0) vir,
-      MIN(o.date_operation) dmin,MAX(o.date_operation) dmax
-    FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id`+w+` AND o.statut<>'annule'`,p)[0]||{deb:0,cre:0,vir:0};
+  // totaux adaptés au filtre courant (toutes pages), calculés ligne par ligne comme l'analyse :
+  // débits et crédits hors virements, virements à part ; les opérations annulées ne comptent pas.
+  // Avec une loupe active, seules les lignes concernées comptent (ex. catégorie Salaire = montant de l'analyse).
+  const sums={deb:0,cre:0,vir:0};
+  lignesOps(w,p).forEach(l=>{if(l.st==='annule'||!ligneFiltre(l))return;
+    if(l.vir)sums.vir+=l.m;else if(l.m<0)sums.deb-=l.m;else sums.cre+=l.m;});
+  Object.assign(sums,qy('SELECT MIN(o.date_operation) dmin,MAX(o.date_operation) dmax FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id'+w,p)[0]||{});
   const net=sums.cre-sums.deb+sums.vir;
   const per=textePeriode('f',sums.dmin,sums.dmax);
   if(per)document.getElementById('count').textContent+=' · '+per;
@@ -1720,10 +1690,7 @@ function renderRegistre(){
     '<span class="lb">Total négatif (hors virements) <span class="voircat'+(state.fSens==='debit'?' on':'')+'" title="Afficher uniquement ces opérations (re-cliquer pour tout réafficher)" onclick="setFSens(&#39;debit&#39;)">🔍</span></span><span class="vl num '+clsSigne(-sums.deb)+'">'+eur(-sums.deb)+'</span>'+
     '<span class="lb">Total positif (hors virements) <span class="voircat'+(state.fSens==='credit'?' on':'')+'" title="Afficher uniquement ces opérations (re-cliquer pour tout réafficher)" onclick="setFSens(&#39;credit&#39;)">🔍</span></span><span class="vl num '+clsSigne(sums.cre)+'">'+eur(sums.cre)+'</span>'+
     '<span class="lb">Total des virements <span class="voircat'+(state.fSens==='virement'?' on':'')+'" title="Afficher uniquement ces opérations (re-cliquer pour tout réafficher)" onclick="setFSens(&#39;virement&#39;)">🔍</span></span><span class="vl num '+clsSigne(sums.vir)+'">'+eur(sums.vir)+'</span>'+
-    '<span class="lb tot">Total net</span><span class="vl num tot '+clsSigne(net)+'">'+eur(net)+'</span>'+
-    (state.fCat?(()=>{let pc=partCategorie(w,p);if(state.fSens==='debit')pc=-pc; // dépenses en positif, comme l'analyse
-      return '<span class="lb" style="padding-top:6px">dont part « '+esc(state.fCat)+' » <span class="hint">(= montant de l’analyse)</span></span>'+
-      '<span class="vl num" style="padding-top:6px;color:var(--brand)">'+eur(pc)+'</span>';})():'');
+    '<span class="lb tot">Total net</span><span class="vl num tot '+clsSigne(net)+'">'+eur(net)+'</span>';
   appliquerLargeurs();syncScrollX();appliquerHauteurRegistre();
   document.getElementById('legend').innerHTML=Object.keys(META).map(s=>
     '<span><span class="dot" style="background:'+META[s].col+'"></span>'+META[s].label+'</span>').join('');
@@ -1846,7 +1813,8 @@ function cheminCategorie(id){
 /* clique une catégorie -> registre filtré sur son chemin */
 function voirCategorieChemin(chemin){
   if(!chemin)return;
-  const s=document.getElementById('f-search');if(s)s.value=chemin;
+  const s=document.getElementById('f-search');if(s)s.value='';
+  state.fCat=chemin;state.fSens=null;syncClear();
   setStatutsTous();
   setView('registre');goPage(1);
   toast('Opérations de « '+chemin+' »');
@@ -1913,31 +1881,44 @@ function _catPathFn(){
     return cache[id]=parts.join(' : ');
   };
 }
-function anOps(){
-  const p={$acc:state.acc};
-  const w=" WHERE o.compte_id=$acc AND o.supprime=0 AND o.statut<>'annule' AND o.previsionnel=0"+periodClause('an',p);
-  // une ligne par ventilation (opération éclatée comptée par catégorie) ; repli sur cat_path si aucune ventilation
-  const rows=qy('SELECT o.id,o.type ty,o.date_operation d,o.montant om,o.cat_path cp,t.nom ti,v.montant vm,v.categorie_id c FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id LEFT JOIN ventilation v ON v.operation_id=o.id'+w,p);
-  const path=_catPathFn();
-  // Comme le registre, une opération est classée selon le signe de SON montant (débit -> dépenses,
-  // crédit -> revenus). Ses lignes de répartition se répartissent ce montant entre catégories : une ligne
-  // de sens inverse (impôts prélevés sur un salaire, remboursement dans une dépense) vient en déduction.
-  // Une répartition incomplète est complétée par une ligne « (répartition incomplète) » pour retomber
-  // exactement sur le montant de l'opération. Virement = opération de type virement / catégorie « Virement… ».
-  const ops=new Map();
-  rows.forEach(r=>{let o=ops.get(r.id);
-    if(!o){o={r,lignes:[]};ops.set(r.id,o);}
+/* Lignes comptables d'un ensemble d'opérations — MÊME règle pour le registre et l'analyse :
+   - une opération répartie compte ligne par ligne, chaque ligne selon SON signe
+     (salaire 3 000 € = Salaire +3 500 € en revenu et Impôts −500 € en dépense) ;
+   - une opération non répartie compte pour son montant ;
+   - si les lignes ne font pas le montant de l'opération, la différence forme une ligne
+     « (répartition incomplète) », pour que la somme des lignes = montant de l'opération ;
+   - virement = opération de type virement / catégorie « Virement… » (une ligne, montant total),
+     ou ligne classée en « Virement… ». */
+function lignesOps(w,p){
+  const rows=qy('SELECT o.id,o.type ty,o.date_operation d,o.montant om,o.cat_path cp,o.statut st,t.nom ti,v.montant vm,v.categorie_id c '+
+    'FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id LEFT JOIN ventilation v ON v.operation_id=o.id'+w,p);
+  const path=_catPathFn();const ops=new Map();
+  rows.forEach(r=>{let o=ops.get(r.id);if(!o){o={r,lignes:[]};ops.set(r.id,o);}
     if(r.c!=null)o.lignes.push({m:r.vm,cat:path(r.c)});});
   const out=[];
   ops.forEach(({r,lignes})=>{
-    const base={id:r.id,d:r.d,ti:r.ti,om:r.om};
+    const base={id:r.id,d:r.d,ti:r.ti,om:r.om,st:r.st};
     if(r.ty==='virement'||isVirCat(r.cp)){out.push(Object.assign({m:r.om,cat:r.cp,vir:true,opVir:true},base));return;}
     if(!lignes.length)lignes.push({m:r.om,cat:r.cp});
     const somme=lignes.reduce((t,l)=>t+l.m,0);
     if(somme!==r.om)lignes.push({m:r.om-somme,cat:'(répartition incomplète)',adj:true});
-    lignes.forEach(l=>out.push(Object.assign({m:l.m,cat:l.cat,vir:false,adj:!!l.adj},base)));
+    lignes.forEach(l=>out.push(Object.assign({m:l.m,cat:l.cat,vir:isVirCat(l.cat),adj:!!l.adj},base)));
   });
   return out;
+}
+/* filtres des loupes du registre, appliqués ligne par ligne */
+const memeCat=(cat,chemin)=>{const a=catParts(cat).join(' : '),b=catParts(chemin).join(' : ');return a===b||a.indexOf(b+' : ')===0;};
+function ligneFiltre(l){
+  if(state.fSens==='debit'&&!(!l.vir&&l.m<0))return false;
+  if(state.fSens==='credit'&&!(!l.vir&&l.m>0))return false;
+  if(state.fSens==='virement'&&!l.vir)return false;
+  if(state.fCat&&!memeCat(l.cat,state.fCat))return false;
+  return true;
+}
+function anOps(){
+  const p={$acc:state.acc};
+  const w=" WHERE o.compte_id=$acc AND o.supprime=0 AND o.statut<>'annule' AND o.previsionnel=0"+periodClause('an',p);
+  return lignesOps(w,p);
 }
 const isVirCat=c=>/^virement/i.test(c||'');
 
@@ -1972,10 +1953,9 @@ function renderAnalyse(){
 
   majBoutonsSens();
   const sens=state.anSens||'debit';
-  document.getElementById('an-diag-wrap').style.display=sens==='virement'?'none':'';
   const virMode=(sens==='virement');
   // dépenses / revenus / net : hors virements intercomptes ; « Virements » : uniquement eux
-  const dep=anOps().filter(o=>o.m!==0&&(virMode?o.vir:(!o.vir&&(sens==='net'||(sens==='debit'?o.om<0:o.om>0)))));
+  const dep=anOps().filter(o=>o.m!==0&&(virMode?o.vir:(!o.vir&&(sens==='net'||(sens==='debit'?o.m<0:o.m>0)))));
   // les virements sont regroupés par compte (« Virement vers … » / « Virement reçu de … »)
   if(virMode)dep.forEach(o=>{o.cat=o.ti||o.cat||'Virement';});
 
@@ -1987,7 +1967,6 @@ function renderAnalyse(){
   const net=(state.anSens==='net'||virMode);
   const g={},deeper=new Set(),nb={};
   sel.forEach(o=>{const p=virMode?[o.cat]:catParts(o.cat);const k=p[depth]||'(non précisé)';
-    // une ligne de sens inverse (ex. impôts sur salaire) vient en déduction
     g[k]=(g[k]||0)+(net||sens==='credit'?o.m:-o.m);(nb[k]=nb[k]||new Set()).add(o.id);
     if(p[depth]&&p[depth+1]&&depth<2)deeper.add(k);});
   anGroups=Object.entries(g).map(([c,v])=>({c,v,n:nb[c].size})).sort((x,y)=>Math.abs(y.v)-Math.abs(x.v));
@@ -2036,62 +2015,6 @@ function renderAnalyse(){
   el.querySelectorAll('.voircat').forEach(s=>s.addEventListener('click',e=>{e.stopPropagation();voirDepuisAnalyse(s.dataset.c);}));
 }
 
-/* --- diagnostic : écart entre les totaux du registre et l'analyse ---
-   Registre : une opération compte pour son montant total, selon son signe.
-   Analyse : chaque ligne de ventilation compte selon SON signe et SA catégorie. */
-async function anDiagEcart(){
-  const sens=state.anSens||'debit';
-  const f=sens==='debit'?(m=>m<0?-m:0):sens==='credit'?(m=>m>0?m:0):(m=>m);
-  const parOp=new Map();
-  anOps().forEach(r=>{let o=parOp.get(r.id);
-    if(!o){o={id:r.id,d:r.d,ti:r.ti,om:r.om,opVir:!!r.opVir,lignes:[]};parOp.set(r.id,o);}
-    if(!r.opVir)o.lignes.push(r);});
-  let totReg=0,totAn=0;const ecarts=[];
-  const motsSens={debit:'dépense',credit:'revenu'};
-  parOp.forEach(o=>{
-    const reg=o.opVir?0:f(o.om);
-    const garde=!o.opVir&&(sens==='net'||(sens==='debit'?o.om<0:o.om>0));
-    const an=garde?o.lignes.reduce((t,l)=>t+(sens==='debit'?-l.m:l.m),0):0;
-    totReg+=reg;totAn+=an;
-    if(reg===an)return;
-    const raisons=[];let cause=null;
-    if(o.lignes.some(l=>l.vir)){raisons.push('une ligne de répartition est classée en « Virement… » (sortie de l’analyse)');cause=cause||'vir';}
-    const somme=o.lignes.filter(l=>!l.adj).reduce((t,l)=>t+l.m,0);
-    if(somme!==o.om){raisons.push('répartition déséquilibrée : lignes = '+eur(somme)+' pour une opération de '+eur(o.om));cause=cause||'deseq';}
-    if(o.lignes.some(l=>l.m!==0&&Math.sign(l.m)!==Math.sign(o.om))){
-      raisons.push('une ligne de répartition est de sens inverse ('+(o.om<0?'revenu dans une dépense, ex. remboursement':'dépense dans un revenu, ex. retenue')+')');cause=cause||'inverse';}
-    ecarts.push({o,reg,an,raisons,cause:cause||'autre'});
-  });
-  ecarts.sort((a,b)=>Math.abs(b.an-b.reg)-Math.abs(a.an-a.reg));
-  const per=textePeriode('an',null,null)||'toute la période';
-  const lib=sens==='net'?'du net':'des '+(sens==='credit'?'revenus':'dépenses');
-  const nomTotReg=sens==='credit'?'Total positif':sens==='debit'?'Total négatif':'Total net';
-  // écart regroupé par cause
-  const CAUSES={inverse:'Opérations réparties avec une ligne de sens inverse : le registre compte l’opération pour son montant net, '+
-      'l’analyse compte chaque ligne séparément (ex. salaire de 3 000 € réparti en +3 500 € salaire et −500 € impôts : 3 000 € de revenus dans le registre, 3 500 € dans l’analyse)',
-    deseq:'Répartitions déséquilibrées : la somme des lignes ne fait pas le montant de l’opération (souvent un import Money). L’analyse compte les lignes, le registre le montant',
-    vir:'Lignes de répartition classées en « Virement… » dans une opération qui n’est pas un virement : l’analyse les retire',autre:'Autres'};
-  const parCause={};ecarts.forEach(e=>{const c=parCause[e.cause]=parCause[e.cause]||{n:0,v:0};c.n++;c.v+=e.an-e.reg;});
-  let html='<div style="font-size:.9rem;line-height:1.6;margin-bottom:10px">'+esc(per)+'<br>'+
-    'Le registre (« '+nomTotReg+' ») compte <b class="num">'+eur(totReg)+'</b>, l’analyse compte <b class="num">'+eur(totAn)+'</b> : '+
-    (ecarts.length?'écart de <b class="num">'+eur(totAn-totReg)+'</b>, qui vient de '+ecarts.length+' opération'+(ecarts.length>1?'s':'')+' :':'aucun écart.')+'</div>'+
-    (ecarts.length?'<ul style="font-size:.84rem;color:var(--ink-2);margin:0 0 12px;padding-left:20px">'+
-      Object.keys(CAUSES).filter(k=>parCause[k]).map(k=>'<li style="margin-bottom:4px"><b class="num" style="color:var(--ink)">'+eur(parCause[k].v)+'</b> · '+
-        parCause[k].n+' opération'+(parCause[k].n>1?'s':'')+' — '+CAUSES[k]+'</li>').join('')+'</ul>':'')+
-    '<div style="font-size:.78rem;color:var(--ink-3);margin-bottom:10px">Si le registre t’affiche un autre montant que '+eur(totReg)+
-    ', vérifie qu’il est sur la même période, prévisionnels masqués, sans recherche ni filtre de statut ou de loupe. '+
-    'Pour corriger une opération (par exemple une répartition déséquilibrée), clique « Ouvrir ».</div>';
-  if(!ecarts.length)html+='<div class="rnone">Aucune opération n’est comptée différemment : les deux totaux concordent.</div>';
-  else html+='<div style="max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:9px"><table class="rtab"><thead><tr>'+
-    '<th>Date</th><th>Opération et cause</th><th class="r">Compté au registre</th><th class="r">Compté à l’analyse</th><th></th></tr></thead><tbody>'+
-    ecarts.map(e=>'<tr><td class="num">'+isoToFr(e.o.d)+'</td><td>'+esc(e.o.ti||'(sans tiers)')+' · <span class="num">'+eur(e.o.om)+'</span>'+
-      '<div class="sub">'+(e.raisons.map(esc).join('<br>')||'—')+'</div></td>'+
-      '<td class="r num">'+eur(e.reg)+'</td><td class="r num">'+eur(e.an)+'</td>'+
-      '<td><button class="rbtn" data-op="'+e.o.id+'">Ouvrir</button></td></tr>').join('')+'</tbody></table></div>';
-  const choix=await dlgOpen({title:'Pourquoi les totaux diffèrent',msg:'',html,wide:true,fermeDehors:true,buttons:[{t:'Fermer',v:false,p:true}],
-    onOpen:()=>document.querySelectorAll('#dlgBody [data-op]').forEach(b=>b.addEventListener('click',()=>dlgClose(+b.dataset.op)))});
-  if(typeof choix==='number')openModal(choix);
-}
 /* --- descente / remontée dans les niveaux --- */
 function drillInto(i){
   const x=anGroups[i];
