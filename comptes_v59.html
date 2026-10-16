@@ -275,6 +275,9 @@
   .k-l.dash{border-top-style:dashed}
   .k-r{display:inline-block;width:10px;height:10px;border-radius:2px;flex:none}
   .grtitle{font-size:.86rem;font-weight:600;margin-bottom:8px}
+  .grhead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+  .grh{display:inline-flex;align-items:center;gap:6px;color:var(--ink-3);font-size:.9rem;flex:none}
+  .grh input{width:120px}
   .grbox{width:100%;overflow:hidden;touch-action:pan-y}
   .grbox svg{display:block}
   .gr-grid{stroke:var(--line);stroke-width:1}
@@ -594,8 +597,8 @@
     </div>
     <div class="grhelp" id="gr-aide"></div>
     <div class="card grbilan" id="gr-total"></div>
-    <div class="card" id="gr-solde-card"><div class="grtitle" id="gr-solde-titre">Évolution du solde</div><div class="grbox" id="gr-solde"></div><div class="grleg" id="gr-leg"></div></div>
-    <div class="card" id="gr-flux-card"><div class="grtitle" id="gr-flux-titre"></div><div class="grbox" id="gr-flux"></div></div>
+    <div class="card" id="gr-solde-card"><div class="grhead"><div class="grtitle" id="gr-solde-titre">Évolution du solde</div><span class="grh" title="Hauteur du graphique">⇕<input type="range" id="gr-h-solde" min="160" max="900" step="20" oninput="grHauteur('solde',this.value)" onchange="grHauteur('solde',this.value,true);this.blur()"></span></div><div class="grbox" id="gr-solde"></div><div class="grleg" id="gr-leg"></div></div>
+    <div class="card" id="gr-flux-card"><div class="grhead"><div class="grtitle" id="gr-flux-titre"></div><span class="grh" title="Hauteur du graphique">⇕<input type="range" id="gr-h-flux" min="160" max="900" step="20" oninput="grHauteur('flux',this.value)" onchange="grHauteur('flux',this.value,true);this.blur()"></span></div><div class="grbox" id="gr-flux"></div></div>
     <div class="card grtab" id="gr-tab-wrap"><details><summary>Tableau des valeurs</summary><div class="tw"><table class="rtab" id="gr-table"></table></div></details></div>
     <div id="gr-tip"></div>
   </section>
@@ -2271,6 +2274,15 @@ function grEurAxe(c){const a=Math.abs(c)/100,s=c<0?'−':'';
   if(a>=1e6)return s+fmt0.format(a/1e6)+' M€';
   if(a>=1e4)return s+fmt0.format(a/1e3)+' k€';
   return s+fmt0.format(a)+' €';}
+/* hauteur de chaque graphique : réglable (curseur ⇕) et mémorisée ; par défaut selon la largeur */
+function grH(k,el){const v=+grShow()['h_'+k];if(v)return v;
+  return k==='solde'?(el.clientWidth<520?220:270):(el.clientWidth<520?180:220);}
+function grHauteur(k,v,garder){const s=grShow();s['h_'+k]=+v;
+  if(garder)try{setMeta('grShow3',JSON.stringify(s));}catch(e){}
+  const D=grData;if(!D||!D.tr)return;const el=document.getElementById('gr-'+k);grSortie();
+  (k==='solde'?grSvgSolde:grSvgFlux)(el,D,s);grBrancherSurvol(el);}
+function grBrancherSurvol(root){root.querySelectorAll('.gr-hit').forEach(h=>{
+  h.addEventListener('pointermove',grSurvol);h.addEventListener('pointerdown',grSurvol);h.addEventListener('pointerleave',grSortie);});}
 function grGeom(el,h){const w=Math.max(280,el.clientWidth||600);
   const m={l:w<520?50:64,r:12,t:12,b:26};return {w,h,m,iw:w-m.l-m.r,ih:h-m.t-m.b};}
 /* cadre commun : grille horizontale, étiquettes Y, étiquettes X (sous-ensemble sans chevauchement) */
@@ -2300,14 +2312,14 @@ function grBarre(x,w,y0,y1,col){
 }
 function grColCompte(i){return 'var(--g'+((i%8)+1)+')';}
 function grSvgSolde(el,D,sh){
-  const G=grGeom(el,el.clientWidth<520?220:270),series=[];
+  const G=grGeom(el,grH('solde',el)),series=[];
   if(sh.parcompte&&D.mode==='patrimoine')D.parCompte.forEach((c,i)=>series.push({v:c.v,col:grColCompte(i),larg:1.5}));
   if(D.mode==='compte'){
     if(sh.avecvir)series.push({v:D.solde,col:GR_SERIES.avecvir.col,larg:2,tirets:true});
     if(sh.horsvir)series.push({v:D.horsvir,col:GR_SERIES.horsvir.col,larg:2.25});
   }else if(sh.solde)series.push({v:D.solde,col:GR_SERIES.solde.col,larg:2.25});
   let mn=Infinity,mx=-Infinity;series.forEach(s=>s.v.forEach(v=>{if(v<mn)mn=v;if(v>mx)mx=v;}));
-  const nice=grNice(mn,mx,5),y=v=>G.m.t+G.ih*(1-(v-nice.lo)/(nice.hi-nice.lo));
+  const nice=grNice(mn,mx,Math.max(4,Math.round(G.ih/50))),y=v=>G.m.t+G.ih*(1-(v-nice.lo)/(nice.hi-nice.lo));
   let s=grCadre(G,D,y,nice);
   series.forEach(se=>{s+=grLigne(G,D,y,se.v,se.col,se.larg,se.tirets);});
   el.innerHTML='<svg width="'+G.w+'" height="'+G.h+'" role="img" aria-label="Évolution du solde">'+s+
@@ -2317,11 +2329,11 @@ function grSvgSolde(el,D,sh){
 }
 /* barres : revenus vers le haut / dépenses vers le bas ; virements à côté (reçus en haut, envoyés en bas) */
 function grSvgFlux(el,D,sh){
-  const G=grGeom(el,el.clientWidth<520?180:220),n=D.tr.length,bw=G.iw/n,vir=sh.vir&&D.mode==='compte';
+  const G=grGeom(el,grH('flux',el)),n=D.tr.length,bw=G.iw/n,vir=sh.vir&&D.mode==='compte';
   let mn=0,mx=0;
   for(let i=0;i<n;i++){if(sh.rev)mx=Math.max(mx,D.rev[i]);if(sh.dep)mn=Math.min(mn,-D.dep[i]);
     if(vir){mx=Math.max(mx,D.virIn[i]);mn=Math.min(mn,-D.virOut[i]);}}
-  const nice=grNice(mn,mx,4),y=v=>G.m.t+G.ih*(1-(v-nice.lo)/(nice.hi-nice.lo)),y0=y(0);
+  const nice=grNice(mn,mx,Math.max(3,Math.round(G.ih/50))),y=v=>G.m.t+G.ih*(1-(v-nice.lo)/(nice.hi-nice.lo)),y0=y(0);
   let s=grCadre(G,D,y,nice);
   const gap=Math.min(2,bw*0.1),lc=Math.min(bw*(vir?0.4:0.7),vir?28:40);
   for(let i=0;i<n;i++){
@@ -2455,8 +2467,8 @@ function renderGraphiques(){
   leg.innerHTML=sh.parcompte&&patri?D.parCompte.map((c,i)=>'<span><i class="k-l" style="border-color:'+grColCompte(i)+'"></i>'+esc(c.nom)+'</span>').join(''):'';
   if(voirS)grSvgSolde(document.getElementById('gr-solde'),D,sh);
   if(voirF)grSvgFlux(document.getElementById('gr-flux'),D,sh);
-  document.querySelectorAll('#v-graphiques .gr-hit').forEach(h=>{
-    h.addEventListener('pointermove',grSurvol);h.addEventListener('pointerdown',grSurvol);h.addEventListener('pointerleave',grSortie);});
+  grBrancherSurvol(document.getElementById('v-graphiques'));
+  ['solde','flux'].forEach(k=>{const r=document.getElementById('gr-h-'+k),b=document.getElementById('gr-'+k);if(r&&b)r.value=grH(k,b);});
   // tableau des valeurs : une ligne par tranche, colonnes dans l'ordre du calcul
   const mot=patri?'Patrimoine':'Solde';
   const cols=[['Période',i=>esc(grLib(D.tr[i],D.pas,true)),''],[patri?'Patrimoine début':'Sans vir. début',i=>eur(patri?D.debut[i]:(i?D.horsvir[i-1]:D.sDebut)),'r'],
