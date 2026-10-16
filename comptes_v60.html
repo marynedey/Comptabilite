@@ -2222,7 +2222,7 @@ function grShow(){
   return state.grShow;
 }
 function grToggle(k){const s=grShow();s[k]=s[k]?0:1;try{setMeta('grShow3',JSON.stringify(s));}catch(e){}renderGraphiques();}
-function grAideOuverte(o){const s=grShow();if((s.aide!==0)===o)return;s.aide=o?1:0;try{setMeta('grShow3',JSON.stringify(s));}catch(e){}}
+function grAideOuverte(o){const s=grShow();if((s.aide===1)===o)return;s.aide=o?1:0;try{setMeta('grShow3',JSON.stringify(s));}catch(e){}}
 function grSetMode(m){state.grMode=m;renderGraphiques();syncHist();}
 function grPasAuto(f,t){const j=Math.round((new Date(t+'T00:00:00')-new Date(f+'T00:00:00'))/86400000)+1;
   return j<=45?'jour':j<=190?'semaine':j<=366*6?'mois':'annee';}
@@ -2520,7 +2520,7 @@ function renderGraphiques(){
   if(fs){document.getElementById('gr-fstit').textContent=(patri?'Patrimoine':D.comptes[0].nom)+' · du '+isoToFr(D.f)+' au '+isoToFr(D.t);
     const bb=document.getElementById('gr-fs-barres');bb.classList.toggle('on',!!sh.fsBarres);bb.setAttribute('aria-pressed',!!sh.fsBarres);}
   cS.style.display=voirS?'':'none';cF.style.display=voirF?'':'none';tab.style.display='';
-  aide.style.display='';aide.innerHTML='<details'+(sh.aide===0?'':' open')+' ontoggle="grAideOuverte(this.open)"><summary>Comment lire ces graphiques</summary>'+
+  aide.style.display='';aide.innerHTML='<details'+(sh.aide===1?' open':'')+' ontoggle="grAideOuverte(this.open)"><summary>Comment lire ces graphiques</summary>'+
     grAide(D,sh)+'<div class="grastuce">Passe la souris (ou le doigt) sur un graphique pour voir le calcul de chaque '+GR_PAS[D.pas]+'.</div></details>';
   document.getElementById('gr-solde-titre').textContent=(patri?'Patrimoine':'Solde')+' à la fin de '+GR_CHAQUE[D.pas];
   document.getElementById('gr-flux-titre').textContent=[sh.rev&&'revenus',sh.dep&&'dépenses',sh.vir&&!patri&&'virements'].filter(Boolean).join(', ')
