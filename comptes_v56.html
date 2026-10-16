@@ -258,6 +258,42 @@
   .antot .v{font-size:1.35rem;font-weight:600}
   .antot .v.debit{color:var(--debit)} .antot .v.credit{color:var(--credit)} .antot .v.zero{color:var(--ink-3)}
   .antot .d{font-size:.82rem;color:var(--ink-3)}
+  /* ---- graphiques ---- */
+  :root{--g1:#2a78d6;--g2:#eb6834;--g3:#1baf7a;--g4:#eda100;--g5:#e87ba4;--g6:#008300;--g7:#6250d6;--g8:#e34948}
+  @media (prefers-color-scheme: dark){:root{--g1:#3987e5;--g2:#d95926;--g3:#199e70;--g4:#c98500;--g5:#d55181;--g6:#008300;--g7:#9085e9;--g8:#e66767}}
+  #v-graphiques .credit{color:var(--credit)} #v-graphiques .debit{color:var(--debit)} #v-graphiques .zero{color:var(--ink-3)}
+  .grtog{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px}
+  .grchip{display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border:1px solid var(--line-2);border-radius:14px;
+          font-size:.82rem;background:var(--card);color:var(--ink-3);cursor:pointer}
+  .grchip.on{color:var(--ink);border-color:var(--ink-3)}
+  .grchip:not(.on) i{opacity:.35}
+  .k-l{display:inline-block;width:16px;height:0;border-top:2.5px solid;flex:none}
+  .k-l.dash{border-top-style:dashed}
+  .k-r{display:inline-block;width:10px;height:10px;border-radius:2px;flex:none}
+  .grtitle{font-size:.86rem;font-weight:600;margin-bottom:8px}
+  .grbox{width:100%;overflow:hidden;touch-action:pan-y}
+  .grbox svg{display:block}
+  .gr-grid{stroke:var(--line);stroke-width:1}
+  .gr-zero{stroke:var(--ink-3);stroke-width:1}
+  .gr-ax{fill:var(--ink-3);font-size:11px;font-family:var(--sans)}
+  .gr-cross{stroke:var(--ink-3);stroke-width:1}
+  .gr-band{fill:var(--ink);opacity:.06}
+  .gr-dot{stroke:var(--card);stroke-width:2}
+  .gr-hit{fill:transparent;cursor:crosshair}
+  .grleg{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:.8rem;color:var(--ink-2);margin-top:8px}
+  .grleg span{display:inline-flex;align-items:center;gap:6px}
+  #gr-tip{position:fixed;z-index:60;display:none;pointer-events:none;background:var(--card);border:1px solid var(--line-2);border-radius:8px;
+          box-shadow:0 4px 16px rgba(0,0,0,.12);padding:8px 11px;font-size:.8rem;min-width:180px}
+  #gr-tip .tt-h{font-weight:600;margin-bottom:5px;color:var(--ink)}
+  #gr-tip .tt-l{display:flex;align-items:center;gap:8px;padding:1px 0}
+  #gr-tip .tt-l b{font-weight:600;min-width:92px;text-align:right}
+  #gr-tip .tt-l span{color:var(--ink-2)}
+  #gr-tip .tt-l .k-r[style*="transparent"]{border:1px solid var(--ink-3)}
+  .grtab summary{cursor:pointer;font-size:.86rem;color:var(--ink-2)}
+  .grtab .rtab{margin-top:10px}
+  .grtab .rtab td{font-size:.82rem;white-space:nowrap}
+  .grtab .tw{overflow:auto;max-height:420px}
+  @media (max-width:700px){#gr-total .v{font-size:1.1rem}#gr-total .tile{padding:11px 12px}}
   /* ---- histogramme horizontal de l'analyse ---- */
   .bars{display:flex;flex-direction:column;gap:4px}
   .barrow{display:grid;grid-template-columns:minmax(110px,180px) minmax(50px,1fr) minmax(190px,240px);
@@ -375,6 +411,7 @@
   <nav class="nav">
     <a data-v="registre" title="Registre (touche 1)" class="on" onclick="setView('registre')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16M4 12h16M4 19h16"/></svg>Registre</a>
     <a data-v="analyse" title="Analyse (touche 2)" onclick="setView('analyse')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5M4 19h16M8 16v-5M13 16V8M18 16v-9"/></svg>Analyse</a>
+    <a data-v="graphiques" title="Graphiques : solde et patrimoine" onclick="setView('graphiques')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19h16"/><path d="M4 15l5-5 4 3 7-7"/></svg>Graphiques</a>
     <a data-v="tiers" title="Destinataires (touche 3)" onclick="setView('tiers')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0112 0M16 7a3 3 0 010 6"/></svg>Tiers</a>
     <a data-v="categories" title="Catégories (touche 4)" onclick="setView('categories')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7l9-4 9 4M3 7v10l9 4 9-4V7M3 7l9 4 9-4M12 11v10"/></svg>Catégories</a>
     <a data-v="releve" onclick="setView('releve')" id="nav-releve" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h10l6 6v10H4z"/><path d="M9 14l2 2 4-4"/></svg>Relevé en cours</a>
@@ -496,6 +533,40 @@
     <div class="crumb" id="an-crumb"></div>
     <div class="antot" id="an-total"></div>
     <div class="card"><div class="bars" id="an-bars"></div></div>
+  </section>
+
+  <section class="view" id="v-graphiques">
+    <div class="top">
+      <div><h1>Graphiques</h1><div class="meta" id="gr-meta"></div></div>
+      <div class="actions">
+        <div class="seg" style="display:inline-flex;margin-right:8px;margin-bottom:0">
+          <button id="gr-m-compte" class="segbtn on" onclick="grSetMode('compte')" title="Le compte choisi dans la liste de gauche">Ce compte</button>
+          <button id="gr-m-patri" class="segbtn" onclick="grSetMode('patrimoine')" title="Tous les comptes additionnés">Patrimoine</button>
+        </div>
+        <span class="periode" id="gr-periode-wrap">
+          <input type="hidden" id="gr-periode" value="annee">
+          <button type="button" class="pchip" data-m="tout" onclick="setPeriode('gr','tout')">Tout</button>
+          <button type="button" class="pchip" data-m="mois" onclick="setPeriode('gr','mois')">Ce mois</button>
+          <button type="button" class="pchip" data-m="moisdernier" onclick="setPeriode('gr','moisdernier')">Mois −1</button>
+          <button type="button" class="pchip" data-m="3mois" onclick="setPeriode('gr','3mois')">3 mois</button>
+          <button type="button" class="pchip on" data-m="annee" onclick="setPeriode('gr','annee')">Cette année</button>
+          <button type="button" class="pchip" data-m="perso" onclick="setPeriode('gr','perso')">Dates…</button>
+        </span>
+        <input type="text" id="gr-from" class="dt datef" style="display:none" maxlength="8" inputmode="numeric" placeholder="JJ/MM/AA" oninput="maskDate(this)" onblur="fixDate(this)">
+        <span id="gr-sep" style="display:none;align-self:center;color:var(--ink-3)">au</span>
+        <input type="text" id="gr-to" class="dt datef" style="display:none" maxlength="8" inputmode="numeric" placeholder="JJ/MM/AA" oninput="maskDate(this)" onblur="fixDate(this)">
+        <select id="gr-pas" onchange="renderGraphiques()" title="Regroupement des points">
+          <option value="auto">Pas : auto</option><option value="jour">Par jour</option><option value="semaine">Par semaine</option>
+          <option value="mois">Par mois</option><option value="annee">Par année</option>
+        </select>
+      </div>
+    </div>
+    <div class="grtog" id="gr-tog"></div>
+    <div class="tiles" id="gr-total"></div>
+    <div class="card" id="gr-solde-card"><div class="grtitle" id="gr-solde-titre">Évolution du solde</div><div class="grbox" id="gr-solde"></div><div class="grleg" id="gr-leg"></div></div>
+    <div class="card" id="gr-flux-card"><div class="grtitle" id="gr-flux-titre"></div><div class="grbox" id="gr-flux"></div></div>
+    <div class="card grtab" id="gr-tab-wrap"><details><summary>Tableau des valeurs</summary><div class="tw"><table class="rtab" id="gr-table"></table></div></details></div>
+    <div id="gr-tip"></div>
   </section>
 
   <section class="view" id="v-tiers">
@@ -876,7 +947,7 @@ const WASM_B64="AGFzbQEAAAABoARFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/YAF/AGACf38AYAR/
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const APP_BUILD='v55';
+const APP_BUILD='v56';
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
 let SQL=null,db=null,idbOK=true,dirty=0,saveTimer=null;
@@ -1255,7 +1326,7 @@ function setView(v,noPush){state.view=v;
   if(!noPush&&!_navSuppress)pushHist();}
 /* ---- historique de navigation (retour / avancer partout) ---- */
 function snapshotNav(){
-  return {view:state.view,anPath:state.anPath.slice(),anSens:state.anSens,
+  return {view:state.view,anPath:state.anPath.slice(),anSens:state.anSens,grMode:state.grMode||'compte',
     fSearch:(document.getElementById('f-search')||{}).value||'',
     fStatuts:statutsChips().filter(c=>c.classList.contains('on')).map(c=>c.dataset.s),
     fPeriode:(document.getElementById('f-periode')||{}).value||'tout',
@@ -1290,7 +1361,7 @@ async function demanderQuitter(){
 }
 function restoreNav(s){
   if(!s)return;
-  state.anPath=(s.anPath||[]).slice();state.anSens=s.anSens||'debit';state.catVides=!!s.catVides;state.fSens=s.fSens||null;state.fCat=s.fCat||null;
+  state.anPath=(s.anPath||[]).slice();state.anSens=s.anSens||'debit';state.grMode=s.grMode||'compte';state.catVides=!!s.catVides;state.fSens=s.fSens||null;state.fCat=s.fCat||null;
   const set=(id,val)=>{const e=document.getElementById(id);if(e&&val!==undefined)e.value=val;};
   set('f-search',s.fSearch||'');set('cat-search',s.catSearch||'');set('ti-search',s.tiSearch||'');
   set('f-periode',s.fPeriode||'tout');set('f-horizon',s.fHorizon||'tout');
@@ -1306,6 +1377,7 @@ function render(){
   sidebar();
   if(state.view==='registre')renderRegistre();
   else if(state.view==='analyse')renderAnalyse();
+  else if(state.view==='graphiques')renderGraphiques();
   else if(state.view==='tiers')renderTiers();
   else if(state.view==='categories')renderCategories();
   else if(state.view==='corbeille')renderCorbeille();
@@ -1452,7 +1524,7 @@ function periodeChanged(pfx){
     if(!to.value)to.value=isoToShort(todayISO());
     setTimeout(()=>{if(from){from.focus();from.select&&from.select();}},0);
   }
-  pfx==='f'?goPage(1):renderAnalyse();}
+  pfx==='f'?goPage(1):pfx==='gr'?renderGraphiques():renderAnalyse();}
 /* solde du compte à la fin d'une journée (comme la colonne Solde : opérations non annulées,
    prévisionnelles comprises) */
 function soldeAu(iso){return scal(`SELECT (SELECT solde_initial FROM compte WHERE id=$a)+COALESCE(SUM(montant),0)
@@ -2067,8 +2139,250 @@ function goDepth(d){
 }
 function anBack(){ if(state.anPath.length){history.back();return true;} return false; }
 
+/* ============================================================
+   Graphiques : cours du solde d'un compte et patrimoine global
+   - solde = opérations réelles (hors prévisionnel / annulées), jusqu'à aujourd'hui ;
+   - flux (revenus / dépenses / virements) = lignes de lignesOps, même règle que le registre
+     et l'analyse ; les virements entre comptes sont à part ;
+   - « Solde hors virements » = solde de départ + cumul (revenus − dépenses) ;
+   - patrimoine = somme des comptes actifs (les virements internes s'y annulent).
+   ============================================================ */
+const GR_SERIES={
+  solde:{lib:'Solde',col:'var(--brand)',ligne:true},
+  horsvir:{lib:'Solde hors virements',col:'var(--ink-2)',ligne:true,tirets:true,mode:'compte'},
+  parcompte:{lib:'Détail par compte',col:'var(--g1)',ligne:true,mode:'patrimoine'},
+  rev:{lib:'Revenus',col:'var(--credit)'},
+  dep:{lib:'Dépenses',col:'var(--debit)'},
+  vir:{lib:'Virements',col:'var(--st-prev)'}
+};
+const GR_DEF={solde:1,horsvir:1,parcompte:0,rev:1,dep:1,vir:0};
+const GR_PAS={jour:'jour',semaine:'semaine',mois:'mois',annee:'année'};
+const MOIS_COURT=['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
+let grData=null;
+function grShow(){
+  if(!state.grShow){let s={};try{s=JSON.parse(getMeta('grShow','{}'))||{};}catch(e){}
+    state.grShow=Object.assign({},GR_DEF,s);}
+  return state.grShow;
+}
+function grToggle(k){const s=grShow();s[k]=s[k]?0:1;try{setMeta('grShow',JSON.stringify(s));}catch(e){}renderGraphiques();}
+function grSetMode(m){state.grMode=m;renderGraphiques();syncHist();}
+function grPasAuto(f,t){const j=Math.round((new Date(t+'T00:00:00')-new Date(f+'T00:00:00'))/86400000)+1;
+  return j<=45?'jour':j<=190?'semaine':j<=366*6?'mois':'annee';}
+/* découpe [f,t] en tranches (semaines du lundi au dimanche, mois et années civils, bornées à la période) */
+function grTranches(f,t,pas){
+  const out=[],fin=new Date(t+'T00:00:00');let d=new Date(f+'T00:00:00');
+  while(d<=fin){let e;
+    if(pas==='jour')e=new Date(d);
+    else if(pas==='semaine'){e=new Date(d);e.setDate(e.getDate()+(7-e.getDay())%7);}
+    else if(pas==='mois')e=new Date(d.getFullYear(),d.getMonth()+1,0);
+    else e=new Date(d.getFullYear(),11,31);
+    if(e>fin)e=new Date(fin);
+    out.push({f:isoDe(d),t:isoDe(e)});
+    d=new Date(e.getFullYear(),e.getMonth(),e.getDate()+1);
+  }
+  return out;
+}
+function grLib(tr,pas,long){const p=tr.f.split('-');
+  if(pas==='jour')return long?isoToFr(tr.f):p[2]+'/'+p[1];
+  if(pas==='semaine')return long?'Du '+isoToFr(tr.f)+' au '+isoToFr(tr.t):p[2]+'/'+p[1];
+  if(pas==='mois')return long?MOIS_FR[+p[1]-1]+' '+p[0]:MOIS_COURT[+p[1]-1]+' '+p[0].slice(2);
+  return p[0];}
+function grCalcul(){
+  const mode=state.grMode||'compte';
+  const comptes=mode==='compte'?qy('SELECT id,nom,solde_initial si FROM compte WHERE id=?',[state.acc])
+    :qy('SELECT id,nom,solde_initial si FROM compte WHERE actif=1 ORDER BY ordre_affichage,id');
+  if(!comptes.length)return null;
+  const OK=" o.compte_id IN ("+comptes.map(c=>+c.id).join(',')+") AND o.supprime=0 AND o.statut<>'annule' AND o.previsionnel=0";
+  const auj=todayISO(),b=periodBounds('gr')||{};
+  const f=b.f||scal('SELECT MIN(o.date_operation) FROM operation o WHERE'+OK)||auj;
+  const t=b.t&&b.t<auj?b.t:auj; // pas d'avenir : le solde s'arrête à aujourd'hui
+  if(f>t)return {mode,comptes,f,t,vide:true};
+  const pasSel=(document.getElementById('gr-pas')||{}).value||'auto';
+  let pas=pasSel==='auto'?grPasAuto(f,t):pasSel,tr=grTranches(f,t,pas);
+  const plusGros=['jour','semaine','mois','annee'];
+  while(tr.length>400&&pas!=='annee'){pas=plusGros[plusGros.indexOf(pas)+1];tr=grTranches(f,t,pas);}
+  const idx=d=>{let lo=0,hi=tr.length-1;while(lo<hi){const mi=(lo+hi)>>1;if(tr[mi].t<d)lo=mi+1;else hi=mi;}return lo;};
+  const p={$f:f,$t:t};
+  // solde de chaque compte la veille de la période
+  const s0={},delta={};
+  comptes.forEach(c=>{s0[c.id]=c.si;delta[c.id]=new Array(tr.length).fill(0);});
+  qy('SELECT o.compte_id c,SUM(o.montant) s FROM operation o WHERE'+OK+' AND o.date_operation<$f GROUP BY o.compte_id',{$f:f})
+    .forEach(r=>{s0[r.c]+=r.s;});
+  qy('SELECT o.compte_id c,o.date_operation d,SUM(o.montant) s FROM operation o WHERE'+OK+
+     ' AND o.date_operation BETWEEN $f AND $t GROUP BY o.compte_id,o.date_operation',p)
+    .forEach(r=>{delta[r.c][idx(r.d)]+=r.s;});
+  const parCompte=comptes.map(c=>{let s=s0[c.id];return {id:c.id,nom:c.nom,s0:s0[c.id],v:delta[c.id].map(x=>s+=x)};});
+  const sDebut=parCompte.reduce((a,c)=>a+c.s0,0);
+  const solde=tr.map((_,i)=>parCompte.reduce((a,c)=>a+c.v[i],0));
+  // flux : lignes comptables (opérations réparties ligne par ligne), virements à part
+  const rev=new Array(tr.length).fill(0),dep=rev.slice(),vir=rev.slice();
+  lignesOps(' WHERE'+OK+' AND o.date_operation BETWEEN $f AND $t',p).forEach(l=>{
+    const i=idx(l.d);if(l.vir)vir[i]+=l.m;else if(l.m>0)rev[i]+=l.m;else dep[i]-=l.m;});
+  let h=sDebut;const horsvir=tr.map((_,i)=>h+=rev[i]-dep[i]);
+  return {mode,comptes,f,t,pas,pasSel,tr,sDebut,solde,horsvir,parCompte,rev,dep,vir};
+}
+/* graduations « rondes » */
+function grNice(min,max,n){
+  if(min===max){const e=Math.max(Math.abs(min)*0.1,10000);min-=e;max+=e;}
+  const brut=(max-min)/n,mag=Math.pow(10,Math.floor(Math.log10(brut))),r=brut/mag;
+  const pas=(r>=7.5?10:r>=3.5?5:r>=1.5?2:1)*mag;
+  const lo=Math.floor(min/pas)*pas,hi=Math.ceil(max/pas)*pas,ticks=[];
+  for(let v=lo;v<=hi+pas/2;v+=pas)ticks.push(Math.round(v));
+  return {lo,hi,ticks};
+}
+function grEurAxe(c){const a=Math.abs(c)/100,s=c<0?'−':'';
+  if(a>=1e6)return s+fmt0.format(a/1e6)+' M€';
+  if(a>=1e4)return s+fmt0.format(a/1e3)+' k€';
+  return s+fmt0.format(a)+' €';}
+function grGeom(el,h){const w=Math.max(280,el.clientWidth||600);
+  const m={l:w<520?50:64,r:12,t:12,b:26};return {w,h,m,iw:w-m.l-m.r,ih:h-m.t-m.b};}
+/* cadre commun : grille horizontale, étiquettes Y, étiquettes X (sous-ensemble sans chevauchement) */
+function grCadre(G,D,y,nice){
+  const n=D.tr.length,bw=G.iw/n;let s='';
+  nice.ticks.forEach(v=>{const yy=y(v).toFixed(1);
+    s+='<line x1="'+G.m.l+'" x2="'+(G.w-G.m.r)+'" y1="'+yy+'" y2="'+yy+'" class="'+(v===0?'gr-zero':'gr-grid')+'"/>'+
+       '<text x="'+(G.m.l-6)+'" y="'+yy+'" dy=".32em" text-anchor="end" class="gr-ax">'+grEurAxe(v)+'</text>';});
+  const lw=D.pas==='mois'?52:D.pas==='annee'?40:44,every=Math.max(1,Math.ceil(lw/bw));
+  for(let i=0;i<n;i+=every)
+    s+='<text x="'+(G.m.l+bw*(i+.5)).toFixed(1)+'" y="'+(G.h-8)+'" text-anchor="middle" class="gr-ax">'+esc(grLib(D.tr[i],D.pas))+'</text>';
+  return s;
+}
+function grLigne(G,D,y,vals,col,larg,tirets){
+  const bw=G.iw/D.tr.length,pts=vals.map((v,i)=>(G.m.l+bw*(i+.5)).toFixed(1)+','+y(v).toFixed(1));
+  if(pts.length===1)return '<circle cx="'+pts[0].split(',')[0]+'" cy="'+pts[0].split(',')[1]+'" r="4" style="fill:'+col+'"/>';
+  return '<polyline points="'+pts.join(' ')+'" fill="none" stroke-width="'+larg+'" stroke-linejoin="round" stroke-linecap="round"'+
+    (tirets?' stroke-dasharray="6 4"':'')+' style="stroke:'+col+'"/>';
+}
+/* barre à bout arrondi (4px côté valeur), ancrée sur la ligne de base */
+function grBarre(x,w,y0,y1,col){
+  const h=Math.abs(y1-y0);if(h<0.5||w<=0)return '';
+  const r=Math.min(4,w/2,h),haut=y1<y0,a=Math.min(y0,y1),b=Math.max(y0,y1),X=x.toFixed(1),W=(x+w).toFixed(1);
+  const d=haut?'M'+X+','+b+'V'+(a+r)+'Q'+X+','+a+' '+(x+r).toFixed(1)+','+a+'H'+(x+w-r).toFixed(1)+'Q'+W+','+a+' '+W+','+(a+r)+'V'+b+'Z'
+              :'M'+X+','+a+'V'+(b-r)+'Q'+X+','+b+' '+(x+r).toFixed(1)+','+b+'H'+(x+w-r).toFixed(1)+'Q'+W+','+b+' '+W+','+(b-r)+'V'+a+'Z';
+  return '<path d="'+d+'" style="fill:'+col+'"/>';
+}
+function grColCompte(i){return 'var(--g'+((i%8)+1)+')';}
+function grSvgSolde(el,D,sh){
+  const G=grGeom(el,el.clientWidth<520?220:270),series=[];
+  if(sh.parcompte&&D.mode==='patrimoine')D.parCompte.forEach((c,i)=>series.push({v:c.v,col:grColCompte(i),larg:1.5}));
+  if(sh.horsvir&&D.mode==='compte')series.push({v:D.horsvir,col:GR_SERIES.horsvir.col,larg:2,tirets:true});
+  if(sh.solde)series.push({v:D.solde,col:GR_SERIES.solde.col,larg:2.25});
+  let mn=Infinity,mx=-Infinity;series.forEach(s=>s.v.forEach(v=>{if(v<mn)mn=v;if(v>mx)mx=v;}));
+  const nice=grNice(mn,mx,5),y=v=>G.m.t+G.ih*(1-(v-nice.lo)/(nice.hi-nice.lo));
+  let s=grCadre(G,D,y,nice);
+  series.forEach(se=>{s+=grLigne(G,D,y,se.v,se.col,se.larg,se.tirets);});
+  el.innerHTML='<svg width="'+G.w+'" height="'+G.h+'" role="img" aria-label="Évolution du solde">'+s+
+    '<line class="gr-cross" y1="'+G.m.t+'" y2="'+(G.m.t+G.ih)+'" style="display:none"/><g class="gr-dots"></g>'+
+    '<rect class="gr-hit" x="'+G.m.l+'" y="0" width="'+G.iw+'" height="'+G.h+'"/></svg>';
+  el._gr={G,y,series};
+}
+function grSvgFlux(el,D,sh){
+  const G=grGeom(el,el.clientWidth<520?180:220),n=D.tr.length,bw=G.iw/n;
+  let mn=0,mx=0;
+  for(let i=0;i<n;i++){if(sh.rev)mx=Math.max(mx,D.rev[i]);if(sh.dep)mn=Math.min(mn,-D.dep[i]);
+    if(sh.vir){mx=Math.max(mx,D.vir[i]);mn=Math.min(mn,D.vir[i]);}}
+  const nice=grNice(mn,mx,4),y=v=>G.m.t+G.ih*(1-(v-nice.lo)/(nice.hi-nice.lo)),y0=y(0);
+  let s=grCadre(G,D,y,nice);
+  const gap=Math.min(2,bw*0.1),lc=Math.min(bw*(sh.vir?0.4:0.7),sh.vir?28:40);
+  for(let i=0;i<n;i++){
+    const cx=G.m.l+bw*(i+.5),x1=sh.vir?cx-lc-gap/2:cx-lc/2;
+    if(sh.rev)s+=grBarre(x1,lc,y0,y(D.rev[i]),GR_SERIES.rev.col);
+    if(sh.dep)s+=grBarre(x1,lc,y0,y(-D.dep[i]),GR_SERIES.dep.col);
+    if(sh.vir)s+=grBarre(cx+gap/2,lc,y0,y(D.vir[i]),GR_SERIES.vir.col);
+  }
+  s+='<line x1="'+G.m.l+'" x2="'+(G.w-G.m.r)+'" y1="'+y0.toFixed(1)+'" y2="'+y0.toFixed(1)+'" class="gr-zero"/>';
+  el.innerHTML='<svg width="'+G.w+'" height="'+G.h+'" role="img" aria-label="Revenus, dépenses et virements">'+s+
+    '<rect class="gr-band" y="'+G.m.t+'" width="'+bw.toFixed(1)+'" height="'+G.ih+'" style="display:none"/>'+
+    '<rect class="gr-hit" x="'+G.m.l+'" y="0" width="'+G.iw+'" height="'+G.h+'"/></svg>';
+  el._gr={G};
+}
+/* survol : réticule synchronisé sur les deux graphiques + info-bulle avec toutes les séries */
+function grSurvol(e){
+  const D=grData;if(!D||!D.tr)return;
+  const svg=e.currentTarget.ownerSVGElement,box=svg.parentNode,G=box._gr.G,r=svg.getBoundingClientRect();
+  const n=D.tr.length,bw=G.iw/n,i=Math.max(0,Math.min(n-1,Math.floor((e.clientX-r.left-G.m.l)/bw)));
+  const cx=G.m.l+bw*(i+.5),sh=grShow();
+  ['gr-solde','gr-flux'].forEach(id=>{const b=document.getElementById(id);if(!b||!b._gr)return;
+    const c=b.querySelector('.gr-cross'),bd=b.querySelector('.gr-band'),dots=b.querySelector('.gr-dots');
+    if(c){c.setAttribute('x1',cx);c.setAttribute('x2',cx);c.style.display='';}
+    if(bd){bd.setAttribute('x',(cx-bw/2).toFixed(1));bd.style.display='';}
+    if(dots)dots.innerHTML=b._gr.series.map(se=>'<circle cx="'+cx.toFixed(1)+'" cy="'+b._gr.y(se.v[i]).toFixed(1)+'" r="4" class="gr-dot" style="fill:'+se.col+'"/>').join('');
+  });
+  const L=[];const ligne=(v,lib,col,forme,cls)=>L.push('<div class="tt-l"><i class="'+(forme||'k-l')+'" style="'+(forme==='k-r'?'background:':'border-color:')+col+'"></i>'+
+    '<b class="num'+(cls?' '+cls:'')+'">'+eur(v)+'</b><span>'+lib+'</span></div>');
+  if(sh.solde)ligne(D.solde[i],D.mode==='patrimoine'?'Patrimoine (fin)':'Solde (fin)',GR_SERIES.solde.col);
+  if(sh.horsvir&&D.mode==='compte')ligne(D.horsvir[i],'Solde hors virements',GR_SERIES.horsvir.col,'k-l dash');
+  if(sh.parcompte&&D.mode==='patrimoine')D.parCompte.forEach((c,k)=>ligne(c.v[i],esc(c.nom),grColCompte(k)));
+  if(sh.rev)ligne(D.rev[i],'Revenus',GR_SERIES.rev.col,'k-r','credit');
+  if(sh.dep)ligne(-D.dep[i],'Dépenses',GR_SERIES.dep.col,'k-r','debit');
+  if(sh.rev&&sh.dep)ligne(D.rev[i]-D.dep[i],'Net (hors virements)','transparent','k-r',clsSigne(D.rev[i]-D.dep[i]));
+  if(sh.vir)ligne(D.vir[i],D.mode==='patrimoine'?'Virements (net)':'Virements',GR_SERIES.vir.col,'k-r');
+  const tip=document.getElementById('gr-tip');
+  tip.innerHTML='<div class="tt-h">'+esc(grLib(D.tr[i],D.pas,true))+'</div>'+L.join('');
+  tip.style.display='block';
+  const tw=tip.offsetWidth,th=tip.offsetHeight,vw=document.documentElement.clientWidth;
+  let x=e.clientX+14;if(x+tw>vw-8)x=e.clientX-14-tw;if(x<8)x=8;
+  let yy=e.clientY-th-12;if(yy<8)yy=e.clientY+16;
+  tip.style.left=x+'px';tip.style.top=yy+'px';
+}
+function grSortie(){
+  const tip=document.getElementById('gr-tip');if(tip)tip.style.display='none';
+  document.querySelectorAll('#v-graphiques .gr-cross,#v-graphiques .gr-band').forEach(c=>c.style.display='none');
+  document.querySelectorAll('#v-graphiques .gr-dots').forEach(g=>g.innerHTML='');
+}
+function renderGraphiques(){
+  const mode=state.grMode||'compte',sh=grShow(),patri=mode==='patrimoine';
+  document.getElementById('gr-m-compte').classList.toggle('on',!patri);
+  document.getElementById('gr-m-patri').classList.toggle('on',patri);
+  document.getElementById('gr-tog').innerHTML=Object.keys(GR_SERIES).filter(k=>!GR_SERIES[k].mode||GR_SERIES[k].mode===mode).map(k=>{
+    const s=GR_SERIES[k],cle=s.ligne?'<i class="k-l'+(s.tirets?' dash':'')+'" style="border-color:'+s.col+'"></i>':'<i class="k-r" style="background:'+s.col+'"></i>';
+    return '<button type="button" class="grchip'+(sh[k]?' on':'')+'" aria-pressed="'+!!sh[k]+'" title="Afficher / masquer" onclick="grToggle(\''+k+'\')">'+
+      cle+(k==='solde'&&patri?'Patrimoine':s.lib)+'</button>';}).join('');
+  grSortie();
+  const D=grData=grCalcul();
+  const meta=document.getElementById('gr-meta'),tot=document.getElementById('gr-total');
+  const cS=document.getElementById('gr-solde-card'),cF=document.getElementById('gr-flux-card'),tab=document.getElementById('gr-tab-wrap');
+  const titre=patri?'Tous les comptes ('+(D?D.comptes.length:0)+')':(D?D.comptes[0].nom:'');
+  if(!D||D.vide){meta.textContent=titre;tot.innerHTML='<div class="tile" style="grid-column:1/-1;color:var(--ink-3)">Aucune donnée sur cette période (le solde n’est tracé que jusqu’à aujourd’hui).</div>';
+    cS.style.display=cF.style.display=tab.style.display='none';return;}
+  meta.textContent=titre+' · du '+isoToFr(D.f)+' au '+isoToFr(D.t)+' · par '+GR_PAS[D.pas]+
+    (D.pasSel!=='auto'&&D.pasSel!==D.pas?' (trop de points par '+GR_PAS[D.pasSel]+')':'')+' · opérations réelles, hors prévisionnel';
+  // chiffres clés
+  const n=D.tr.length,sFin=D.solde[n-1],sum=a=>a.reduce((x,v)=>x+v,0),R=sum(D.rev),Dp=sum(D.dep),V=sum(D.vir);
+  const veille=avancerJours(D.f,-1);
+  const tuiles=[
+    {k:(patri?'Patrimoine':'Solde')+' au '+isoToFr(veille),v:eur(D.sDebut),c:'',d:'Veille de la période'},
+    {k:(patri?'Patrimoine':'Solde')+' au '+isoToFr(D.t),v:eur(sFin),c:'',d:'Variation <b class="num '+clsSigne(sFin-D.sDebut)+'">'+eur(sFin-D.sDebut)+'</b>'},
+    {k:'Revenus − dépenses',v:eur(R-Dp),c:clsSigne(R-Dp),d:'<span class="credit num">'+eur(R)+'</span> − <span class="debit num">'+eur(Dp)+'</span>'},
+    {k:patri?'Virements (net)':'Virements (net)',v:eur(V),c:clsSigne(V),d:patri?'≈ 0 si tous les comptes sont suivis':'Entre tes comptes, à part'}];
+  tot.innerHTML=tuiles.map(t=>'<div class="tile"><div class="k">'+t.k+'</div><div class="v num '+t.c+'">'+t.v+'</div><div class="d">'+t.d+'</div></div>').join('');
+  // graphiques
+  const voirS=sh.solde||(sh.horsvir&&!patri)||(sh.parcompte&&patri),voirF=sh.rev||sh.dep||sh.vir;
+  cS.style.display=voirS?'':'none';cF.style.display=voirF?'':'none';tab.style.display='';
+  document.getElementById('gr-solde-titre').textContent=patri?'Évolution du patrimoine':'Évolution du solde';
+  document.getElementById('gr-flux-titre').textContent=[sh.rev&&'revenus',sh.dep&&'dépenses',sh.vir&&'virements'].filter(Boolean).join(', ')
+    .replace(/^./,c=>c.toUpperCase()).replace(/, ([^,]*)$/,' et $1')+' par '+GR_PAS[D.pas];
+  const leg=document.getElementById('gr-leg');
+  leg.innerHTML=sh.parcompte&&patri?D.parCompte.map((c,i)=>'<span><i class="k-l" style="border-color:'+grColCompte(i)+'"></i>'+esc(c.nom)+'</span>').join(''):'';
+  if(voirS)grSvgSolde(document.getElementById('gr-solde'),D,sh);
+  if(voirF)grSvgFlux(document.getElementById('gr-flux'),D,sh);
+  document.querySelectorAll('#v-graphiques .gr-hit').forEach(h=>{
+    h.addEventListener('pointermove',grSurvol);h.addEventListener('pointerdown',grSurvol);h.addEventListener('pointerleave',grSortie);});
+  // tableau des valeurs
+  const cols=[['Période',i=>esc(grLib(D.tr[i],D.pas,true)),''],
+    [patri?'Patrimoine (fin)':'Solde (fin)',i=>eur(D.solde[i]),'r']];
+  if(!patri)cols.push(['Hors virements',i=>eur(D.horsvir[i]),'r']);
+  if(patri&&sh.parcompte)D.parCompte.forEach(c=>cols.push([esc(c.nom),i=>eur(c.v[i]),'r']));
+  cols.push(['Revenus',i=>'<span class="credit">'+eur(D.rev[i])+'</span>','r'],['Dépenses',i=>'<span class="debit">'+eur(-D.dep[i])+'</span>','r'],
+    ['Net',i=>'<span class="'+clsSigne(D.rev[i]-D.dep[i])+'">'+eur(D.rev[i]-D.dep[i])+'</span>','r'],['Virements',i=>eur(D.vir[i]),'r']);
+  let h='<thead><tr>'+cols.map(c=>'<th'+(c[2]?' style="text-align:right"':'')+'>'+c[0]+'</th>').join('')+'</tr></thead><tbody>';
+  for(let i=n-1;i>=0;i--)h+='<tr>'+cols.map(c=>'<td class="num '+c[2]+'">'+c[1](i)+'</td>').join('')+'</tr>';
+  document.getElementById('gr-table').innerHTML=h+'</tbody>';
+}
+
 // bouton « retour » de la souris / du navigateur
-window.addEventListener('resize',()=>{if(state.view==='registre'){syncHeadWidth();appliquerHauteurRegistre();}});
+window.addEventListener('resize',()=>{if(state.view==='registre'){syncHeadWidth();appliquerHauteurRegistre();}
+  else if(state.view==='graphiques'){clearTimeout(window._grRsz);window._grRsz=setTimeout(renderGraphiques,120);}});
 window.addEventListener('popstate',e=>{
   if(e.state&&e.state.__base){restoreNav(e.state);demanderQuitter();return;} // un « retour » de trop
   if(e.state)restoreNav(e.state);
@@ -3743,6 +4057,7 @@ function syncClear(){const v=document.getElementById('f-search').value;
 function clearSearch(){const e=document.getElementById('f-search');e.value='';syncClear();goPage(1);if(!ecranTactile())e.focus();}
 bindDate('f-from',()=>goPage(1));bindDate('f-to',()=>goPage(1));
 bindDate('an-from',()=>renderAnalyse());bindDate('an-to',()=>renderAnalyse());
+bindDate('gr-from',()=>renderGraphiques());bindDate('gr-to',()=>renderGraphiques());
 let searchT;
 document.getElementById('f-search').addEventListener('input',()=>{syncClear();clearTimeout(searchT);searchT=setTimeout(()=>goPage(1),250);});
 document.getElementById('f-search').addEventListener('keydown',e=>{
