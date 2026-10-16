@@ -280,17 +280,17 @@
   .grh input{width:120px}
   .grhr{display:inline-flex;align-items:center;gap:12px;flex:none}
   .grfsbtn{padding:4px 9px;font-size:.8rem}
-  .grfsbar,.grfsrot{display:none}
+  .grfsbar{display:none}
   body.gr-plein #v-graphiques{position:fixed;inset:0;z-index:50;background:var(--paper);padding:8px 12px;margin:0;overflow:hidden;display:flex;flex-direction:column}
-  body.gr-plein #v-graphiques>:not(.grfsbar):not(.grfsrot):not(#gr-solde-card):not(#gr-flux-card):not(#gr-tip){display:none!important}
-  body.gr-plein:not(.gr-fs-barres) #gr-flux-card{display:none!important}
+  body.gr-plein #v-graphiques>:not(.grfsbar):not(#gr-solde-card):not(#gr-flux-card):not(#gr-tip){display:none!important}
+  body.gr-plein:not(.gr-fs-barres) #gr-flux-card,body.gr-plein.gr-fs-barres #gr-solde-card{display:none!important}
+  body.gr-auto .grfsclose{display:none}
+  @media (hover:none) and (pointer:coarse){.grfsbtn{display:none}} /* téléphone / tablette : le plein écran se fait en tournant l'appareil */
   body.gr-plein .grfsbar{display:flex;align-items:center;gap:10px;margin-bottom:6px}
   body.gr-plein .grfstit{flex:1;min-width:0;font-size:.82rem;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   body.gr-plein #v-graphiques .card{margin-bottom:6px;padding:6px 10px}
   body.gr-plein .grtitle{margin-bottom:2px}
   body.gr-plein .grh,body.gr-plein .grfsbtn{display:none}
-  @media (orientation:portrait){body.gr-plein .grfsrot{display:block;font-size:.8rem;color:var(--ink-2);background:var(--card-alt);
-    border:1px solid var(--line);border-radius:8px;padding:6px 10px;margin-bottom:6px}}
   .grbox{width:100%;overflow:hidden;touch-action:pan-y}
   .grbox svg{display:block}
   .gr-grid{stroke:var(--line);stroke-width:1}
@@ -579,10 +579,12 @@
     <div class="top"><div><h1>Graphiques</h1><div class="meta" id="gr-meta"></div></div></div>
     <div class="grfsbar" id="gr-fsbar">
       <span class="grfstit" id="gr-fstit"></span>
-      <button type="button" class="grchip" id="gr-fs-barres" onclick="grFsBarres()" title="Afficher / masquer les barres revenus et dépenses"><i class="k-r" style="background:var(--credit)"></i>Barres</button>
-      <button type="button" onclick="grPleinEcran(false)" title="Quitter le plein écran (Échap)">✕ Fermer</button>
+      <div class="seg" style="display:inline-flex;margin:0">
+        <button type="button" id="gr-fs-courbe" class="segbtn on" onclick="grFsVue(0)">Courbe</button>
+        <button type="button" id="gr-fs-barres" class="segbtn" onclick="grFsVue(1)">Barres</button>
+      </div>
+      <button type="button" class="grfsclose" onclick="grPleinEcran(false)" title="Quitter le plein écran (Échap)">✕ Fermer</button>
     </div>
-    <div class="grfsrot">Tourne ton téléphone à l’horizontale pour mieux voir la courbe.</div>
     <div class="grctl">
       <span class="grlab">Voir</span>
       <div class="seg" style="display:inline-flex;margin:0;justify-self:start">
@@ -1376,6 +1378,7 @@ function setView(v,noPush){if(v!=='graphiques'&&document.body.classList.contains
   document.querySelectorAll('.view').forEach(s=>s.classList.toggle('on',s.id==='v-'+v));
   const m=document.querySelector('main');if(m)m.scrollTop=0;render();
   closeMenu();
+  if(v==='graphiques')grAuto();
   if(!noPush&&!_navSuppress)pushHist();}
 /* ---- historique de navigation (retour / avancer partout) ---- */
 function snapshotNav(){
@@ -2296,11 +2299,8 @@ function grEurAxe(c){const a=Math.abs(c)/100,s=c<0?'−':'';
 /* hauteur de chaque graphique : réglable (curseur ⇕) et mémorisée ; par défaut selon la largeur */
 function grH(k,el){
   if(document.body.classList.contains('gr-plein')){
-    const sec=document.getElementById('v-graphiques'),bar=document.getElementById('gr-fsbar'),rot=sec.querySelector('.grfsrot'),leg=document.getElementById('gr-leg');
-    const barres=!!grShow().fsBarres,cartes=barres?2:1;
-    const dispo=window.innerHeight-16-bar.offsetHeight-6-(rot.offsetHeight?rot.offsetHeight+6:0)-(leg?leg.offsetHeight:0)-cartes*44-(state.grFsTrop||0);
-    if(!barres)return Math.max(140,dispo);
-    return Math.max(70,Math.round(dispo*(k==='solde'?0.6:0.4)));
+    const bar=document.getElementById('gr-fsbar'),leg=document.getElementById('gr-leg');
+    return Math.max(120,window.innerHeight-16-bar.offsetHeight-6-(k==='solde'&&leg?leg.offsetHeight:0)-44-(state.grFsTrop||0));
   }
   const v=+grShow()['h_'+k];if(v)return v;
   return k==='solde'?(el.clientWidth<520?220:270):(el.clientWidth<520?180:220);}
@@ -2315,22 +2315,33 @@ function grBrancherSurvol(root){root.querySelectorAll('.gr-hit').forEach(h=>{
 document.addEventListener('pointerdown',e=>{if(state.view==='graphiques'&&!(e.target.closest&&e.target.closest('.gr-hit')))grSortie();},true);
 /* plein écran (mobile : à l'horizontale) : la courbe seule, les barres en option */
 let grFsNatif=false;
-async function grPleinEcran(on){
+async function grPleinEcran(on,auto){
   const d=document,el=d.documentElement;
-  d.body.classList.toggle('gr-plein',on);d.body.classList.toggle('gr-fs-barres',on&&!!grShow().fsBarres);grSortie();
-  if(on){
+  d.body.classList.toggle('gr-plein',on);d.body.classList.toggle('gr-auto',on&&!!auto);
+  d.body.classList.toggle('gr-fs-barres',on&&!!grShow().fsBarres);grSortie();
+  if(!on)grFsAuto=false;
+  if(on&&!auto){
     if(!pleinEcranActif()&&(el.requestFullscreen||el.webkitRequestFullscreen)){
       try{await (el.requestFullscreen||el.webkitRequestFullscreen).call(el,{navigationUI:'hide'});grFsNatif=true;}catch(e){grFsNatif=false;}}
     try{if(screen.orientation&&screen.orientation.lock)await screen.orientation.lock('landscape');}catch(e){} // refusé hors plein écran (iPhone…) : on invite à tourner
-  }else{
+  }else if(!on){
     try{if(screen.orientation&&screen.orientation.unlock)screen.orientation.unlock();}catch(e){}
     if(grFsNatif&&pleinEcranActif())try{await (d.exitFullscreen||d.webkitExitFullscreen).call(d);}catch(e){}
     grFsNatif=false;
   }
   if(state.view==='graphiques')renderGraphiques();
 }
-function grFsBarres(){const s=grShow();s.fsBarres=s.fsBarres?0:1;try{setMeta('grShow3',JSON.stringify(s));}catch(e){}
+function grFsVue(barres){const s=grShow();s.fsBarres=barres?1:0;try{setMeta('grShow3',JSON.stringify(s));}catch(e){}
   document.body.classList.toggle('gr-fs-barres',!!s.fsBarres);renderGraphiques();}
+/* téléphone tourné à l'horizontale sur la vue Graphiques : plein écran automatique ; retour à la verticale : on en sort */
+const grMQ=window.matchMedia('(orientation: landscape) and (pointer: coarse) and (max-height: 520px)');
+let grFsAuto=false;
+function grAuto(){
+  const on=grMQ.matches&&state.view==='graphiques',plein=document.body.classList.contains('gr-plein');
+  if(on&&!plein){grFsAuto=true;grPleinEcran(true,true);}
+  else if(!on&&grFsAuto)grPleinEcran(false,true);
+}
+if(grMQ.addEventListener)grMQ.addEventListener('change',grAuto);else if(grMQ.addListener)grMQ.addListener(grAuto);
 // sortie du plein écran par le système (retour, Échap) : on quitte aussi la vue plein écran
 ['fullscreenchange','webkitfullscreenchange'].forEach(t=>document.addEventListener(t,()=>{
   if(!pleinEcranActif()&&grFsNatif&&document.body.classList.contains('gr-plein'))grPleinEcran(false);}));
@@ -2518,7 +2529,7 @@ function renderGraphiques(){
   const voirS=V.sans||V.avec||V.patrimoine||V.parcompte,voirF=sh.rev||sh.dep||(sh.vir&&!patri);
   const fs=document.body.classList.contains('gr-plein');
   if(fs){document.getElementById('gr-fstit').textContent=(patri?'Patrimoine':D.comptes[0].nom)+' · du '+isoToFr(D.f)+' au '+isoToFr(D.t);
-    const bb=document.getElementById('gr-fs-barres');bb.classList.toggle('on',!!sh.fsBarres);bb.setAttribute('aria-pressed',!!sh.fsBarres);}
+    document.getElementById('gr-fs-courbe').classList.toggle('on',!sh.fsBarres);document.getElementById('gr-fs-barres').classList.toggle('on',!!sh.fsBarres);}
   cS.style.display=voirS?'':'none';cF.style.display=voirF?'':'none';tab.style.display='';
   aide.style.display='';aide.innerHTML='<details'+(sh.aide===1?' open':'')+' ontoggle="grAideOuverte(this.open)"><summary>Comment lire ces graphiques</summary>'+
     grAide(D,sh)+'<div class="grastuce">Passe la souris (ou le doigt) sur un graphique pour voir le calcul de chaque '+GR_PAS[D.pas]+'.</div></details>';
@@ -2527,10 +2538,10 @@ function renderGraphiques(){
     .replace(/^./,c=>c.toUpperCase()).replace(/, ([^,]*)$/,' et $1')+' par '+GR_PAS[D.pas];
   const leg=document.getElementById('gr-leg');
   leg.innerHTML=sh.parcompte&&patri?D.parCompte.map((c,i)=>'<span><i class="k-l" style="border-color:'+grColCompte(i)+'"></i>'+esc(c.nom)+'</span>').join(''):'';
-  if(voirS)grSvgSolde(document.getElementById('gr-solde'),D,sh);
-  if(voirF)grSvgFlux(document.getElementById('gr-flux'),D,sh);
+  if(voirS&&!(fs&&sh.fsBarres))grSvgSolde(document.getElementById('gr-solde'),D,sh);
+  if(voirF&&!(fs&&!sh.fsBarres))grSvgFlux(document.getElementById('gr-flux'),D,sh);
   if(fs){const sec=document.getElementById('v-graphiques'),trop=sec.scrollHeight-sec.clientHeight; // marges mal estimées : on réduit d'autant
-    if(trop>0){state.grFsTrop=trop+2;if(voirS)grSvgSolde(document.getElementById('gr-solde'),D,sh);if(voirF)grSvgFlux(document.getElementById('gr-flux'),D,sh);state.grFsTrop=0;}}
+    if(trop>0){state.grFsTrop=trop+2;if(sh.fsBarres){if(voirF)grSvgFlux(document.getElementById('gr-flux'),D,sh);}else if(voirS)grSvgSolde(document.getElementById('gr-solde'),D,sh);state.grFsTrop=0;}}
   grBrancherSurvol(document.getElementById('v-graphiques'));
   ['solde','flux'].forEach(k=>{const r=document.getElementById('gr-h-'+k),b=document.getElementById('gr-'+k);if(r&&b)r.value=grH(k,b);});
   // tableau des valeurs : une ligne par tranche, colonnes dans l'ordre du calcul
