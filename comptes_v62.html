@@ -285,6 +285,8 @@
   body.gr-plein #v-graphiques>:not(.grfsbar):not(#gr-solde-card):not(#gr-flux-card):not(#gr-tip){display:none!important}
   body.gr-plein:not(.gr-fs-barres) #gr-flux-card,body.gr-plein.gr-fs-barres #gr-solde-card{display:none!important}
   body.gr-auto .grfsclose{display:none}
+  .grfsfull{display:none;padding:4px 10px}
+  body.gr-auto:not(.gr-natif) .grfsfull{display:inline-flex}
   @media (hover:none) and (pointer:coarse){.grfsbtn{display:none}} /* téléphone / tablette : le plein écran se fait en tournant l'appareil */
   body.gr-plein .grfsbar{display:flex;align-items:center;gap:10px;margin-bottom:6px}
   body.gr-plein .grfstit{flex:1;min-width:0;font-size:.82rem;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -583,6 +585,7 @@
         <button type="button" id="gr-fs-courbe" class="segbtn on" onclick="grFsVue(0)">Courbe</button>
         <button type="button" id="gr-fs-barres" class="segbtn" onclick="grFsVue(1)">Barres</button>
       </div>
+      <button type="button" class="grfsfull" onclick="grFsNatifAuto()" title="Masquer la barre du navigateur">⛶</button>
       <button type="button" class="grfsclose" onclick="grPleinEcran(false)" title="Quitter le plein écran (Échap)">✕ Fermer</button>
     </div>
     <div class="grctl">
@@ -2342,9 +2345,20 @@ function grAuto(){
   else if(!on&&grFsAuto)grPleinEcran(false,true);
 }
 if(grMQ.addEventListener)grMQ.addEventListener('change',grAuto);else if(grMQ.addListener)grMQ.addListener(grAuto);
-// sortie du plein écran par le système (retour, Échap) : on quitte aussi la vue plein écran
+/* téléphone à l'horizontale : le navigateur n'accepte le vrai plein écran (sans sa barre) qu'après un geste ;
+   le premier appui sur l'écran le déclenche (pointerup / touchend comptent comme geste, pas la rotation) */
+async function grFsNatifAuto(){
+  const el=document.documentElement;
+  if(!document.body.classList.contains('gr-auto')||pleinEcranActif()||!(el.requestFullscreen||el.webkitRequestFullscreen))return;
+  try{await (el.requestFullscreen||el.webkitRequestFullscreen).call(el,{navigationUI:'hide'});grFsNatif=true;}catch(e){}
+}
+document.addEventListener('pointerup',e=>{if(e.pointerType!=='mouse')grFsNatifAuto();},true);
+// sortie du plein écran par le système (retour, Échap) : en mode manuel on quitte la vue plein écran ;
+// en mode automatique (téléphone à l'horizontale) on la garde, seule la barre du navigateur revient
 ['fullscreenchange','webkitfullscreenchange'].forEach(t=>document.addEventListener(t,()=>{
-  if(!pleinEcranActif()&&grFsNatif&&document.body.classList.contains('gr-plein'))grPleinEcran(false);}));
+  document.body.classList.toggle('gr-natif',pleinEcranActif());
+  if(pleinEcranActif()||!grFsNatif||!document.body.classList.contains('gr-plein'))return;
+  if(document.body.classList.contains('gr-auto'))grFsNatif=false;else grPleinEcran(false);}));
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.body.classList.contains('gr-plein')){e.preventDefault();e.stopPropagation();grPleinEcran(false);}},true);
 function grGeom(el,h){const w=Math.max(280,el.clientWidth||600);
   const m={l:w<520?50:64,r:12,t:12,b:26};return {w,h,m,iw:w-m.l-m.r,ih:h-m.t-m.b};}
