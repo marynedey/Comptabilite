@@ -262,7 +262,11 @@
   :root{--g1:#2a78d6;--g2:#eb6834;--g3:#1baf7a;--g4:#eda100;--g5:#e87ba4;--g6:#008300;--g7:#6250d6;--g8:#e34948}
   @media (prefers-color-scheme: dark){:root{--g1:#3987e5;--g2:#d95926;--g3:#199e70;--g4:#c98500;--g5:#d55181;--g6:#008300;--g7:#9085e9;--g8:#e66767}}
   #v-graphiques .credit{color:var(--credit)} #v-graphiques .debit{color:var(--debit)} #v-graphiques .zero{color:var(--ink-3)}
-  .grtog{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px}
+  .grctl{display:grid;grid-template-columns:auto 1fr;gap:10px 14px;align-items:center;margin:4px 0 18px}
+  .grlab{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3)}
+  .grline{display:flex;gap:8px;flex-wrap:wrap;align-items:center;min-height:38px}
+  .grtog{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  @media (max-width:700px){.grctl{grid-template-columns:1fr;gap:4px}.grctl .grlab{margin-top:8px}}
   .grchip{display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border:1px solid var(--line-2);border-radius:14px;
           font-size:.82rem;background:var(--card);color:var(--ink-3);cursor:pointer}
   .grchip.on{color:var(--ink);border-color:var(--ink-3)}
@@ -536,13 +540,15 @@
   </section>
 
   <section class="view" id="v-graphiques">
-    <div class="top">
-      <div><h1>Graphiques</h1><div class="meta" id="gr-meta"></div></div>
-      <div class="actions">
-        <div class="seg" style="display:inline-flex;margin-right:8px;margin-bottom:0">
-          <button id="gr-m-compte" class="segbtn on" onclick="grSetMode('compte')" title="Le compte choisi dans la liste de gauche">Ce compte</button>
-          <button id="gr-m-patri" class="segbtn" onclick="grSetMode('patrimoine')" title="Tous les comptes additionnés">Patrimoine</button>
-        </div>
+    <div class="top"><div><h1>Graphiques</h1><div class="meta" id="gr-meta"></div></div></div>
+    <div class="grctl">
+      <span class="grlab">Voir</span>
+      <div class="seg" style="display:inline-flex;margin:0;justify-self:start">
+        <button id="gr-m-compte" class="segbtn on" onclick="grSetMode('compte')" title="Le compte choisi dans la liste de gauche">Ce compte</button>
+        <button id="gr-m-patri" class="segbtn" onclick="grSetMode('patrimoine')" title="Tous les comptes additionnés">Patrimoine (tous les comptes)</button>
+      </div>
+      <span class="grlab">Période</span>
+      <div class="grline">
         <span class="periode" id="gr-periode-wrap">
           <input type="hidden" id="gr-periode" value="annee">
           <button type="button" class="pchip" data-m="tout" onclick="setPeriode('gr','tout')">Tout</button>
@@ -555,13 +561,17 @@
         <input type="text" id="gr-from" class="dt datef" style="display:none" maxlength="8" inputmode="numeric" placeholder="JJ/MM/AA" oninput="maskDate(this)" onblur="fixDate(this)">
         <span id="gr-sep" style="display:none;align-self:center;color:var(--ink-3)">au</span>
         <input type="text" id="gr-to" class="dt datef" style="display:none" maxlength="8" inputmode="numeric" placeholder="JJ/MM/AA" oninput="maskDate(this)" onblur="fixDate(this)">
-        <select id="gr-pas" onchange="renderGraphiques()" title="Regroupement des points">
-          <option value="auto">Pas : auto</option><option value="jour">Par jour</option><option value="semaine">Par semaine</option>
+      </div>
+      <span class="grlab">Regrouper</span>
+      <div class="grline">
+        <select id="gr-pas" onchange="renderGraphiques()" title="Un point / une barre par…">
+          <option value="auto">Automatique</option><option value="jour">Par jour</option><option value="semaine">Par semaine</option>
           <option value="mois">Par mois</option><option value="annee">Par année</option>
         </select>
       </div>
+      <span class="grlab">Afficher</span>
+      <div class="grtog" id="gr-tog"></div>
     </div>
-    <div class="grtog" id="gr-tog"></div>
     <div class="tiles" id="gr-total"></div>
     <div class="card" id="gr-solde-card"><div class="grtitle" id="gr-solde-titre">Évolution du solde</div><div class="grbox" id="gr-solde"></div><div class="grleg" id="gr-leg"></div></div>
     <div class="card" id="gr-flux-card"><div class="grtitle" id="gr-flux-titre"></div><div class="grbox" id="gr-flux"></div></div>
