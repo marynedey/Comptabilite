@@ -278,6 +278,19 @@
   .grhead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
   .grh{display:inline-flex;align-items:center;gap:6px;color:var(--ink-3);font-size:.9rem;flex:none}
   .grh input{width:120px}
+  .grhr{display:inline-flex;align-items:center;gap:12px;flex:none}
+  .grfsbtn{padding:4px 9px;font-size:.8rem}
+  .grfsbar,.grfsrot{display:none}
+  body.gr-plein #v-graphiques{position:fixed;inset:0;z-index:50;background:var(--paper);padding:8px 12px;margin:0;overflow:hidden;display:flex;flex-direction:column}
+  body.gr-plein #v-graphiques>:not(.grfsbar):not(.grfsrot):not(#gr-solde-card):not(#gr-flux-card):not(#gr-tip){display:none!important}
+  body.gr-plein:not(.gr-fs-barres) #gr-flux-card{display:none!important}
+  body.gr-plein .grfsbar{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+  body.gr-plein .grfstit{flex:1;min-width:0;font-size:.82rem;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  body.gr-plein #v-graphiques .card{margin-bottom:6px;padding:6px 10px}
+  body.gr-plein .grtitle{margin-bottom:2px}
+  body.gr-plein .grh,body.gr-plein .grfsbtn{display:none}
+  @media (orientation:portrait){body.gr-plein .grfsrot{display:block;font-size:.8rem;color:var(--ink-2);background:var(--card-alt);
+    border:1px solid var(--line);border-radius:8px;padding:6px 10px;margin-bottom:6px}}
   .grbox{width:100%;overflow:hidden;touch-action:pan-y}
   .grbox svg{display:block}
   .gr-grid{stroke:var(--line);stroke-width:1}
@@ -564,6 +577,12 @@
 
   <section class="view" id="v-graphiques">
     <div class="top"><div><h1>Graphiques</h1><div class="meta" id="gr-meta"></div></div></div>
+    <div class="grfsbar" id="gr-fsbar">
+      <span class="grfstit" id="gr-fstit"></span>
+      <button type="button" class="grchip" id="gr-fs-barres" onclick="grFsBarres()" title="Afficher / masquer les barres revenus et dépenses"><i class="k-r" style="background:var(--credit)"></i>Barres</button>
+      <button type="button" onclick="grPleinEcran(false)" title="Quitter le plein écran (Échap)">✕ Fermer</button>
+    </div>
+    <div class="grfsrot">Tourne ton téléphone à l’horizontale pour mieux voir la courbe.</div>
     <div class="grctl">
       <span class="grlab">Voir</span>
       <div class="seg" style="display:inline-flex;margin:0;justify-self:start">
@@ -597,7 +616,7 @@
     </div>
     <div class="grhelp" id="gr-aide"></div>
     <div class="card grbilan" id="gr-total"></div>
-    <div class="card" id="gr-solde-card"><div class="grhead"><div class="grtitle" id="gr-solde-titre">Évolution du solde</div><span class="grh" title="Hauteur du graphique">⇕<input type="range" id="gr-h-solde" min="160" max="900" step="20" oninput="grHauteur('solde',this.value)" onchange="grHauteur('solde',this.value,true);this.blur()"></span></div><div class="grbox" id="gr-solde"></div><div class="grleg" id="gr-leg"></div></div>
+    <div class="card" id="gr-solde-card"><div class="grhead"><div class="grtitle" id="gr-solde-titre">Évolution du solde</div><span class="grhr"><button type="button" class="ghost grfsbtn" onclick="grPleinEcran(true)" title="Afficher la courbe en plein écran (à l’horizontale sur mobile)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>Plein écran</button><span class="grh" title="Hauteur du graphique">⇕<input type="range" id="gr-h-solde" min="160" max="900" step="20" oninput="grHauteur('solde',this.value)" onchange="grHauteur('solde',this.value,true);this.blur()"></span></span></div><div class="grbox" id="gr-solde"></div><div class="grleg" id="gr-leg"></div></div>
     <div class="card" id="gr-flux-card"><div class="grhead"><div class="grtitle" id="gr-flux-titre"></div><span class="grh" title="Hauteur du graphique">⇕<input type="range" id="gr-h-flux" min="160" max="900" step="20" oninput="grHauteur('flux',this.value)" onchange="grHauteur('flux',this.value,true);this.blur()"></span></div><div class="grbox" id="gr-flux"></div></div>
     <div class="card grtab" id="gr-tab-wrap"><details><summary>Tableau des valeurs</summary><div class="tw"><table class="rtab" id="gr-table"></table></div></details></div>
     <div id="gr-tip"></div>
@@ -1352,7 +1371,7 @@ async function boot(){
 let _navSuppress=false;
 function toggleMenu(){document.body.classList.toggle('menu-open');}
 function closeMenu(){document.body.classList.remove('menu-open');}
-function setView(v,noPush){state.view=v;
+function setView(v,noPush){if(v!=='graphiques'&&document.body.classList.contains('gr-plein'))grPleinEcran(false);state.view=v;
   document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('on',a.dataset.v===v));
   document.querySelectorAll('.view').forEach(s=>s.classList.toggle('on',s.id==='v-'+v));
   const m=document.querySelector('main');if(m)m.scrollTop=0;render();
@@ -2275,7 +2294,15 @@ function grEurAxe(c){const a=Math.abs(c)/100,s=c<0?'−':'';
   if(a>=1e4)return s+fmt0.format(a/1e3)+' k€';
   return s+fmt0.format(a)+' €';}
 /* hauteur de chaque graphique : réglable (curseur ⇕) et mémorisée ; par défaut selon la largeur */
-function grH(k,el){const v=+grShow()['h_'+k];if(v)return v;
+function grH(k,el){
+  if(document.body.classList.contains('gr-plein')){
+    const sec=document.getElementById('v-graphiques'),bar=document.getElementById('gr-fsbar'),rot=sec.querySelector('.grfsrot'),leg=document.getElementById('gr-leg');
+    const barres=!!grShow().fsBarres,cartes=barres?2:1;
+    const dispo=window.innerHeight-16-bar.offsetHeight-6-(rot.offsetHeight?rot.offsetHeight+6:0)-(leg?leg.offsetHeight:0)-cartes*44-(state.grFsTrop||0);
+    if(!barres)return Math.max(140,dispo);
+    return Math.max(70,Math.round(dispo*(k==='solde'?0.6:0.4)));
+  }
+  const v=+grShow()['h_'+k];if(v)return v;
   return k==='solde'?(el.clientWidth<520?220:270):(el.clientWidth<520?180:220);}
 function grHauteur(k,v,garder){const s=grShow();s['h_'+k]=+v;
   if(garder)try{setMeta('grShow3',JSON.stringify(s));}catch(e){}
@@ -2286,6 +2313,28 @@ function grBrancherSurvol(root){root.querySelectorAll('.gr-hit').forEach(h=>{
   h.addEventListener('pointerleave',e=>{if(e.pointerType!=='touch')grSortie();});});} // au doigt, l'info-bulle reste après avoir levé le doigt
 // toucher ailleurs que sur un graphique referme l'info-bulle
 document.addEventListener('pointerdown',e=>{if(state.view==='graphiques'&&!(e.target.closest&&e.target.closest('.gr-hit')))grSortie();},true);
+/* plein écran (mobile : à l'horizontale) : la courbe seule, les barres en option */
+let grFsNatif=false;
+async function grPleinEcran(on){
+  const d=document,el=d.documentElement;
+  d.body.classList.toggle('gr-plein',on);d.body.classList.toggle('gr-fs-barres',on&&!!grShow().fsBarres);grSortie();
+  if(on){
+    if(!pleinEcranActif()&&(el.requestFullscreen||el.webkitRequestFullscreen)){
+      try{await (el.requestFullscreen||el.webkitRequestFullscreen).call(el,{navigationUI:'hide'});grFsNatif=true;}catch(e){grFsNatif=false;}}
+    try{if(screen.orientation&&screen.orientation.lock)await screen.orientation.lock('landscape');}catch(e){} // refusé hors plein écran (iPhone…) : on invite à tourner
+  }else{
+    try{if(screen.orientation&&screen.orientation.unlock)screen.orientation.unlock();}catch(e){}
+    if(grFsNatif&&pleinEcranActif())try{await (d.exitFullscreen||d.webkitExitFullscreen).call(d);}catch(e){}
+    grFsNatif=false;
+  }
+  if(state.view==='graphiques')renderGraphiques();
+}
+function grFsBarres(){const s=grShow();s.fsBarres=s.fsBarres?0:1;try{setMeta('grShow3',JSON.stringify(s));}catch(e){}
+  document.body.classList.toggle('gr-fs-barres',!!s.fsBarres);renderGraphiques();}
+// sortie du plein écran par le système (retour, Échap) : on quitte aussi la vue plein écran
+['fullscreenchange','webkitfullscreenchange'].forEach(t=>document.addEventListener(t,()=>{
+  if(!pleinEcranActif()&&grFsNatif&&document.body.classList.contains('gr-plein'))grPleinEcran(false);}));
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.body.classList.contains('gr-plein')){e.preventDefault();e.stopPropagation();grPleinEcran(false);}},true);
 function grGeom(el,h){const w=Math.max(280,el.clientWidth||600);
   const m={l:w<520?50:64,r:12,t:12,b:26};return {w,h,m,iw:w-m.l-m.r,ih:h-m.t-m.b};}
 /* cadre commun : grille horizontale, étiquettes Y, étiquettes X (sous-ensemble sans chevauchement) */
@@ -2322,7 +2371,7 @@ function grSvgSolde(el,D,sh){
     if(sh.horsvir)series.push({v:D.horsvir,col:GR_SERIES.horsvir.col,larg:2.25});
   }else if(sh.solde)series.push({v:D.solde,col:GR_SERIES.solde.col,larg:2.25});
   let mn=Infinity,mx=-Infinity;series.forEach(s=>s.v.forEach(v=>{if(v<mn)mn=v;if(v>mx)mx=v;}));
-  const nice=grNice(mn,mx,Math.max(4,Math.round(G.ih/50))),y=v=>G.m.t+G.ih*(1-(v-nice.lo)/(nice.hi-nice.lo));
+  const nice=grNice(mn,mx,Math.max(2,Math.round(G.ih/55))),y=v=>G.m.t+G.ih*(1-(v-nice.lo)/(nice.hi-nice.lo));
   let s=grCadre(G,D,y,nice);
   series.forEach(se=>{s+=grLigne(G,D,y,se.v,se.col,se.larg,se.tirets);});
   el.innerHTML='<svg width="'+G.w+'" height="'+G.h+'" role="img" aria-label="Évolution du solde">'+s+
@@ -2336,7 +2385,7 @@ function grSvgFlux(el,D,sh){
   let mn=0,mx=0;
   for(let i=0;i<n;i++){if(sh.rev)mx=Math.max(mx,D.rev[i]);if(sh.dep)mn=Math.min(mn,-D.dep[i]);
     if(vir){mx=Math.max(mx,D.virIn[i]);mn=Math.min(mn,-D.virOut[i]);}}
-  const nice=grNice(mn,mx,Math.max(3,Math.round(G.ih/50))),y=v=>G.m.t+G.ih*(1-(v-nice.lo)/(nice.hi-nice.lo)),y0=y(0);
+  const nice=grNice(mn,mx,Math.max(2,Math.round(G.ih/55))),y=v=>G.m.t+G.ih*(1-(v-nice.lo)/(nice.hi-nice.lo)),y0=y(0);
   let s=grCadre(G,D,y,nice);
   const gap=Math.min(2,bw*0.1),lc=Math.min(bw*(vir?0.4:0.7),vir?28:40);
   for(let i=0;i<n;i++){
@@ -2467,6 +2516,9 @@ function renderGraphiques(){
        (V.vir?'<br>Avec les virements (<span class="num">'+sgn(VI-VO)+'</span>), le compte a '+(ev>=0?'gagné':'perdu')+' <b class="num '+clsSigne(ev)+'">'+eur(Math.abs(ev))+'</b>.':''))+'</div>';
   // graphiques
   const voirS=V.sans||V.avec||V.patrimoine||V.parcompte,voirF=sh.rev||sh.dep||(sh.vir&&!patri);
+  const fs=document.body.classList.contains('gr-plein');
+  if(fs){document.getElementById('gr-fstit').textContent=(patri?'Patrimoine':D.comptes[0].nom)+' · du '+isoToFr(D.f)+' au '+isoToFr(D.t);
+    const bb=document.getElementById('gr-fs-barres');bb.classList.toggle('on',!!sh.fsBarres);bb.setAttribute('aria-pressed',!!sh.fsBarres);}
   cS.style.display=voirS?'':'none';cF.style.display=voirF?'':'none';tab.style.display='';
   aide.style.display='';aide.innerHTML='<details'+(sh.aide===0?'':' open')+' ontoggle="grAideOuverte(this.open)"><summary>Comment lire ces graphiques</summary>'+
     grAide(D,sh)+'<div class="grastuce">Passe la souris (ou le doigt) sur un graphique pour voir le calcul de chaque '+GR_PAS[D.pas]+'.</div></details>';
@@ -2477,6 +2529,8 @@ function renderGraphiques(){
   leg.innerHTML=sh.parcompte&&patri?D.parCompte.map((c,i)=>'<span><i class="k-l" style="border-color:'+grColCompte(i)+'"></i>'+esc(c.nom)+'</span>').join(''):'';
   if(voirS)grSvgSolde(document.getElementById('gr-solde'),D,sh);
   if(voirF)grSvgFlux(document.getElementById('gr-flux'),D,sh);
+  if(fs){const sec=document.getElementById('v-graphiques'),trop=sec.scrollHeight-sec.clientHeight; // marges mal estimées : on réduit d'autant
+    if(trop>0){state.grFsTrop=trop+2;if(voirS)grSvgSolde(document.getElementById('gr-solde'),D,sh);if(voirF)grSvgFlux(document.getElementById('gr-flux'),D,sh);state.grFsTrop=0;}}
   grBrancherSurvol(document.getElementById('v-graphiques'));
   ['solde','flux'].forEach(k=>{const r=document.getElementById('gr-h-'+k),b=document.getElementById('gr-'+k);if(r&&b)r.value=grH(k,b);});
   // tableau des valeurs : une ligne par tranche, colonnes dans l'ordre du calcul
