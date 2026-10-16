@@ -289,15 +289,33 @@
   #gr-tip{position:fixed;z-index:60;display:none;pointer-events:none;background:var(--card);border:1px solid var(--line-2);border-radius:8px;
           box-shadow:0 4px 16px rgba(0,0,0,.12);padding:8px 11px;font-size:.8rem;min-width:180px}
   #gr-tip .tt-h{font-weight:600;margin-bottom:5px;color:var(--ink)}
-  #gr-tip .tt-l{display:flex;align-items:center;gap:8px;padding:1px 0}
-  #gr-tip .tt-l b{font-weight:600;min-width:92px;text-align:right}
-  #gr-tip .tt-l span{color:var(--ink-2)}
-  #gr-tip .tt-l .k-r[style*="transparent"]{border:1px solid var(--ink-3)}
   .grtab summary{cursor:pointer;font-size:.86rem;color:var(--ink-2)}
   .grtab .rtab{margin-top:10px}
   .grtab .rtab td{font-size:.82rem;white-space:nowrap}
   .grtab .tw{overflow:auto;max-height:420px}
-  @media (max-width:700px){#gr-total .v{font-size:1.1rem}#gr-total .tile{padding:11px 12px}}
+  .grgrp{font-size:.76rem;color:var(--ink-3);margin:0 2px 0 4px}
+  .grgrp:first-child{margin-left:0}
+  .grhelp{font-size:.8rem;color:var(--ink-2);background:var(--card-alt);border:1px solid var(--line);border-radius:var(--radius);
+          padding:10px 14px;margin-bottom:18px;display:flex;flex-direction:column;gap:5px;line-height:1.45}
+  .grhelp summary{cursor:pointer;color:var(--ink);font-weight:600}
+  .grhelp details[open] summary{margin-bottom:6px}
+  .grhelp details>div{display:flex;gap:9px;align-items:baseline;margin-top:5px}
+  .grhelp details>div>i{position:relative;top:-2px}
+  .grhelp b{color:var(--ink);font-weight:600}
+  .grhelp .grastuce{color:var(--ink-3);display:block;margin-top:2px}
+  .grbilan{max-width:620px}
+  .eq{display:grid;grid-template-columns:14px 16px 1fr auto;gap:8px;align-items:center;padding:3px 0;font-size:.88rem}
+  .eq .sg{color:var(--ink-3);font-weight:600;text-align:center}
+  .eq .lb{color:var(--ink-2)}
+  .eq .vl{text-align:right;white-space:nowrap;font-weight:600}
+  .eq.tot{border-top:1px solid var(--line-2);margin-top:3px;padding-top:6px}
+  .eq.tot .lb{color:var(--ink);font-weight:600}
+  .k-vide{display:inline-block;width:10px}
+  .eqnote{font-size:.82rem;color:var(--ink-2);margin-top:10px;padding-top:8px;border-top:1px dashed var(--line)}
+  .eqnote .num{white-space:nowrap}
+  #gr-tip{width:330px;max-width:calc(100vw - 16px)}
+  #gr-tip .eq{font-size:.8rem;padding:2px 0}
+  #gr-tip .tt-x{font-size:.78rem;color:var(--ink-2);margin-top:6px;padding-top:6px;border-top:1px dashed var(--line);display:flex;gap:7px;align-items:center;flex-wrap:wrap}
   /* ---- histogramme horizontal de l'analyse ---- */
   .bars{display:flex;flex-direction:column;gap:4px}
   .barrow{display:grid;grid-template-columns:minmax(110px,180px) minmax(50px,1fr) minmax(190px,240px);
@@ -572,7 +590,8 @@
       <span class="grlab">Afficher</span>
       <div class="grtog" id="gr-tog"></div>
     </div>
-    <div class="tiles" id="gr-total"></div>
+    <div class="grhelp" id="gr-aide"></div>
+    <div class="card grbilan" id="gr-total"></div>
     <div class="card" id="gr-solde-card"><div class="grtitle" id="gr-solde-titre">Évolution du solde</div><div class="grbox" id="gr-solde"></div><div class="grleg" id="gr-leg"></div></div>
     <div class="card" id="gr-flux-card"><div class="grtitle" id="gr-flux-titre"></div><div class="grbox" id="gr-flux"></div></div>
     <div class="card grtab" id="gr-tab-wrap"><details><summary>Tableau des valeurs</summary><div class="tw"><table class="rtab" id="gr-table"></table></div></details></div>
@@ -2153,28 +2172,32 @@ function anBack(){ if(state.anPath.length){history.back();return true;} return f
    Graphiques : cours du solde d'un compte et patrimoine global
    - solde = opérations réelles (hors prévisionnel / annulées), jusqu'à aujourd'hui ;
    - flux (revenus / dépenses / virements) = lignes de lignesOps, même règle que le registre
-     et l'analyse ; les virements entre comptes sont à part ;
-   - « Solde hors virements » = solde de départ + cumul (revenus − dépenses) ;
+     et l'analyse ; les virements entre comptes sont à part (reçus / envoyés) ;
+   - solde de fin = solde de début + revenus − dépenses + virements reçus − virements envoyés ;
+   - « Solde sans les virements » = solde de départ + cumul (revenus − dépenses) ;
    - patrimoine = somme des comptes actifs (les virements internes s'y annulent).
    ============================================================ */
 const GR_SERIES={
-  solde:{lib:'Solde',col:'var(--brand)',ligne:true},
-  horsvir:{lib:'Solde hors virements',col:'var(--ink-2)',ligne:true,tirets:true,mode:'compte'},
-  parcompte:{lib:'Détail par compte',col:'var(--g1)',ligne:true,mode:'patrimoine'},
+  solde:{lib:'Solde du compte',libP:'Patrimoine',col:'var(--brand)',ligne:true},
+  horsvir:{lib:'Solde sans les virements',col:'var(--ink-2)',ligne:true,tirets:true,mode:'compte'},
+  parcompte:{lib:'Un trait par compte',col:'var(--g1)',ligne:true,mode:'patrimoine'},
   rev:{lib:'Revenus',col:'var(--credit)'},
   dep:{lib:'Dépenses',col:'var(--debit)'},
-  vir:{lib:'Virements',col:'var(--st-prev)'}
+  vir:{lib:'Virements',col:'var(--st-prev)',mode:'compte'}
 };
-const GR_DEF={solde:1,horsvir:1,parcompte:0,rev:1,dep:1,vir:0};
+const GR_DEF={solde:1,horsvir:0,parcompte:0,rev:1,dep:1,vir:0};
 const GR_PAS={jour:'jour',semaine:'semaine',mois:'mois',annee:'année'};
+const GR_CHAQUE={jour:'chaque jour',semaine:'chaque semaine',mois:'chaque mois',annee:'chaque année'};
+const GR_PENDANT={jour:'dans la journée',semaine:'dans la semaine',mois:'dans le mois',annee:'dans l’année'};
 const MOIS_COURT=['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
 let grData=null;
 function grShow(){
-  if(!state.grShow){let s={};try{s=JSON.parse(getMeta('grShow','{}'))||{};}catch(e){}
+  if(!state.grShow){let s={};try{s=JSON.parse(getMeta('grShow2','{}'))||{};}catch(e){}
     state.grShow=Object.assign({},GR_DEF,s);}
   return state.grShow;
 }
-function grToggle(k){const s=grShow();s[k]=s[k]?0:1;try{setMeta('grShow',JSON.stringify(s));}catch(e){}renderGraphiques();}
+function grToggle(k){const s=grShow();s[k]=s[k]?0:1;try{setMeta('grShow2',JSON.stringify(s));}catch(e){}renderGraphiques();}
+function grAideOuverte(o){const s=grShow();if((s.aide!==0)===o)return;s.aide=o?1:0;try{setMeta('grShow2',JSON.stringify(s));}catch(e){}}
 function grSetMode(m){state.grMode=m;renderGraphiques();syncHist();}
 function grPasAuto(f,t){const j=Math.round((new Date(t+'T00:00:00')-new Date(f+'T00:00:00'))/86400000)+1;
   return j<=45?'jour':j<=190?'semaine':j<=366*6?'mois':'annee';}
@@ -2194,9 +2217,9 @@ function grTranches(f,t,pas){
 }
 function grLib(tr,pas,long){const p=tr.f.split('-');
   if(pas==='jour')return long?isoToFr(tr.f):p[2]+'/'+p[1];
-  if(pas==='semaine')return long?'Du '+isoToFr(tr.f)+' au '+isoToFr(tr.t):p[2]+'/'+p[1];
-  if(pas==='mois')return long?MOIS_FR[+p[1]-1]+' '+p[0]:MOIS_COURT[+p[1]-1]+' '+p[0].slice(2);
-  return p[0];}
+  if(pas==='semaine')return long?'Semaine du '+isoToFr(tr.f)+' au '+isoToFr(tr.t):p[2]+'/'+p[1];
+  if(pas==='mois')return long?MOIS_FR[+p[1]-1].replace(/^./,c=>c.toUpperCase())+' '+p[0]:MOIS_COURT[+p[1]-1]+' '+p[0].slice(2);
+  return long?'Année '+p[0]:p[0];}
 function grCalcul(){
   const mode=state.grMode||'compte';
   const comptes=mode==='compte'?qy('SELECT id,nom,solde_initial si FROM compte WHERE id=?',[state.acc])
@@ -2225,11 +2248,12 @@ function grCalcul(){
   const sDebut=parCompte.reduce((a,c)=>a+c.s0,0);
   const solde=tr.map((_,i)=>parCompte.reduce((a,c)=>a+c.v[i],0));
   // flux : lignes comptables (opérations réparties ligne par ligne), virements à part
-  const rev=new Array(tr.length).fill(0),dep=rev.slice(),vir=rev.slice();
+  const z=()=>new Array(tr.length).fill(0),rev=z(),dep=z(),virIn=z(),virOut=z();
   lignesOps(' WHERE'+OK+' AND o.date_operation BETWEEN $f AND $t',p).forEach(l=>{
-    const i=idx(l.d);if(l.vir)vir[i]+=l.m;else if(l.m>0)rev[i]+=l.m;else dep[i]-=l.m;});
+    const i=idx(l.d);if(l.vir){if(l.m>0)virIn[i]+=l.m;else virOut[i]-=l.m;}else if(l.m>0)rev[i]+=l.m;else dep[i]-=l.m;});
   let h=sDebut;const horsvir=tr.map((_,i)=>h+=rev[i]-dep[i]);
-  return {mode,comptes,f,t,pas,pasSel,tr,sDebut,solde,horsvir,parCompte,rev,dep,vir};
+  const debut=tr.map((_,i)=>i?solde[i-1]:sDebut);
+  return {mode,comptes,f,t,pas,pasSel,tr,sDebut,debut,solde,horsvir,parCompte,rev,dep,virIn,virOut};
 }
 /* graduations « rondes » */
 function grNice(min,max,n){
@@ -2286,19 +2310,20 @@ function grSvgSolde(el,D,sh){
     '<rect class="gr-hit" x="'+G.m.l+'" y="0" width="'+G.iw+'" height="'+G.h+'"/></svg>';
   el._gr={G,y,series};
 }
+/* barres : revenus vers le haut / dépenses vers le bas ; virements à côté (reçus en haut, envoyés en bas) */
 function grSvgFlux(el,D,sh){
-  const G=grGeom(el,el.clientWidth<520?180:220),n=D.tr.length,bw=G.iw/n;
+  const G=grGeom(el,el.clientWidth<520?180:220),n=D.tr.length,bw=G.iw/n,vir=sh.vir&&D.mode==='compte';
   let mn=0,mx=0;
   for(let i=0;i<n;i++){if(sh.rev)mx=Math.max(mx,D.rev[i]);if(sh.dep)mn=Math.min(mn,-D.dep[i]);
-    if(sh.vir){mx=Math.max(mx,D.vir[i]);mn=Math.min(mn,D.vir[i]);}}
+    if(vir){mx=Math.max(mx,D.virIn[i]);mn=Math.min(mn,-D.virOut[i]);}}
   const nice=grNice(mn,mx,4),y=v=>G.m.t+G.ih*(1-(v-nice.lo)/(nice.hi-nice.lo)),y0=y(0);
   let s=grCadre(G,D,y,nice);
-  const gap=Math.min(2,bw*0.1),lc=Math.min(bw*(sh.vir?0.4:0.7),sh.vir?28:40);
+  const gap=Math.min(2,bw*0.1),lc=Math.min(bw*(vir?0.4:0.7),vir?28:40);
   for(let i=0;i<n;i++){
-    const cx=G.m.l+bw*(i+.5),x1=sh.vir?cx-lc-gap/2:cx-lc/2;
+    const cx=G.m.l+bw*(i+.5),x1=vir?cx-lc-gap/2:cx-lc/2;
     if(sh.rev)s+=grBarre(x1,lc,y0,y(D.rev[i]),GR_SERIES.rev.col);
     if(sh.dep)s+=grBarre(x1,lc,y0,y(-D.dep[i]),GR_SERIES.dep.col);
-    if(sh.vir)s+=grBarre(cx+gap/2,lc,y0,y(D.vir[i]),GR_SERIES.vir.col);
+    if(vir){s+=grBarre(cx+gap/2,lc,y0,y(D.virIn[i]),GR_SERIES.vir.col);s+=grBarre(cx+gap/2,lc,y0,y(-D.virOut[i]),GR_SERIES.vir.col);}
   }
   s+='<line x1="'+G.m.l+'" x2="'+(G.w-G.m.r)+'" y1="'+y0.toFixed(1)+'" y2="'+y0.toFixed(1)+'" class="gr-zero"/>';
   el.innerHTML='<svg width="'+G.w+'" height="'+G.h+'" role="img" aria-label="Revenus, dépenses et virements">'+s+
@@ -2306,71 +2331,103 @@ function grSvgFlux(el,D,sh){
     '<rect class="gr-hit" x="'+G.m.l+'" y="0" width="'+G.iw+'" height="'+G.h+'"/></svg>';
   el._gr={G};
 }
-/* survol : réticule synchronisé sur les deux graphiques + info-bulle avec toutes les séries */
+/* le calcul « solde de début + revenus − dépenses ± virements = solde de fin »,
+   commun au bilan de la période et à l'info-bulle (une ligne = [signe, libellé, montant, classe, repère couleur]) */
+function grEquation(D,deb,fin,dDeb,dFin,R,Dp,VI,VO,court){
+  const patri=D.mode==='patrimoine',mot=patri?'Patrimoine':'Solde',L=[];
+  L.push(['',mot+' au '+isoToFr(dDeb),eur(deb),'',null]);
+  L.push(['+','Revenus',eur(R),'credit','k-r:'+GR_SERIES.rev.col]);
+  L.push(['−','Dépenses',eur(Dp),'debit','k-r:'+GR_SERIES.dep.col]);
+  if(patri){const net=VI-VO;
+    L.push([net?(net<0?'−':'+'):'',court?'Virements internes':'Virements entre tes comptes',net?eur(Math.abs(net)):'s’annulent (0 €)','zero',null]);}
+  else{L.push(['+',court?'Virements reçus':'Virements reçus de tes autres comptes',eur(VI),'','k-r:'+GR_SERIES.vir.col]);
+    L.push(['−',court?'Virements envoyés':'Virements envoyés vers tes autres comptes',eur(VO),'','k-r:'+GR_SERIES.vir.col]);}
+  L.push(['=',mot+' au '+isoToFr(dFin),eur(fin),'tot','k-l:'+GR_SERIES.solde.col]);
+  return L;
+}
+function grLignesHTML(L){
+  return L.map(([sg,lib,val,cls,cle])=>{
+    const k=cle?cle.split(':'):null,rep=k?'<i class="'+k[0]+'" style="'+(k[0]==='k-r'?'background:':'border-color:')+k[1]+'"></i>':'<i class="k-vide"></i>';
+    return '<div class="eq'+(cls==='tot'?' tot':'')+'"><span class="sg">'+sg+'</span>'+rep+'<span class="lb">'+lib+'</span>'+
+      '<span class="vl num '+(cls==='tot'?'':cls)+'">'+val+'</span></div>';}).join('');
+}
+/* survol : réticule synchronisé sur les deux graphiques + info-bulle (le calcul de la tranche survolée) */
 function grSurvol(e){
   const D=grData;if(!D||!D.tr)return;
   const svg=e.currentTarget.ownerSVGElement,box=svg.parentNode,G=box._gr.G,r=svg.getBoundingClientRect();
   const n=D.tr.length,bw=G.iw/n,i=Math.max(0,Math.min(n-1,Math.floor((e.clientX-r.left-G.m.l)/bw)));
-  const cx=G.m.l+bw*(i+.5),sh=grShow();
+  const cx=G.m.l+bw*(i+.5),sh=grShow(),patri=D.mode==='patrimoine';
   ['gr-solde','gr-flux'].forEach(id=>{const b=document.getElementById(id);if(!b||!b._gr)return;
     const c=b.querySelector('.gr-cross'),bd=b.querySelector('.gr-band'),dots=b.querySelector('.gr-dots');
     if(c){c.setAttribute('x1',cx);c.setAttribute('x2',cx);c.style.display='';}
     if(bd){bd.setAttribute('x',(cx-bw/2).toFixed(1));bd.style.display='';}
     if(dots)dots.innerHTML=b._gr.series.map(se=>'<circle cx="'+cx.toFixed(1)+'" cy="'+b._gr.y(se.v[i]).toFixed(1)+'" r="4" class="gr-dot" style="fill:'+se.col+'"/>').join('');
   });
-  const L=[];const ligne=(v,lib,col,forme,cls)=>L.push('<div class="tt-l"><i class="'+(forme||'k-l')+'" style="'+(forme==='k-r'?'background:':'border-color:')+col+'"></i>'+
-    '<b class="num'+(cls?' '+cls:'')+'">'+eur(v)+'</b><span>'+lib+'</span></div>');
-  if(sh.solde)ligne(D.solde[i],D.mode==='patrimoine'?'Patrimoine (fin)':'Solde (fin)',GR_SERIES.solde.col);
-  if(sh.horsvir&&D.mode==='compte')ligne(D.horsvir[i],'Solde hors virements',GR_SERIES.horsvir.col,'k-l dash');
-  if(sh.parcompte&&D.mode==='patrimoine')D.parCompte.forEach((c,k)=>ligne(c.v[i],esc(c.nom),grColCompte(k)));
-  if(sh.rev)ligne(D.rev[i],'Revenus',GR_SERIES.rev.col,'k-r','credit');
-  if(sh.dep)ligne(-D.dep[i],'Dépenses',GR_SERIES.dep.col,'k-r','debit');
-  if(sh.rev&&sh.dep)ligne(D.rev[i]-D.dep[i],'Net (hors virements)','transparent','k-r',clsSigne(D.rev[i]-D.dep[i]));
-  if(sh.vir)ligne(D.vir[i],D.mode==='patrimoine'?'Virements (net)':'Virements',GR_SERIES.vir.col,'k-r');
+  const tr=D.tr[i];
+  let h='<div class="tt-h">'+esc(grLib(tr,D.pas,true))+'</div>'+
+    grLignesHTML(grEquation(D,D.debut[i],D.solde[i],avancerJours(tr.f,-1),tr.t,D.rev[i],D.dep[i],D.virIn[i],D.virOut[i],true));
+  if(!patri&&sh.horsvir)h+='<div class="tt-x">Si tu n’avais fait aucun virement depuis le '+isoToFr(D.f)+' :</div>'+
+    '<div class="eq"><span class="sg"></span><i class="k-l dash" style="border-color:'+GR_SERIES.horsvir.col+'"></i><span class="lb">Solde sans les virements</span><span class="vl num">'+eur(D.horsvir[i])+'</span></div>';
+  if(patri&&sh.parcompte)h+='<div class="tt-x">Détail au '+isoToFr(tr.t)+' :</div>'+
+    D.parCompte.map((c,k)=>'<div class="eq"><span class="sg"></span><i class="k-l" style="border-color:'+grColCompte(k)+'"></i><span class="lb">'+esc(c.nom)+'</span><span class="vl num">'+eur(c.v[i])+'</span></div>').join('');
   const tip=document.getElementById('gr-tip');
-  tip.innerHTML='<div class="tt-h">'+esc(grLib(D.tr[i],D.pas,true))+'</div>'+L.join('');
-  tip.style.display='block';
+  tip.innerHTML=h;tip.style.display='block';
   const tw=tip.offsetWidth,th=tip.offsetHeight,vw=document.documentElement.clientWidth;
   let x=e.clientX+14;if(x+tw>vw-8)x=e.clientX-14-tw;if(x<8)x=8;
   let yy=e.clientY-th-12;if(yy<8)yy=e.clientY+16;
   tip.style.left=x+'px';tip.style.top=yy+'px';
 }
+const sgn=c=>(c>0?'+':'')+eur(c);
 function grSortie(){
   const tip=document.getElementById('gr-tip');if(tip)tip.style.display='none';
   document.querySelectorAll('#v-graphiques .gr-cross,#v-graphiques .gr-band').forEach(c=>c.style.display='none');
   document.querySelectorAll('#v-graphiques .gr-dots').forEach(g=>g.innerHTML='');
 }
+/* une phrase par série affichée : ce que représente chaque courbe / barre */
+function grAide(D,sh){
+  const patri=D.mode==='patrimoine',ch=GR_CHAQUE[D.pas],pd=GR_PENDANT[D.pas],A=[];
+  const cle=k=>{const s=GR_SERIES[k];return s.ligne?'<i class="k-l'+(s.tirets?' dash':'')+'" style="border-color:'+s.col+'"></i>':'<i class="k-r" style="background:'+s.col+'"></i>';};
+  if(sh.solde)A.push([cle('solde'),patri?'<b>Patrimoine</b> : la somme de tous tes comptes à la fin de '+ch+'. Un virement d’un compte à l’autre ne le change pas : ce qui sort de l’un entre dans l’autre.'
+    :'<b>Solde du compte</b> : l’argent réellement présent sur le compte, à la fin de '+ch+'.']);
+  if(sh.horsvir&&!patri)A.push([cle('horsvir'),'<b>Solde sans les virements</b> (pointillés) : le solde qu’aurait le compte si tu n’avais fait aucun virement avec tes autres comptes depuis le début de la période. Il ne bouge qu’avec tes revenus et tes dépenses. L’écart avec le solde = le total des virements.']);
+  if(sh.parcompte&&patri)A.push(['<i class="k-l" style="border-color:var(--g1)"></i>','<b>Un trait par compte</b> : le solde de chaque compte (couleurs sous le graphique).']);
+  if(sh.rev)A.push([cle('rev'),'<b>Revenus</b> (barres vers le haut) : l’argent gagné '+pd+' (salaire, remboursements…), virements entre tes comptes exclus.']);
+  if(sh.dep)A.push([cle('dep'),'<b>Dépenses</b> (barres vers le bas) : l’argent dépensé '+pd+', virements entre tes comptes exclus.']);
+  if(sh.vir&&!patri)A.push([cle('vir'),'<b>Virements</b> (barres à droite) : l’argent reçu de tes autres comptes (vers le haut) ou envoyé vers eux (vers le bas) '+pd+'. Ce n’est ni un revenu ni une dépense : il change juste de compte.']);
+  return A.map(a=>'<div>'+a[0]+'<span>'+a[1]+'</span></div>').join('');
+}
 function renderGraphiques(){
   const mode=state.grMode||'compte',sh=grShow(),patri=mode==='patrimoine';
   document.getElementById('gr-m-compte').classList.toggle('on',!patri);
   document.getElementById('gr-m-patri').classList.toggle('on',patri);
-  document.getElementById('gr-tog').innerHTML=Object.keys(GR_SERIES).filter(k=>!GR_SERIES[k].mode||GR_SERIES[k].mode===mode).map(k=>{
-    const s=GR_SERIES[k],cle=s.ligne?'<i class="k-l'+(s.tirets?' dash':'')+'" style="border-color:'+s.col+'"></i>':'<i class="k-r" style="background:'+s.col+'"></i>';
+  const chip=k=>{const s=GR_SERIES[k];if(s.mode&&s.mode!==mode)return '';
+    const cle=s.ligne?'<i class="k-l'+(s.tirets?' dash':'')+'" style="border-color:'+s.col+'"></i>':'<i class="k-r" style="background:'+s.col+'"></i>';
     return '<button type="button" class="grchip'+(sh[k]?' on':'')+'" aria-pressed="'+!!sh[k]+'" title="Afficher / masquer" onclick="grToggle(\''+k+'\')">'+
-      cle+(k==='solde'&&patri?'Patrimoine':s.lib)+'</button>';}).join('');
+      cle+(patri&&s.libP?s.libP:s.lib)+'</button>';};
+  document.getElementById('gr-tog').innerHTML='<span class="grgrp">Courbes</span>'+['solde','horsvir','parcompte'].map(chip).join('')+
+    '<span class="grgrp">Barres</span>'+['rev','dep','vir'].map(chip).join('');
   grSortie();
   const D=grData=grCalcul();
-  const meta=document.getElementById('gr-meta'),tot=document.getElementById('gr-total');
+  const meta=document.getElementById('gr-meta'),bil=document.getElementById('gr-total'),aide=document.getElementById('gr-aide');
   const cS=document.getElementById('gr-solde-card'),cF=document.getElementById('gr-flux-card'),tab=document.getElementById('gr-tab-wrap');
   const titre=patri?'Tous les comptes ('+(D?D.comptes.length:0)+')':(D?D.comptes[0].nom:'');
-  if(!D||D.vide){meta.textContent=titre;tot.innerHTML='<div class="tile" style="grid-column:1/-1;color:var(--ink-3)">Aucune donnée sur cette période (le solde n’est tracé que jusqu’à aujourd’hui).</div>';
-    cS.style.display=cF.style.display=tab.style.display='none';return;}
-  meta.textContent=titre+' · du '+isoToFr(D.f)+' au '+isoToFr(D.t)+' · par '+GR_PAS[D.pas]+
-    (D.pasSel!=='auto'&&D.pasSel!==D.pas?' (trop de points par '+GR_PAS[D.pasSel]+')':'')+' · opérations réelles, hors prévisionnel';
-  // chiffres clés
-  const n=D.tr.length,sFin=D.solde[n-1],sum=a=>a.reduce((x,v)=>x+v,0),R=sum(D.rev),Dp=sum(D.dep),V=sum(D.vir);
-  const veille=avancerJours(D.f,-1);
-  const tuiles=[
-    {k:(patri?'Patrimoine':'Solde')+' au '+isoToFr(veille),v:eur(D.sDebut),c:'',d:'Veille de la période'},
-    {k:(patri?'Patrimoine':'Solde')+' au '+isoToFr(D.t),v:eur(sFin),c:'',d:'Variation <b class="num '+clsSigne(sFin-D.sDebut)+'">'+eur(sFin-D.sDebut)+'</b>'},
-    {k:'Revenus − dépenses',v:eur(R-Dp),c:clsSigne(R-Dp),d:'<span class="credit num">'+eur(R)+'</span> − <span class="debit num">'+eur(Dp)+'</span>'},
-    {k:patri?'Virements (net)':'Virements (net)',v:eur(V),c:clsSigne(V),d:patri?'≈ 0 si tous les comptes sont suivis':'Entre tes comptes, à part'}];
-  tot.innerHTML=tuiles.map(t=>'<div class="tile"><div class="k">'+t.k+'</div><div class="v num '+t.c+'">'+t.v+'</div><div class="d">'+t.d+'</div></div>').join('');
+  if(!D||D.vide){meta.textContent=titre;bil.innerHTML='<div style="color:var(--ink-3)">Aucune donnée sur cette période (le solde n’est tracé que jusqu’à aujourd’hui).</div>';
+    cS.style.display=cF.style.display=tab.style.display=aide.style.display='none';return;}
+  meta.textContent=titre+' · opérations réelles (hors prévisionnel et annulées)';
+  // bilan de la période : le même calcul que l'info-bulle, sur toute la période
+  const n=D.tr.length,sum=a=>a.reduce((x,v)=>x+v,0),R=sum(D.rev),Dp=sum(D.dep),VI=sum(D.virIn),VO=sum(D.virOut),sFin=D.solde[n-1];
+  const ev=sFin-D.sDebut;
+  bil.innerHTML='<div class="grtitle">Bilan du '+isoToFr(D.f)+' au '+isoToFr(D.t)+'</div>'+
+    grLignesHTML(grEquation(D,D.sDebut,sFin,avancerJours(D.f,-1),D.t,R,Dp,VI,VO))+
+    '<div class="eqnote">En résumé : '+(patri?'le patrimoine':'le compte')+' a '+(ev>=0?'gagné':'perdu')+' <b class="num '+clsSigne(ev)+'">'+eur(Math.abs(ev))+'</b> sur la période.'+
+    (!patri&&(VI||VO)?'<br>Tes revenus moins tes dépenses : <b class="num '+clsSigne(R-Dp)+'">'+sgn(R-Dp)+'</b> · tes virements (reçus − envoyés) : <b class="num">'+sgn(VI-VO)+'</b>.':'')+'</div>';
   // graphiques
-  const voirS=sh.solde||(sh.horsvir&&!patri)||(sh.parcompte&&patri),voirF=sh.rev||sh.dep||sh.vir;
+  const voirS=sh.solde||(sh.horsvir&&!patri)||(sh.parcompte&&patri),voirF=sh.rev||sh.dep||(sh.vir&&!patri);
   cS.style.display=voirS?'':'none';cF.style.display=voirF?'':'none';tab.style.display='';
-  document.getElementById('gr-solde-titre').textContent=patri?'Évolution du patrimoine':'Évolution du solde';
-  document.getElementById('gr-flux-titre').textContent=[sh.rev&&'revenus',sh.dep&&'dépenses',sh.vir&&'virements'].filter(Boolean).join(', ')
+  aide.style.display='';aide.innerHTML='<details'+(sh.aide===0?'':' open')+' ontoggle="grAideOuverte(this.open)"><summary>Comment lire ces graphiques</summary>'+
+    grAide(D,sh)+'<div class="grastuce">Passe la souris (ou le doigt) sur un graphique pour voir le calcul de chaque '+GR_PAS[D.pas]+'.</div></details>';
+  document.getElementById('gr-solde-titre').textContent=(patri?'Patrimoine':'Solde')+' à la fin de '+GR_CHAQUE[D.pas];
+  document.getElementById('gr-flux-titre').textContent=[sh.rev&&'revenus',sh.dep&&'dépenses',sh.vir&&!patri&&'virements'].filter(Boolean).join(', ')
     .replace(/^./,c=>c.toUpperCase()).replace(/, ([^,]*)$/,' et $1')+' par '+GR_PAS[D.pas];
   const leg=document.getElementById('gr-leg');
   leg.innerHTML=sh.parcompte&&patri?D.parCompte.map((c,i)=>'<span><i class="k-l" style="border-color:'+grColCompte(i)+'"></i>'+esc(c.nom)+'</span>').join(''):'';
@@ -2378,13 +2435,15 @@ function renderGraphiques(){
   if(voirF)grSvgFlux(document.getElementById('gr-flux'),D,sh);
   document.querySelectorAll('#v-graphiques .gr-hit').forEach(h=>{
     h.addEventListener('pointermove',grSurvol);h.addEventListener('pointerdown',grSurvol);h.addEventListener('pointerleave',grSortie);});
-  // tableau des valeurs
-  const cols=[['Période',i=>esc(grLib(D.tr[i],D.pas,true)),''],
-    [patri?'Patrimoine (fin)':'Solde (fin)',i=>eur(D.solde[i]),'r']];
-  if(!patri)cols.push(['Hors virements',i=>eur(D.horsvir[i]),'r']);
+  // tableau des valeurs : une ligne par tranche, colonnes dans l'ordre du calcul
+  const mot=patri?'Patrimoine':'Solde';
+  const cols=[['Période',i=>esc(grLib(D.tr[i],D.pas,true)),''],[mot+' début',i=>eur(D.debut[i]),'r'],
+    ['+ Revenus',i=>'<span class="credit">'+eur(D.rev[i])+'</span>','r'],['− Dépenses',i=>'<span class="debit">'+eur(D.dep[i])+'</span>','r']];
+  if(patri)cols.push(['± Virements',i=>eur(D.virIn[i]-D.virOut[i]),'r']);
+  else cols.push(['+ Vir. reçus',i=>eur(D.virIn[i]),'r'],['− Vir. envoyés',i=>eur(D.virOut[i]),'r']);
+  cols.push(['= '+mot+' fin',i=>'<b>'+eur(D.solde[i])+'</b>','r']);
+  if(!patri)cols.push(['Sans les virements',i=>eur(D.horsvir[i]),'r']);
   if(patri&&sh.parcompte)D.parCompte.forEach(c=>cols.push([esc(c.nom),i=>eur(c.v[i]),'r']));
-  cols.push(['Revenus',i=>'<span class="credit">'+eur(D.rev[i])+'</span>','r'],['Dépenses',i=>'<span class="debit">'+eur(-D.dep[i])+'</span>','r'],
-    ['Net',i=>'<span class="'+clsSigne(D.rev[i]-D.dep[i])+'">'+eur(D.rev[i]-D.dep[i])+'</span>','r'],['Virements',i=>eur(D.vir[i]),'r']);
   let h='<thead><tr>'+cols.map(c=>'<th'+(c[2]?' style="text-align:right"':'')+'>'+c[0]+'</th>').join('')+'</tr></thead><tbody>';
   for(let i=n-1;i>=0;i--)h+='<tr>'+cols.map(c=>'<td class="num '+c[2]+'">'+c[1](i)+'</td>').join('')+'</tr>';
   document.getElementById('gr-table').innerHTML=h+'</tbody>';
