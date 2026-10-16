@@ -2282,7 +2282,10 @@ function grHauteur(k,v,garder){const s=grShow();s['h_'+k]=+v;
   const D=grData;if(!D||!D.tr)return;const el=document.getElementById('gr-'+k);grSortie();
   (k==='solde'?grSvgSolde:grSvgFlux)(el,D,s);grBrancherSurvol(el);}
 function grBrancherSurvol(root){root.querySelectorAll('.gr-hit').forEach(h=>{
-  h.addEventListener('pointermove',grSurvol);h.addEventListener('pointerdown',grSurvol);h.addEventListener('pointerleave',grSortie);});}
+  h.addEventListener('pointermove',grSurvol);h.addEventListener('pointerdown',grSurvol);
+  h.addEventListener('pointerleave',e=>{if(e.pointerType!=='touch')grSortie();});});} // au doigt, l'info-bulle reste après avoir levé le doigt
+// toucher ailleurs que sur un graphique referme l'info-bulle
+document.addEventListener('pointerdown',e=>{if(state.view==='graphiques'&&!(e.target.closest&&e.target.closest('.gr-hit')))grSortie();},true);
 function grGeom(el,h){const w=Math.max(280,el.clientWidth||600);
   const m={l:w<520?50:64,r:12,t:12,b:26};return {w,h,m,iw:w-m.l-m.r,ih:h-m.t-m.b};}
 /* cadre commun : grille horizontale, étiquettes Y, étiquettes X (sous-ensemble sans chevauchement) */
@@ -2404,9 +2407,16 @@ function grSurvol(e){
     so.map(l=>grLignesHTML([l.slice(0,5)])+'<div class="tt-var">'+sgn(l[6]-l[5])+' depuis le '+isoToFr(avancerJours(tr.f,-1))+'</div>').join('');
   const tip=document.getElementById('gr-tip');
   tip.innerHTML=h;tip.style.display='block';
-  const tw=tip.offsetWidth,th=tip.offsetHeight,vw=document.documentElement.clientWidth;
-  let x=e.clientX+14;if(x+tw>vw-8)x=e.clientX-14-tw;if(x<8)x=8;
-  let yy=e.clientY-th-12;if(yy<8)yy=e.clientY+16;
+  const tw=tip.offsetWidth,th=tip.offsetHeight,vw=document.documentElement.clientWidth,vh=window.innerHeight;
+  let x,yy;
+  if(e.pointerType==='touch'){ // au doigt : bien au-dessus (le doigt cache ~50 px), sinon sur le côté
+    x=Math.min(Math.max(8,e.clientX-tw/2),vw-tw-8);yy=e.clientY-th-56;
+    if(yy<8){yy=Math.min(Math.max(8,e.clientY-th/2),vh-th-8);
+      x=e.clientX-48-tw>=8?e.clientX-48-tw:Math.min(e.clientX+48,vw-tw-8);}
+  }else{
+    x=e.clientX+14;if(x+tw>vw-8)x=e.clientX-14-tw;if(x<8)x=8;
+    yy=e.clientY-th-12;if(yy<8)yy=e.clientY+16;
+  }
   tip.style.left=x+'px';tip.style.top=yy+'px';
 }
 const sgn=c=>(c>0?'+':'')+eur(c);
