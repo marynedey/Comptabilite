@@ -1,0 +1,16 @@
+{
+  "name": "comptabilite",
+  "private": true,
+  "type": "module",
+  "description": "Outils de test uniquement : l'application elle-même n'a ni dépendance ni build.",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "test:navigateur": "node --test --test-concurrency=1 tests/navigateur/*.test.mjs",
+    "verifier-version": "node outils/verifier-version.mjs",
+    "nouvelle-version": "node outils/version.mjs",
+    "serveur": "python3 -m http.server 8000"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}

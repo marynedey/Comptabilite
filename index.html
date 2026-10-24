@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mes comptes</title>
+<meta name="theme-color" content="#18221E">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<aside>
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M8 5v14"/></svg>
+    <b>Mes comptes</b>
+  </div>
+  <div style="padding:0 8px 12px;font-size:.72rem;color:var(--sidebar-ink-2);line-height:1.45" id="brandver"></div>
+  <div class="side-h">Comptes</div>
+  <div id="acctlist"></div>
+  <div class="side-h">Navigation</div>
+  <nav class="nav">
+    <a data-v="registre" title="Registre (touche 1)" class="on" onclick="setView('registre')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16M4 12h16M4 19h16"/></svg>Registre</a>
+    <a data-v="analyse" title="Analyse (touche 2)" onclick="setView('analyse')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5M4 19h16M8 16v-5M13 16V8M18 16v-9"/></svg>Analyse</a>
+    <a data-v="graphiques" title="Graphiques : solde et patrimoine" onclick="setView('graphiques')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19h16"/><path d="M4 15l5-5 4 3 7-7"/></svg>Graphiques</a>
+    <a data-v="tiers" title="Destinataires (touche 3)" onclick="setView('tiers')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0112 0M16 7a3 3 0 010 6"/></svg>Tiers</a>
+    <a data-v="categories" title="Catégories (touche 4)" onclick="setView('categories')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7l9-4 9 4M3 7v10l9 4 9-4V7M3 7l9 4 9-4M12 11v10"/></svg>Catégories</a>
+    <a data-v="releve" onclick="setView('releve')" id="nav-releve" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h10l6 6v10H4z"/><path d="M9 14l2 2 4-4"/></svg>Relevé en cours</a>
+    <a data-v="recurrences" title="Opérations récurrentes (touche 5)" onclick="setView('recurrences')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>Opérations récurrentes</a>
+    <a data-v="corbeille" title="Corbeille (touche 6)" onclick="setView('corbeille')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg>Corbeille <span id="nav-trash-n" style="margin-left:auto;font-size:.75rem;opacity:.8"></span></a>
+  </nav>
+</aside>
+<div class="menu-backdrop" id="menu-backdrop" onclick="closeMenu()"></div>
+
+<main>
+  <div class="topbar">
+   <div class="tb-main">
+    <button class="navbtn menubtn" id="btn-menu" onclick="toggleMenu()" title="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+    <button class="navbtn" onclick="navBack()" title="Retour (précédent)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>
+    <button class="navbtn" onclick="navFwd()" title="Avancer (suivant)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg></button>
+    <button class="navbtn" onclick="aideRaccourcis()" title="Raccourcis clavier ( ? )">?</button>
+    <button class="navbtn" id="btn-fs" onclick="basculerPleinEcran()" title="Plein écran" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path id="fs-ico" d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+    <button class="navbtn" id="btn-undo" onclick="annulerDerniere()" title="Annuler la dernière modification (Ctrl+Z)" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/></svg></button>
+    <button onclick="sauvegarder()" title="Exporter la base vers un fichier"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg><span class="lbl-save">Sauvegarder</span></button>
+   </div>
+   <div class="tb-more">
+    <button onclick="document.getElementById('fileDb').click()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21V9M7 14l5-5 5 5M5 3h14"/></svg>Charger une sauvegarde</button>
+    <button onclick="document.getElementById('fileQif').click()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h10l6 6v10H4z"/><path d="M14 4v6h6"/></svg>Importer un QIF</button>
+    <input type="file" id="fileDb" accept=".sqlite,.db" style="display:none" onchange="chargerFichier(this)">
+    <input type="file" id="fileQif" accept=".qif" style="display:none" onchange="chargerQif(this)">
+    <button onclick="document.getElementById('filePdf').click()" title="Pointer automatiquement depuis un relevé PDF"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h10l6 6v10H4z"/><path d="M9 14l2 2 4-4"/></svg>Comparer un relevé PDF</button>
+    <input type="file" id="filePdf" accept=".pdf" style="display:none" onchange="chargerReleve(this)">
+    <input type="file" id="fileAmex" accept=".csv" style="display:none" onchange="chargerAmexCSV(this)">
+    <span class="status" id="status" title="Cliquer pour voir le détail des modifications" onclick="voirModifications()" style="cursor:pointer"><span class="sdot"></span><span id="status-txt">—</span></span>
+   </div>
+  </div>
+
+  <section class="view on" id="v-registre">
+    <div class="top">
+      <div><h1 id="acct-title">Compte</h1><div class="meta" id="acct-meta"></div></div>
+      <div class="actions">
+        <button onclick="ouvrirRapprochement()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12l5 5L20 6"/></svg>Rapprocher</button>
+        <button class="primary" title="Raccourci : touche A" onclick="openModal(null)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Ajouter <span style="opacity:.7;font-size:.85em">(A)</span></button>
+      </div>
+    </div>
+    <div class="tiles" id="tiles"></div>
+    <div class="bar">
+      <span style="position:relative;flex:1;min-width:180px;display:flex">
+        <input class="search" id="f-search" type="text" style="flex:1;padding-right:30px" placeholder="Rechercher partout (destinataire, catégorie, montant, n°, date…)" onkeydown="if(event.key==='Escape'&&this.value){event.preventDefault();event.stopPropagation();this.value='';goPage(1);}">
+        <button id="f-clear" title="Effacer la recherche (Échap)" onclick="clearSearch()"
+          style="display:none;position:absolute;right:4px;top:50%;transform:translateY(-50%);border:0;background:transparent;padding:2px 6px;font-size:1rem;line-height:1;color:var(--ink-3)">×</button>
+      </span>
+      <div id="f-statuts" class="fstatuts" title="Filtrer par statut — clique pour cumuler (comme un filtre Excel)">
+        <span class="schip on" data-s="non_pointe" onclick="toggleStatut(this)">Non pointé</span>
+        <span class="schip on" data-s="pointe" onclick="toggleStatut(this)">Pointé</span>
+        <span class="schip on" data-s="rapproche" onclick="toggleStatut(this)">Rapproché</span>
+        <span class="schip on" data-s="previsionnel" onclick="toggleStatut(this)">Prévisionnel</span>
+        <span class="schip on" data-s="annule" onclick="toggleStatut(this)">Annulé</span>
+      </div>
+      <select id="f-horizon" onchange="goPage(1)" title="Jusqu’où voir les opérations prévisionnelles à venir">
+        <option value="tout">Prévisionnel : tout</option>
+        <option value="3">Prévisionnel : 3 jours</option>
+        <option value="finmois">Prévisionnel : fin du mois</option>
+        <option value="masque">Prévisionnel : masqué</option>
+      </select>
+      <span class="periode" id="f-periode-wrap">
+        <input type="hidden" id="f-periode" value="tout">
+        <button type="button" class="pchip on" data-m="tout" onclick="setPeriode('f','tout')">Tout</button>
+        <button type="button" class="pchip" data-m="mois" onclick="setPeriode('f','mois')">Ce mois</button>
+        <button type="button" class="pchip" data-m="moisdernier" onclick="setPeriode('f','moisdernier')">Mois −1</button>
+        <button type="button" class="pchip" data-m="3mois" onclick="setPeriode('f','3mois')">3 mois</button>
+        <button type="button" class="pchip" data-m="annee" onclick="setPeriode('f','annee')">Cette année</button>
+        <button type="button" class="pchip" data-m="perso" onclick="setPeriode('f','perso')">Dates…</button>
+      </span>
+      <input type="text" id="f-from" class="dt datef" style="display:none" maxlength="8" inputmode="numeric" placeholder="JJ/MM/AA" oninput="maskDate(this)" onblur="fixDate(this)">
+      <span id="f-sep" style="display:none;align-self:center;color:var(--ink-3)">au</span>
+      <input type="text" id="f-to" class="dt datef" style="display:none" maxlength="8" inputmode="numeric" placeholder="JJ/MM/AA" oninput="maskDate(this)" onblur="fixDate(this)">
+      <button class="ghost" onclick="resetFilters()">Effacer les filtres</button>
+    </div>
+    <div class="listhead">
+      <span id="count"></span>
+      <span class="legend" id="legend"></span>
+      <span class="hauteur-ctrl" style="display:inline-flex;align-items:center;gap:6px">
+        <span title="Hauteur du tableau">⇕</span>
+        <input type="range" id="reg-hauteur" min="4" max="40" step="1" oninput="setHauteurRegistre(this.value)" onchange="this.blur()" style="width:120px;vertical-align:middle">
+      </span>
+      <span class="pager" id="pager"></span>
+    </div>
+    <div class="reg-head" id="reg-head">
+      <table><colgroup><col style="width:18px"><col style="width:120px"><col style="width:100px"><col><col style="width:150px"><col style="width:150px"><col style="width:160px"></colgroup><thead><tr id="head"></tr></thead></table>
+    </div>
+    <div class="tablecard reg-scroll" id="reg-scroll">
+      <table><colgroup><col style="width:18px"><col style="width:120px"><col style="width:100px"><col><col style="width:150px"><col style="width:150px"><col style="width:160px"></colgroup><tbody id="rows"></tbody></table>
+    </div>
+    <div class="reg-sums" id="reg-sums"></div>
+    <div class="reg-sums reg-info" id="reg-info"></div>
+    <div class="foot"><span style="color:var(--ink-3)">Double-cliquez une ligne pour la modifier · cliquez la barre de statut à gauche pour pointer/dépointer</span></div>
+  </section>
+
+  <section class="view" id="v-analyse">
+    <div class="top">
+      <div><h1>Analyse</h1><div class="meta" id="an-meta"></div></div>
+      <div class="actions">
+        <div class="seg" style="display:inline-flex;margin-right:8px;margin-bottom:0">
+          <button id="an-dep" class="segbtn on" onclick="anSetSens('debit')">Dépenses</button>
+          <button id="an-cre" class="segbtn" onclick="anSetSens('credit')">Revenus</button>
+          <button id="an-net" class="segbtn" onclick="anSetSens('net')" title="Dépenses et revenus combinés (solde net), hors virements">Net</button>
+          <button id="an-vir" class="segbtn" onclick="anSetSens('virement')" title="Virements entre tes comptes uniquement (net, par compte)">Virements</button>
+        </div>
+        <span class="periode" id="an-periode-wrap">
+          <input type="hidden" id="an-periode" value="tout">
+          <button type="button" class="pchip on" data-m="tout" onclick="setPeriode('an','tout')">Tout</button>
+          <button type="button" class="pchip" data-m="mois" onclick="setPeriode('an','mois')">Ce mois</button>
+          <button type="button" class="pchip" data-m="moisdernier" onclick="setPeriode('an','moisdernier')">Mois −1</button>
+          <button type="button" class="pchip" data-m="3mois" onclick="setPeriode('an','3mois')">3 mois</button>
+          <button type="button" class="pchip" data-m="annee" onclick="setPeriode('an','annee')">Cette année</button>
+          <button type="button" class="pchip" data-m="perso" onclick="setPeriode('an','perso')">Dates…</button>
+        </span>
+        <input type="text" id="an-from" class="dt datef" style="display:none" maxlength="8" inputmode="numeric" placeholder="JJ/MM/AA" oninput="maskDate(this)" onblur="fixDate(this)">
+        <span id="an-sep" style="display:none;align-self:center;color:var(--ink-3)">au</span>
+        <input type="text" id="an-to" class="dt datef" style="display:none" maxlength="8" inputmode="numeric" placeholder="JJ/MM/AA" oninput="maskDate(this)" onblur="fixDate(this)">
+      </div>
+    </div>
+    <div class="crumb" id="an-crumb"></div>
+    <div class="antot" id="an-total"></div>
+    <div class="card"><div class="bars" id="an-bars"></div></div>
+  </section>
+
+  <section class="view" id="v-graphiques">
+    <div class="top"><div><h1>Graphiques</h1><div class="meta" id="gr-meta"></div></div></div>
+    <div class="grfsbar" id="gr-fsbar">
+      <span class="grfstit" id="gr-fstit"></span>
+      <div class="seg" style="display:inline-flex;margin:0">
+        <button type="button" id="gr-fs-courbe" class="segbtn on" onclick="grFsVue(0)">Courbe</button>
+        <button type="button" id="gr-fs-barres" class="segbtn" onclick="grFsVue(1)">Barres</button>
+      </div>
+      <button type="button" class="grfsfull" onclick="grFsNatifAuto()" title="Masquer la barre du navigateur">⛶</button>
+      <button type="button" class="grfsclose" onclick="grPleinEcran(false)" title="Quitter le plein écran (Échap)">✕ Fermer</button>
+    </div>
+    <div class="grctl">
+      <span class="grlab">Voir</span>
+      <div class="seg" style="display:inline-flex;margin:0;justify-self:start">
+        <button id="gr-m-compte" class="segbtn on" onclick="grSetMode('compte')" title="Le compte choisi dans la liste de gauche">Ce compte</button>
+        <button id="gr-m-patri" class="segbtn" onclick="grSetMode('patrimoine')" title="Tous les comptes additionnés">Patrimoine (tous les comptes)</button>
+      </div>
+      <span class="grlab">Période</span>
+      <div class="grline">
+        <span class="periode" id="gr-periode-wrap">
+          <input type="hidden" id="gr-periode" value="annee">
+          <button type="button" class="pchip" data-m="tout" onclick="setPeriode('gr','tout')">Tout</button>
+          <button type="button" class="pchip" data-m="mois" onclick="setPeriode('gr','mois')">Ce mois</button>
+          <button type="button" class="pchip" data-m="moisdernier" onclick="setPeriode('gr','moisdernier')">Mois −1</button>
+          <button type="button" class="pchip" data-m="3mois" onclick="setPeriode('gr','3mois')">3 mois</button>
+          <button type="button" class="pchip on" data-m="annee" onclick="setPeriode('gr','annee')">Cette année</button>
+          <button type="button" class="pchip" data-m="perso" onclick="setPeriode('gr','perso')">Dates…</button>
+        </span>
+        <input type="text" id="gr-from" class="dt datef" style="display:none" maxlength="8" inputmode="numeric" placeholder="JJ/MM/AA" oninput="maskDate(this)" onblur="fixDate(this)">
+        <span id="gr-sep" style="display:none;align-self:center;color:var(--ink-3)">au</span>
+        <input type="text" id="gr-to" class="dt datef" style="display:none" maxlength="8" inputmode="numeric" placeholder="JJ/MM/AA" oninput="maskDate(this)" onblur="fixDate(this)">
+      </div>
+      <span class="grlab">Barres par</span>
+      <div class="grline">
+        <select id="gr-pas" onchange="renderGraphiques()" title="Un point / une barre par…">
+          <option value="auto">Automatique</option><option value="jour">Par jour</option><option value="semaine">Par semaine</option>
+          <option value="mois">Par mois</option><option value="annee">Par année</option>
+        </select>
+      </div>
+      <span class="grlab">Afficher</span>
+      <div class="grtog" id="gr-tog"></div>
+    </div>
+    <div class="grhelp" id="gr-aide"></div>
+    <div class="card grbilan" id="gr-total"></div>
+    <div class="card" id="gr-solde-card"><div class="grhead"><div class="grtitle" id="gr-solde-titre">Évolution du solde</div><span class="grhr"><button type="button" class="ghost grfsbtn" onclick="grPleinEcran(true)" title="Afficher la courbe en plein écran (à l’horizontale sur mobile)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>Plein écran</button><span class="grh" title="Hauteur du graphique">⇕<input type="range" id="gr-h-solde" min="160" max="900" step="20" oninput="grHauteur('solde',this.value)" onchange="grHauteur('solde',this.value,true);this.blur()"></span></span></div><div class="grbox" id="gr-solde"></div><div class="grleg" id="gr-leg"></div></div>
+    <div class="card" id="gr-flux-card"><div class="grhead"><div class="grtitle" id="gr-flux-titre"></div><span class="grh" title="Hauteur du graphique">⇕<input type="range" id="gr-h-flux" min="160" max="900" step="20" oninput="grHauteur('flux',this.value)" onchange="grHauteur('flux',this.value,true);this.blur()"></span></div><div class="grbox" id="gr-flux"></div></div>
+    <div class="card grtab" id="gr-tab-wrap"><details><summary>Tableau des valeurs</summary><div class="tw"><table class="rtab" id="gr-table"></table></div></details></div>
+    <div id="gr-tip"></div>
+  </section>
+
+  <section class="view" id="v-tiers">
+    <div class="top"><div><h1>Tiers</h1><div class="meta" id="ti-meta"></div></div></div>
+    <div class="toolbar" style="margin-bottom:10px">
+      <input type="text" id="ti-search" placeholder="Rechercher un tiers…" style="width:100%;max-width:360px" oninput="renderTiers();syncHist()" onkeydown="if(event.key==='Escape'&&this.value){event.preventDefault();event.stopPropagation();this.value='';renderTiers();syncHist();}">
+    </div>
+    <div class="tablecard"><table class="auto"><thead><tr id="ti-head"></tr></thead><tbody id="ti-rows"></tbody></table></div>
+  </section>
+
+  <section class="view" id="v-categories">
+    <div class="top"><div><h1>Catégories</h1><div class="meta">Arborescence sur 3 niveaux — le nombre indique les opérations classées</div></div></div>
+    <div class="toolbar" style="margin-bottom:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <input type="text" id="cat-search" placeholder="Rechercher une catégorie…" style="flex:1;min-width:200px" oninput="renderCategories();syncHist()" onkeydown="if(event.key==='Escape'&&this.value){event.preventDefault();event.stopPropagation();this.value='';renderCategories();syncHist();}">
+      <label class="ventchk" style="margin:0"><input type="checkbox" id="cat-vides" onchange="state.catVides=this.checked;renderCategories();syncHist()"> Afficher seulement les catégories vides (0)</label>
+    </div>
+    <div class="card"><div class="tree" id="cat-tree"></div></div>
+  </section>
+
+  <section class="view" id="v-releve">
+    <div class="top">
+      <div><h1 id="rl-titre">Comparaison de relevé</h1><div class="meta" id="rl-meta"></div></div>
+      <div class="actions">
+        <button onclick="relDiag()">Voir les lignes lues</button>
+        <button onclick="relAbandonner()">Abandonner</button>
+        <button onclick="relSuivant(true)">Passer ce compte</button>
+        <button class="primary" onclick="relAppliquer()">Appliquer</button>
+      </div>
+    </div>
+    <div id="rl-ctrl"></div>
+    <div class="rsum" id="rl-chips"></div>
+    <div id="rl-corps"></div>
+  </section>
+
+  <section class="view" id="v-recurrences">
+    <div class="top">
+      <div><h1>Opérations récurrentes</h1><div class="meta" id="rec-meta"></div>
+        <div class="meta" style="color:var(--ink-3)">À chaque ouverture, les échéances arrivées à terme sont créées automatiquement — la prochaine est toujours prête d’avance. Une opération créée en <b>prévisionnel</b> apparaît dans le registre sans compter dans le solde pointé (tu la confirmes quand elle a lieu) ; en <b>réel</b>, elle compte tout de suite.</div></div>
+      <button class="primary" onclick="editRec(0)">Nouvelle opération récurrente</button>
+    </div>
+    <div class="tablecard"><table class="auto"><thead><tr>
+      <th onclick="recSort('tiers')" style="cursor:pointer" id="rh-tiers">Opération</th>
+      <th onclick="recSort('compte')" style="cursor:pointer" id="rh-compte">Compte</th>
+      <th onclick="recSort('montant')" style="cursor:pointer;text-align:right" id="rh-montant">Montant</th>
+      <th onclick="recSort('frequence')" style="cursor:pointer" id="rh-frequence">Fréquence</th>
+      <th onclick="recSort('debut')" style="cursor:pointer" id="rh-debut">Depuis / jusqu’à</th>
+      <th onclick="recSort('prochaine')" style="cursor:pointer" id="rh-prochaine">Prochaine</th>
+      <th onclick="recSort('commentaire')" style="cursor:pointer" id="rh-commentaire">Commentaire</th><th></th>
+    </tr></thead><tbody id="rec-rows"></tbody></table></div>
+  </section>
+
+  <section class="view" id="v-corbeille">
+    <div class="top">
+      <div><h1>Corbeille</h1><div class="meta" id="tr-meta"></div>
+        <div class="meta" style="color:var(--ink-3)">Rien n’est supprimé automatiquement : le contenu reste ici indéfiniment tant que tu ne le supprimes pas toi-même.</div></div>
+      <button class="danger" onclick="viderCorbeille()">Vider la corbeille</button>
+    </div>
+    <div class="tablecard"><table class="auto"><thead><tr id="tr-head"></tr></thead><tbody id="tr-rows"></tbody></table></div>
+  </section>
+</main>
+
+<!-- modale opération (reprise v4) -->
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <h2 id="modal-title">Nouvelle opération</h2>
+    <div class="seg" id="seg">
+      <button data-t="debit" class="on" onclick="setType('debit')">Débit</button>
+      <button data-t="credit" onclick="setType('credit')">Crédit</button>
+      <button data-t="virement" onclick="setType('virement')">Virement</button>
+    </div>
+    <div class="field">
+      <label>Destinataire <span class="hint">tape un nom connu, les catégories se remplissent seules (Tab pour valider)</span></label>
+      <input id="i-dest" autocomplete="off" placeholder="Carrefour, EDF…">
+      <div class="ac-list" id="ac"></div>
+    </div>
+    <div class="field" id="vir-field" style="display:none">
+      <label><span id="vir-label">Compte de destination</span> <span class="hint">le virement crée l’opération miroir dans l’autre compte</span></label>
+      <select id="i-vircompte"></select>
+    </div>
+    <label class="ventchk"><input type="checkbox" id="i-vent" onchange="ventToggle(this.checked)"> Répartir sur plusieurs catégories</label>
+    <div id="cat-simple">
+      <div class="row3">
+        <div class="field"><label>Catégorie</label><input id="i-cat0" list="dl0" placeholder="Alimentation" oninput="majSousCats()"></div>
+        <div class="field"><label>Sous-catégorie</label><input id="i-cat1" list="dl1" placeholder="Supermarché" oninput="majSousCats()"></div>
+        <div class="field"><label>Sous-sous-catégorie</label><input id="i-cat2" list="dl2" placeholder="facultatif"></div>
+      </div>
+    </div>
+    <div id="vent-box" style="display:none">
+      <div class="venthead"><span>Catégorie</span><span style="text-align:right" title="Sans signe = même sens que l’opération. Un « - » inverse le sens (ex. remboursement dans une dépense).">Montant <span style="cursor:help">ⓘ</span></span><span></span></div>
+      <div id="vent-list"></div>
+      <div class="ventfoot">
+        <button type="button" class="ghost" onclick="ventAdd()" title="Raccourci : touche +">+ Ajouter une ligne</button>
+        <span id="vent-tot"></span>
+      </div>
+      <datalist id="dlfull"></datalist>
+    </div>
+    <datalist id="dl0"></datalist><datalist id="dl1"></datalist><datalist id="dl2"></datalist>
+    <div class="row2">
+      <div class="field"><label>Date</label><input id="i-date" class="dt datef" style="width:100%" type="text" inputmode="numeric" maxlength="8" placeholder="JJ/MM/AA" oninput="maskDate(this)" onblur="fixDate(this)"></div>
+      <div class="field"><label>Montant (€)</label><input id="i-montant" type="text" inputmode="decimal" placeholder="0,00" oninput="ventTotal&amp;&amp;document.getElementById(&#39;i-vent&#39;).checked&amp;&amp;ventTotal()">
+        <div class="lock-hint" id="i-montant-hint" style="display:none">🔒 Opération rapprochée : montant non modifiable</div></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Numéro (chèque…)</label><input id="i-num" placeholder="facultatif"></div>
+      <div class="field"><label>Commentaire</label><input id="i-comm" placeholder="facultatif"></div>
+    </div>
+    <label class="ventchk"><input type="checkbox" id="i-prev"> Prévisionnelle <span class="hint">(prévue mais pas encore effective — ne compte pas dans le solde pointé)</span></label>
+    <div class="modal-foot">
+      <button class="danger" id="btn-del" style="display:none" onclick="deleteOp()">Supprimer</button>
+      <button class="danger" id="btn-ann" style="display:none" onclick="annulOp()">Passer en annulé</button>
+      <span style="flex:1"></span>
+      <button onclick="closeModal()">Annuler</button>
+      <button class="primary" onclick="saveOp()">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- dialogue générique -->
+<div class="dlg-back" id="dlgBack"><div class="dlg">
+  <h2 id="dlgTitle"></h2>
+  <div class="msg" id="dlgMsg"></div>
+  <div id="dlgBody"></div>
+  <div class="prog" id="dlgProg" style="display:none"><i id="dlgProgBar"></i></div>
+  <div class="dlg-foot" id="dlgFoot"></div>
+</div></div>
+
+<div class="busy" id="busy"><div class="bx"><div class="spin"></div><div class="bt" id="busyTxt">Traitement…</div></div></div>
+<div class="toast" id="toast"></div>
+<div class="maj" id="maj" role="status" hidden>Nouvelle version de l’application <button onclick="installerMaj()">Mettre à jour</button></div>
+
+<script src="vendor/sql-wasm.js"></script>
+<script src="vendor/pdf.min.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

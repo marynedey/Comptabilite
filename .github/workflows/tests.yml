@@ -1,0 +1,95 @@
+# Tests de l'app, puis publication sur GitHub Pages.
+name: Tests et publication
+
+# Sur chaque PR vers main : les trois contrôles ci-dessous, à rendre
+# obligatoires dans les règles de la branche main (Settings → Rules → Rulesets).
+# Sur main (après fusion) : les tests, puis la publication si tout passe.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unitaires:
+    name: Tests unitaires
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntaxe de tous les fichiers JavaScript
+        run: node outils/verifier-syntaxe.cjs sw.js js/*.js vendor/*.js
+      - name: Logique (montants, QIF, récurrences, relevés), version, fichiers
+        run: npm test
+
+  navigateur:
+    name: Parcours navigateur
+    # Version d'Ubuntu fixée : Playwright 1.56 ne gère pas encore ubuntu-latest.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Parcours complets dans Chromium
+        run: npm run test:navigateur
+
+  version:
+    name: Version augmentée
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: La version doit augmenter si l'app change
+        run: node outils/verifier-version.mjs origin/${{ github.base_ref }}
+
+  publier:
+    name: Publication
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: [unitaires, navigateur]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write   # étiquette de version (v2.0.0…)
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploiement.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Uniquement les fichiers de l'app (ni tests ni outils)
+        run: |
+          mkdir _site
+          cp -r index.html manifest.webmanifest sw.js css js vendor icons _site/
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploiement
+        uses: actions/deploy-pages@v4
+      - name: Étiquette de la version publiée (onglet « Tags » du dépôt)
+        run: |
+          v="v$(grep -oP "VERSION = '\K[\d.]+" js/app.js)"
+          if git ls-remote --exit-code --tags origin "refs/tags/$v" >/dev/null; then echo "$v existe déjà"; exit 0; fi
+          git tag "$v" && git push origin "$v"

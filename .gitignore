@@ -1,1 +1,4 @@
 *.sqlite
+*.db
+node_modules/
+test-results/
