@@ -48,7 +48,7 @@ Les numéros de version sont dans le code, plus dans le nom du fichier ; l'histo
 | `manifest.webmanifest`, `icons/` | installation sur l'écran d'accueil (`icons/icone.svg` = dessin d'origine) |
 | `vendor/` | bibliothèques tierces, non modifiées : sql.js 1.10.3 (MIT) et pdf.js 3.11.174 (Apache 2.0) |
 | `tests/` | tests (voir ci-dessous) |
-| `outils/` | `version.mjs` (changer de version), `verifier-version.mjs` (contrôle des PR) |
+| `outils/` | `version.mjs` (changer de version), `verifier-version.mjs` (contrôle des PR), `verifier-syntaxe.cjs` (syntaxe des scripts) |
 
 Pas d'étape de build : les fichiers sont publiés tels quels.
 

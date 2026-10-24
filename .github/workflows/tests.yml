@@ -28,7 +28,7 @@ jobs:
         with:
           node-version: 22
       - name: Syntaxe de tous les fichiers JavaScript
-        run: for f in sw.js js/*.js vendor/*.js; do node --check "$f"; done
+        run: node outils/verifier-syntaxe.cjs sw.js js/*.js vendor/*.js
       - name: Logique (montants, QIF, récurrences, relevés), version, fichiers
         run: npm test
 
