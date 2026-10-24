@@ -12,6 +12,10 @@ App web de comptes personnels, en français, hors ligne. Publiée sur https://ma
 - `sw.js` : cache de l'app pour le hors-ligne. Pas de `skipWaiting` automatique : l'app affiche le bandeau
   `#maj` et n'active la nouvelle version qu'au clic (après `flushIDB()`), pour ne jamais recharger en pleine saisie.
   Compléter `FICHIERS` quand on ajoute/renomme un fichier (un test le vérifie).
+- Sauvegarde NAS : `serveur-nas/sauvegarde.py` (Python stdlib, `GET /ping`, `PUT /sauvegardes/comptes_….sqlite`,
+  jeton Bearer, CORS limité à l'app). Côté app : `nasConfig` (localStorage `mc.nas`, jamais dans la base),
+  `nasEnvoyer`, sauvegarde en attente dans IndexedDB (`nas-attente`, seule la plus récente) renvoyée par `nasRelancer`.
+  Installation chez l'utilisatrice : VM OpenMediaVault sous Proxmox, tunnel Cloudflare (voir `serveur-nas/LISEZMOI.md`).
 - `vendor/` : sql.js 1.10.3 et pdf.js 3.11.174, tels quels (ne pas modifier).
 
 ## Versions

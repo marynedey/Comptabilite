@@ -3,7 +3,9 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { readFileSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, existsSync, statSync, mkdtempSync, readdirSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { extname, join, normalize } from 'node:path';
 import { chromium } from 'playwright';
 
@@ -56,6 +58,8 @@ const swActif = page => page.evaluate(async () => { await navigator.serviceWorke
 async function ajouterOperation(page, { dest, montant, date, cat }) {
   await page.keyboard.press('a');
   await page.locator('#overlay #i-dest').waitFor({ state: 'visible' });
+  // l'app place le curseur dans « Destinataire » juste après l'ouverture : attendre avant de remplir
+  await page.waitForFunction(() => document.activeElement?.id === 'i-dest');
   await page.fill('#i-dest', dest);
   await page.fill('#i-cat0', cat);
   await page.click('#i-date', { clickCount: 3 });
@@ -91,7 +95,7 @@ test('saisie d\'une opération : visible, gardée après rechargement, sauvegard
 
     // Sauvegarde : fichier .sqlite téléchargé.
     const [telechargement] = await Promise.all([page.waitForEvent('download'), page.click('button[onclick="sauvegarder()"]')]);
-    assert.match(telechargement.suggestedFilename(), /^comptes_\d{4}-\d{2}-\d{2}_\d{2}h\d{2}m\d{2}s?\.sqlite$/);
+    assert.match(telechargement.suggestedFilename(), /^comptes_\d{4}-\d{2}-\d{2}_\d{2}h\d{2}m\d{2}\.sqlite$/);
     const fichier = await telechargement.path();
     assert.match(await page.textContent('#status-txt'), /À jour/);
 
@@ -169,6 +173,69 @@ test('téléphone : rien ne dépasse en largeur', async () => {
     }
     assert.deepEqual(page.erreurs, []);
   } finally { await navigateur.close(); }
+});
+
+/* ---------- sauvegarde sur le NAS (vrai service serveur-nas/sauvegarde.py) ---------- */
+const JETON_NAS = 'jeton-du-nas-0123456789';
+async function demarrerNas(dossier, port) {
+  const nas = spawn('python3', [join(RACINE, 'serveur-nas/sauvegarde.py')], {
+    env: { ...process.env, DOSSIER: dossier, JETON: JETON_NAS, PORT: String(port), ORIGINE: new URL(BASE).origin },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  await new Promise((ok, ko) => { nas.stdout.on('data', d => /Sauvegardes/.test(d) && ok()); nas.on('exit', c => ko(new Error('NAS arrêté : ' + c))); });
+  return nas;
+}
+const sauvegardesNas = dossier => readdirSync(dossier).filter(f => /^comptes_.*\.sqlite$/.test(f));
+
+test('NAS : réglage testé, « Sauvegarder » écrit dans le dossier ; NAS injoignable → téléchargement puis envoi au retour', async () => {
+  const dossier = mkdtempSync(join(tmpdir(), 'nas-'));
+  const port = 20000 + Math.floor(Math.random() * 20000);
+  let nas = await demarrerNas(dossier, port);
+  const { navigateur, page } = await ouvrir();
+  try {
+    // Réglages : mauvais jeton refusé au test, bon jeton accepté, enregistré.
+    await page.click('button:has-text("Sauvegarde NAS")');
+    await page.fill('#nas-url', `http://127.0.0.1:${port}/`);
+    await page.fill('#nas-jeton', 'mauvais-jeton');
+    await page.click('#dlgFoot button:has-text("Tester")');
+    await page.waitForFunction(() => /Jeton refusé/.test(document.getElementById('nas-res').textContent));
+    await page.fill('#nas-jeton', JETON_NAS);
+    await page.click('#dlgFoot button:has-text("Tester")');
+    await page.waitForFunction(() => /joignable, jeton accepté/.test(document.getElementById('nas-res').textContent));
+    await page.click('#dlgFoot button:has-text("Enregistrer")');
+    assert.equal(JSON.parse(await page.evaluate(() => localStorage.getItem('mc.nas'))).url, `http://127.0.0.1:${port}`);
+
+    // Sauvegarder : directement sur le NAS, aucun téléchargement.
+    await ajouterOperation(page, { dest: 'Librairie', montant: '15', date: '08/01/26', cat: 'Loisirs' });
+    let telechargements = 0;
+    page.on('download', () => telechargements++);
+    await page.click('button[onclick="sauvegarder()"]');
+    await page.waitForFunction(() => /Sauvegardé sur le NAS/.test(document.getElementById('toast').textContent));
+    const [premier] = sauvegardesNas(dossier);
+    assert.ok(premier, 'fichier écrit sur le NAS');
+    assert.equal(readFileSync(join(dossier, premier)).subarray(0, 15).toString(), 'SQLite format 3');
+    assert.equal(telechargements, 0);
+    assert.match(await page.textContent('#status-txt'), /À jour/);
+
+    // NAS éteint (pas de VPN) : le fichier est téléchargé, la sauvegarde attend.
+    nas.kill(); await new Promise(r => nas.once('exit', r));
+    await ajouterOperation(page, { dest: 'Cinéma', montant: '9', date: '09/01/26', cat: 'Loisirs' });
+    await page.waitForTimeout(1100); // nom de fichier à la seconde : différent du premier
+    const [telechargement] = await Promise.all([page.waitForEvent('download'), page.click('button[onclick="sauvegarder()"]')]);
+    await page.waitForFunction(() => /NAS injoignable/.test(document.getElementById('toast').textContent));
+    assert.equal(sauvegardesNas(dossier).length, 1);
+    assert.ok(await page.evaluate(async () => !!(await idbGetKey('nas-attente'))));
+
+    // Le NAS revient : au retour dans l'app, la sauvegarde en attente part toute seule.
+    nas = await demarrerNas(dossier, port);
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await page.waitForFunction(() => /en attente envoyée au NAS/.test(document.getElementById('toast').textContent));
+    assert.deepEqual(sauvegardesNas(dossier).sort(), [premier, telechargement.suggestedFilename()].sort());
+    assert.equal(await page.evaluate(async () => await idbGetKey('nas-attente')), null);
+    // le jeton n'est jamais dans la base (donc jamais dans une sauvegarde)
+    assert.equal(await page.evaluate(() => scal("SELECT COUNT(*) FROM meta WHERE valeur LIKE '%jeton-du-nas%'")), 0);
+    assert.deepEqual(page.erreurs.filter(e => !/Failed to load resource|ERR_CONNECTION_REFUSED/.test(e)), []);
+  } finally { nas.kill(); await navigateur.close(); }
 });
 
 /* ---------- PDF minimal (une page, une ligne de texte par élément) ---------- */

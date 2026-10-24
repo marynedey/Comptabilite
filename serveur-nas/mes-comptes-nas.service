@@ -1,0 +1,24 @@
+# Service systemd : /etc/systemd/system/mes-comptes-nas.service
+[Unit]
+Description=Sauvegardes de l'app Mes comptes vers le NAS
+After=network-online.target local-fs.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/mes-comptes-nas/sauvegarde.py
+EnvironmentFile=/etc/mes-comptes-nas/sauvegarde.env
+User=mes-comptes
+Group=mes-comptes
+# membre du groupe « users » : peut écrire dans le dossier partagé (chmod 2775)
+SupplementaryGroups=users
+UMask=0002
+Restart=always
+RestartSec=5
+# Le service ne peut rien modifier sur le système, à part ce qu'autorisent les droits du dossier.
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

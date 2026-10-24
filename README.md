@@ -16,6 +16,13 @@ automatiquement à la nouvelle adresse.
 1. Dans l'ancien fichier : **Sauvegarder** (télécharge `comptes_….sqlite`).
 2. À l'adresse : **Charger une sauvegarde** → choisir ce fichier.
 
+## Sauvegarde directe sur le NAS
+
+**Sauvegarde NAS** (en haut de l'écran) : une fois réglé, **Sauvegarder** envoie le fichier directement
+dans un dossier du NAS, depuis le PC comme le téléphone. NAS injoignable (pas de VPN…) : le fichier est
+téléchargé sur l'appareil comme avant, et part sur le NAS tout seul dès qu'il répond.
+Le petit service à installer sur le NAS et son mode d'emploi sont dans [`serveur-nas/`](serveur-nas/LISEZMOI.md).
+
 ## Mises à jour
 
 Une nouvelle version publiée s'installe toute seule en arrière-plan. Un bandeau
@@ -48,6 +55,7 @@ Les numéros de version sont dans le code, plus dans le nom du fichier ; l'histo
 | `manifest.webmanifest`, `icons/` | installation sur l'écran d'accueil (`icons/icone.svg` = dessin d'origine) |
 | `vendor/` | bibliothèques tierces, non modifiées : sql.js 1.10.3 (MIT) et pdf.js 3.11.174 (Apache 2.0) |
 | `tests/` | tests (voir ci-dessous) |
+| `serveur-nas/` | service de sauvegarde à installer sur le NAS (Python, sans dépendance) |
 | `outils/` | `version.mjs` (changer de version), `verifier-version.mjs` (contrôle des PR), `verifier-syntaxe.cjs` (syntaxe des scripts) |
 
 Pas d'étape de build : les fichiers sont publiés tels quels.
@@ -64,10 +72,11 @@ npm run serveur              # voir l'app en local : http://localhost:8000
 
 - `npm test` charge `js/app.js` dans Node avec le vrai moteur SQLite : montants, dates, import QIF,
   récurrences (échéances créées, prévisionnel, solde), lecture d'un relevé PDF, rapprochement, CSV Amex,
-  migration de base ; plus : versions identiques dans `js/app.js` et `sw.js`, tous les fichiers en cache
+  migration de base ; le service du NAS (lancé pour de vrai : jeton, noms de fichiers piégés, rotation) ; plus : versions identiques dans `js/app.js` et `sw.js`, tous les fichiers en cache
   hors ligne, aucune base `.sqlite`/relevé dans le dépôt.
 - `npm run test:navigateur` : démarrage sans erreur, saisie d'une opération, conservation après
   rechargement, sauvegarde `.sqlite` puis chargement dans un autre navigateur, lecture d'un PDF,
+  sauvegarde sur le NAS (directe, puis NAS éteint → téléchargement et envoi au retour),
   fonctionnement hors ligne, bandeau de nouvelle version (sans perte de saisie), largeur sur téléphone.
 
 Sur chaque PR, trois contrôles : **Tests unitaires**, **Parcours navigateur**, **Version augmentée**.

@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.0.1'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.1.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -365,6 +365,7 @@ async function boot(){
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)verifierJour();});
   if(restored){const n=scal('SELECT COUNT(*) FROM operation WHERE supprime=0');
     if(n)toast(n.toLocaleString('fr-FR')+' opérations chargées depuis ce navigateur');}
+  setTimeout(nasRelancer,1500);   // sauvegarde restée en attente d'envoi au NAS
   if(!idbOK)dlgAlert("Le stockage local de ce navigateur n'est pas disponible ici.\nL'application fonctionne, mais pense à Sauvegarder avant de fermer.",'Attention');
 }
 
@@ -2009,21 +2010,97 @@ function annulOp(){
 /* ============================================================
    Sauvegarde / chargement fichier
    ============================================================ */
-function sauvegarder(){
+async function sauvegarder(){
   try{
     setMeta('updated',nowTS());
+    const jmax=scal('SELECT MAX(id) FROM journal')||0;   // modifications contenues dans ce fichier
     const data=db.export();
     const d=new Date(),p2=x=>String(x).padStart(2,'0');
     const stamp=d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate())+'_'+p2(d.getHours())+'h'+p2(d.getMinutes())+'m'+p2(d.getSeconds());
     const nom='comptes_'+stamp+'.sqlite';
-    const blob=new Blob([data],{type:'application/octet-stream'});
-    const a=document.createElement('a');a.href=URL.createObjectURL(blob);
-    a.download=nom;document.body.appendChild(a);a.click();
-    setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1000);
+    // NAS réglé : envoi direct ; injoignable : téléchargement comme avant + envoi plus tard
+    const nas=nasConfig();let surNas=false,raison='';
+    if(nas){
+      busy('Envoi au NAS…');
+      try{await nasEnvoyer(nas,nom,data);surNas=true;}catch(e){raison=e.message;}
+      unbusy();
+    }
+    if(!surNas){
+      const blob=new Blob([data],{type:'application/octet-stream'});
+      const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+      a.download=nom;document.body.appendChild(a);a.click();
+      setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1000);
+    }
+    if(nas)await nasMettreEnAttente(surNas?null:{nom,data});   // seule la plus récente compte
     setMeta('rev',(+getMeta('rev',0))+1);
-    run('UPDATE journal SET sauve=1 WHERE sauve=0');refreshDirty();flushIDB();
-    toast('Sauvegarde téléchargée : '+nom);
-  }catch(e){dlgAlert('Échec de la sauvegarde : '+e.message,'Erreur');}
+    run('UPDATE journal SET sauve=1 WHERE sauve=0 AND id<=?',[jmax]);refreshDirty();flushIDB();
+    if(surNas)toast('Sauvegardé sur le NAS : '+nom);
+    else if(nas)toast(raison+' : fichier téléchargé sur cet appareil. Il partira sur le NAS dès qu’il répondra.',6000);
+    else toast('Sauvegarde téléchargée : '+nom);
+  }catch(e){unbusy();dlgAlert('Échec de la sauvegarde : '+e.message,'Erreur');}
+}
+
+/* ---------- sauvegarde sur le NAS (service serveur-nas/sauvegarde.py) ----------
+   Adresse et jeton restent dans ce navigateur (localStorage) : jamais dans la base,
+   donc jamais dans les fichiers de sauvegarde. Une sauvegarde qui n'a pas pu partir
+   attend dans IndexedDB et est renvoyée à l'ouverture, au retour dans l'app, au retour du réseau. */
+const NAS_CLE='mc.nas',NAS_ATTENTE='nas-attente';
+function nasConfig(){try{const c=JSON.parse(localStorage.getItem(NAS_CLE)||'null');return c&&c.url&&c.jeton?c:null;}catch(e){return null;}}
+function nasAdresse(u){return String(u||'').trim().replace(/\/+$/,'');}
+async function nasAppel(c,chemin,opts,delai){
+  const ctl=new AbortController(),t=setTimeout(()=>ctl.abort(),delai);
+  try{
+    const r=await fetch(c.url+chemin,Object.assign({cache:'no-store',signal:ctl.signal},opts,
+      {headers:Object.assign({Authorization:'Bearer '+c.jeton},(opts||{}).headers)}));
+    if(r.ok)return r;
+    let m='';try{m=(await r.json()).erreur||'';}catch(e){}
+    throw new Error(r.status===401?'Jeton refusé par le NAS':'Le NAS a refusé ('+r.status+(m?' : '+m:'')+')');
+  }catch(e){
+    if(e.name==='AbortError'||e instanceof TypeError)throw new Error('NAS injoignable');
+    throw e;
+  }finally{clearTimeout(t);}
+}
+// un petit « ping » d'abord : sans VPN on est fixé en quelques secondes
+async function nasEnvoyer(c,nom,data){
+  await nasAppel(c,'/ping',{},6000);
+  await nasAppel(c,'/sauvegardes/'+encodeURIComponent(nom),{method:'PUT',body:data,headers:{'Content-Type':'application/octet-stream'}},120000);
+}
+async function nasMettreEnAttente(v){try{await idbPutKey(NAS_ATTENTE,v);}catch(e){}}
+let nasEnvoiEnCours=false;
+async function nasRelancer(){
+  const c=nasConfig();if(!c||nasEnvoiEnCours)return;
+  let att=null;try{att=await idbGetKey(NAS_ATTENTE);}catch(e){return;}
+  if(!att)return;
+  nasEnvoiEnCours=true;
+  try{await nasEnvoyer(c,att.nom,att.data);await nasMettreEnAttente(null);toast('Sauvegarde en attente envoyée au NAS : '+att.nom,4000);}
+  catch(e){/* toujours injoignable : on réessaiera */}
+  finally{nasEnvoiEnCours=false;}
+}
+async function reglagesNas(){
+  const c=nasConfig()||{url:'',jeton:''};
+  let att=null;try{att=await idbGetKey(NAS_ATTENTE);}catch(e){}
+  const lire=()=>({url:nasAdresse(document.getElementById('nas-url').value),jeton:document.getElementById('nas-jeton').value.trim()});
+  const res=(t,ok)=>{const el=document.getElementById('nas-res');el.textContent=t;el.style.color=ok?'var(--credit)':'var(--debit)';};
+  const valide=v=>{
+    if(!v.url||!v.jeton){res('Indique l’adresse et le jeton.');return false;}
+    if(!/^https?:\/\/[^/]+/.test(v.url)){res('L’adresse doit commencer par https://');return false;}
+    if(location.protocol==='https:'&&v.url.startsWith('http:')){res('L’adresse doit commencer par https:// (le navigateur bloque http:// depuis l’application).');return false;}
+    return true;};
+  const v=await dlgOpen({title:'Sauvegarde sur le NAS',
+    msg:'Quand c’est réglé, « Sauvegarder » envoie le fichier directement dans le dossier du NAS. '+
+      'Si le NAS ne répond pas (pas de VPN…), le fichier est téléchargé sur cet appareil et partira sur le NAS dès qu’il répondra.',
+    html:'<div class="field" style="margin-top:14px"><label>Adresse du service</label><input id="nas-url" type="url" autocomplete="off" placeholder="https://comptes.mondomaine.fr" value="'+esc(c.url)+'"></div>'+
+      '<div class="field"><label>Jeton <span class="hint">le JETON écrit dans la configuration du service</span></label><input id="nas-jeton" type="password" autocomplete="off" value="'+esc(c.jeton)+'"></div>'+
+      (att?'<div class="hint" style="margin:0 0 8px">1 sauvegarde en attente d’envoi : '+esc(att.nom)+'</div>':'')+
+      '<div id="nas-res" role="status" style="min-height:1.4em;font-size:.86rem"></div>',
+    buttons:[
+      ...(nasConfig()?[{t:'Ne plus utiliser',v:'off',d:true}]:[]),
+      {t:'Annuler',v:false},
+      {t:'Tester',v:null,before:()=>{const x=lire();if(!valide(x))return false;res('Test en cours…',true);
+        nasAppel(x,'/ping',{},8000).then(()=>res('NAS joignable, jeton accepté ✓',true),e=>res(e.message));return false;}},
+      {t:'Enregistrer',v:'ok',p:true,before:()=>valide(lire())&&(localStorage.setItem(NAS_CLE,JSON.stringify(lire())),true)}]});
+  if(v==='off'){localStorage.removeItem(NAS_CLE);await nasMettreEnAttente(null);toast('Sauvegarde sur le NAS désactivée');}
+  else if(v==='ok'){toast('Réglage enregistré : « Sauvegarder » enverra sur le NAS');nasRelancer();}
 }
 async function chargerFichier(inp){
   const f=inp.files&&inp.files[0];inp.value='';if(!f)return;
@@ -3263,8 +3340,8 @@ async function relAppliquer(){
    Divers
    ============================================================ */
 let toastT;
-function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
-  clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),2400);}
+function toast(msg,duree){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
+  clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),duree||2400);}
 
 function syncClear(){const v=document.getElementById('f-search').value;
   document.getElementById('f-clear').style.display=v?'block':'none';}
@@ -3358,6 +3435,8 @@ function aideRaccourcis(){
   dlgOpen({title:'Raccourcis clavier',msg:'',html,wide:true,fermeDehors:true,buttons:[{t:'Fermer',v:true,p:true}]});
 }
 window.addEventListener('beforeunload',e=>{if(dirty>0&&!majEnCours){e.preventDefault();e.returnValue='';}});
+window.addEventListener('online',()=>nasRelancer());
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)nasRelancer();});
 
 /* ---------- application installable, hors ligne (sw.js) ----------
    Une nouvelle version publiée s'installe en arrière-plan puis attend :

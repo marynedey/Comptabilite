@@ -48,6 +48,7 @@
    <div class="tb-more">
     <button onclick="document.getElementById('fileDb').click()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21V9M7 14l5-5 5 5M5 3h14"/></svg>Charger une sauvegarde</button>
     <button onclick="document.getElementById('fileQif').click()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h10l6 6v10H4z"/><path d="M14 4v6h6"/></svg>Importer un QIF</button>
+    <button onclick="reglagesNas()" title="Sauvegarder directement dans un dossier du NAS"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>Sauvegarde NAS</button>
     <input type="file" id="fileDb" accept=".sqlite,.db" style="display:none" onchange="chargerFichier(this)">
     <input type="file" id="fileQif" accept=".qif" style="display:none" onchange="chargerQif(this)">
     <button onclick="document.getElementById('filePdf').click()" title="Pointer automatiquement depuis un relevé PDF"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h10l6 6v10H4z"/><path d="M9 14l2 2 4-4"/></svg>Comparer un relevé PDF</button>
