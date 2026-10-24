@@ -15,7 +15,9 @@ App web de comptes personnels, en français, hors ligne. Publiée sur https://ma
 - Sauvegarde NAS : `serveur-nas/sauvegarde.py` (Python stdlib, `GET /ping`, `PUT /sauvegardes/comptes_….sqlite`,
   jeton Bearer, CORS limité à l'app). Côté app : `nasConfig` (localStorage `mc.nas`, jamais dans la base),
   `nasEnvoyer`, sauvegarde en attente dans IndexedDB (`nas-attente`, seule la plus récente) renvoyée par `nasRelancer`.
-  Installation chez l'utilisatrice : VM OpenMediaVault sous Proxmox, tunnel Cloudflare (voir `serveur-nas/LISEZMOI.md`).
+  Installation (homelab Proxmox) : **pas** dans la VM OpenMediaVault (demande de l'admin) mais dans Docker
+  (LXC 300, `serveur-nas/docker-compose.yml`) ou un LXC dédié (systemd), avec le partage OMV monté ; HTTPS par le
+  tunnel Cloudflare ou par certificat DNS-01 (le navigateur exige https même via WireGuard). Voir `serveur-nas/LISEZMOI.md`.
 - `vendor/` : sql.js 1.10.3 et pdf.js 3.11.174, tels quels (ne pas modifier).
 
 ## Versions

@@ -1,0 +1,24 @@
+# Service de sauvegarde « Mes comptes » dans Docker (par exemple le LXC 300 « docker »).
+# Mise en route : voir LISEZMOI.md, partie 1.
+services:
+  mes-comptes-nas:
+    image: python:3.12-alpine
+    container_name: mes-comptes-nas
+    restart: unless-stopped
+    command: ["python", "/app/sauvegarde.py"]
+    # Utilisateur sans droits ; UID:GID qui peut écrire dans le dossier des sauvegardes.
+    user: "${UID_GID:-1000:100}"
+    environment:
+      DOSSIER: /sauvegardes
+      PORT: "8080"
+      JETON: ${JETON:?JETON manquant dans .env}
+      GARDER: ${GARDER:-90}
+    volumes:
+      - ./sauvegarde.py:/app/sauvegarde.py:ro
+      # Dossier des sauvegardes (partage OMV déjà monté dans ce LXC, voir LISEZMOI.md).
+      - ${DOSSIER_HOTE:?DOSSIER_HOTE manquant dans .env}:/sauvegardes
+    ports:
+      - "8080:8080"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
