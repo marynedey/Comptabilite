@@ -28,9 +28,13 @@ test('tout ce que charge index.html existe', () => {
   for (const r of refs) assert.ok(existsSync(new URL('../' + r, import.meta.url)), `${r} introuvable`);
 });
 
-test('manifeste : icônes présentes', () => {
+test('manifeste : id propre à l\'app, icônes présentes', () => {
   const m = JSON.parse(lire('manifest.webmanifest'));
   assert.equal(m.start_url, './');
+  // L'id est lu depuis la racine du site (pas depuis le dossier) : « ./ » donnerait
+  // https://marynedey.github.io/, le même id que l'app Recettes, et Chrome croirait
+  // l'app déjà installée.
+  assert.equal(new URL(m.id, 'https://marynedey.github.io/').href, 'https://marynedey.github.io/Comptabilite/');
   for (const i of m.icons) assert.ok(existsSync(new URL('../' + i.src, import.meta.url)), `${i.src} manque`);
 });
 

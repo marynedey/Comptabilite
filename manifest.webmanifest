@@ -3,7 +3,7 @@
   "short_name": "Comptes",
   "description": "Gestion des comptes et analyse, hors ligne. Les données restent sur l'appareil.",
   "lang": "fr",
-  "id": "./",
+  "id": "/Comptabilite/",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
