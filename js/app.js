@@ -1,0 +1,3385 @@
+/* ============================================================
+   Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
+   ============================================================ */
+const APP_VERSION=1;
+const VERSION = '2.0.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const APP_BUILD='v'+VERSION;
+const IDB='mescomptes',STORE='db',KEY='main';
+const PAGE_SIZE=100;
+let SQL=null,db=null,idbOK=true,dirty=0,saveTimer=null;
+
+const SCHEMA=`
+PRAGMA foreign_keys=ON;
+CREATE TABLE IF NOT EXISTS compte(
+  id INTEGER PRIMARY KEY, nom TEXT NOT NULL, type TEXT NOT NULL DEFAULT 'courant',
+  solde_initial INTEGER NOT NULL DEFAULT 0, date_ouverture TEXT,
+  actif INTEGER NOT NULL DEFAULT 1, ordre_affichage INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS categorie(
+  id INTEGER PRIMARY KEY, libelle TEXT NOT NULL, parent_id INTEGER REFERENCES categorie(id));
+CREATE TABLE IF NOT EXISTS tiers(
+  id INTEGER PRIMARY KEY, nom TEXT NOT NULL UNIQUE, date_creation TEXT NOT NULL,
+  date_dernier_paiement TEXT, categorie_defaut_id INTEGER REFERENCES categorie(id));
+CREATE TABLE IF NOT EXISTS operation(
+  id INTEGER PRIMARY KEY, compte_id INTEGER NOT NULL REFERENCES compte(id),
+  type TEXT NOT NULL DEFAULT 'debit', date_operation TEXT NOT NULL,
+  montant INTEGER NOT NULL, tiers_id INTEGER REFERENCES tiers(id),
+  numero TEXT, commentaire TEXT,
+  statut TEXT NOT NULL DEFAULT 'non_pointe',
+  previsionnel INTEGER NOT NULL DEFAULT 0,
+  supprime INTEGER NOT NULL DEFAULT 0, date_suppression TEXT, date_annulation TEXT,
+  cat_path TEXT, hay TEXT,
+  date_creation TEXT, date_modification TEXT);
+CREATE TABLE IF NOT EXISTS ventilation(
+  id INTEGER PRIMARY KEY, operation_id INTEGER NOT NULL REFERENCES operation(id) ON DELETE CASCADE,
+  categorie_id INTEGER NOT NULL REFERENCES categorie(id), montant INTEGER NOT NULL, commentaire TEXT);
+CREATE TABLE IF NOT EXISTS meta(cle TEXT PRIMARY KEY, valeur TEXT);
+CREATE TABLE IF NOT EXISTS journal(id INTEGER PRIMARY KEY, ts TEXT NOT NULL, action TEXT, detail TEXT, sauve INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX IF NOT EXISTS idx_op_cd ON operation(compte_id,date_operation,id);
+CREATE INDEX IF NOT EXISTS idx_op_st ON operation(compte_id,statut);
+DROP INDEX IF EXISTS idx_op_sup;
+DROP INDEX IF EXISTS idx_op_tiers;
+CREATE INDEX IF NOT EXISTS idx_op_tiers3 ON operation(tiers_id,date_operation,id);
+CREATE INDEX IF NOT EXISTS idx_v_op ON ventilation(operation_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cat_uni ON categorie(parent_id,libelle);
+CREATE TABLE IF NOT EXISTS recurrence(
+  id INTEGER PRIMARY KEY,
+  compte_id INTEGER NOT NULL REFERENCES compte(id),
+  type TEXT NOT NULL DEFAULT 'debit',
+  montant INTEGER NOT NULL,
+  tiers TEXT,
+  cat_path TEXT,
+  commentaire TEXT,
+  frequence TEXT NOT NULL DEFAULT 'mensuelle',
+  intervalle INTEGER NOT NULL DEFAULT 1,
+  jour INTEGER,
+  date_debut TEXT NOT NULL,
+  date_fin TEXT,
+  prochaine TEXT NOT NULL,
+  creer_en TEXT NOT NULL DEFAULT 'previsionnel',
+  actif INTEGER NOT NULL DEFAULT 1,
+  date_creation TEXT
+);
+`;
+
+/* ---------- helpers SQL ---------- */
+function run(sql,p){db.run(sql,p||[]);}
+function qy(sql,p){const st=db.prepare(sql);if(p)st.bind(p);const out=[];while(st.step())out.push(st.getAsObject());st.free();return out;}
+function scal(sql,p){const r=qy(sql,p);if(!r.length)return null;return Object.values(r[0])[0];}
+function lastId(){return scal('SELECT last_insert_rowid()');}
+function nowTS(){const d=new Date(),p=x=>String(x).padStart(2,'0');return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());}
+function todayISO(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function getMeta(k,def){const v=scal('SELECT valeur FROM meta WHERE cle=?',[k]);return v==null?def:v;}
+function setMeta(k,v){run('INSERT INTO meta(cle,valeur) VALUES(?,?) ON CONFLICT(cle) DO UPDATE SET valeur=excluded.valeur',[k,String(v)]);}
+
+/* ---------- IndexedDB ---------- */
+function idbOpen(){return new Promise((res,rej)=>{const r=indexedDB.open(IDB,1);
+  r.onupgradeneeded=()=>r.result.createObjectStore(STORE);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});}
+function idbPut(b){return idbOpen().then(d=>new Promise((res,rej)=>{const t=d.transaction(STORE,'readwrite');
+  t.objectStore(STORE).put(b,KEY);t.oncomplete=()=>res();t.onerror=()=>rej(t.error);t.onabort=()=>rej(t.error||new Error('abort'));}));}
+function idbGet(){return idbOpen().then(d=>new Promise((res,rej)=>{const t=d.transaction(STORE,'readonly');
+  const g=t.objectStore(STORE).get(KEY);g.onsuccess=()=>res(g.result||null);g.onerror=()=>rej(g.error);}));}
+function idbPutKey(k,v){return idbOpen().then(d=>new Promise((res,rej)=>{const t=d.transaction(STORE,'readwrite');
+  t.objectStore(STORE).put(v,k);t.oncomplete=()=>res();t.onerror=()=>rej(t.error);}));}
+function idbGetKey(k){return idbOpen().then(d=>new Promise((res,rej)=>{const t=d.transaction(STORE,'readonly');
+  const g=t.objectStore(STORE).get(k);g.onsuccess=()=>res(g.result||null);g.onerror=()=>rej(g.error);}));}
+/* ---------- plein écran (tablette / téléphone : masque les barres du navigateur) ---------- */
+function pleinEcranActif(){return !!(document.fullscreenElement||document.webkitFullscreenElement);}
+async function basculerPleinEcran(){
+  const d=document,el=d.documentElement;
+  try{
+    if(pleinEcranActif())await (d.exitFullscreen||d.webkitExitFullscreen).call(d);
+    else await (el.requestFullscreen||el.webkitRequestFullscreen).call(el,{navigationUI:'hide'});
+  }catch(e){toast('Plein écran non disponible sur cet appareil');}
+}
+function majBoutonPleinEcran(){
+  const b=document.getElementById('btn-fs'),ico=document.getElementById('fs-ico');if(!b)return;
+  const dispo=!!(document.fullscreenEnabled||document.webkitFullscreenEnabled);
+  b.style.display=dispo?'':'none';
+  const on=pleinEcranActif();
+  b.title=on?'Quitter le plein écran':'Plein écran';
+  if(ico)ico.setAttribute('d',on?'M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5':'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5');
+}
+document.addEventListener('fullscreenchange',majBoutonPleinEcran);
+document.addEventListener('webkitfullscreenchange',majBoutonPleinEcran);
+async function annulerDerniere(){
+  const e=UNDO[UNDO.length-1];
+  if(!e){await dlgAlert('Rien à annuler.\n\nSeules les modifications faites depuis l’ouverture de l’appli peuvent être annulées (les '+UNDO_MAX+' dernières).','Annuler');return;}
+  const ok=await dlgConfirm('Annuler la modification n°'+e.jid+' ?\n\n'+e.label+'\n\nLes données reviennent exactement à leur état d’avant cette modification. '+
+    'Le journal garde une trace : une ligne « Annulation de la modification n°'+e.jid+' » y sera ajoutée.','Annuler une modification','Annuler la modification');
+  if(!ok)return;
+  UNDO.pop();
+  // le journal et les réglages (meta) restent ceux d'aujourd'hui : seules les données reviennent en arrière
+  const jr=qy('SELECT id,ts,action,detail,sauve FROM journal ORDER BY id'),mt=qy('SELECT cle,valeur FROM meta');
+  db.close();db=new SQL.Database(e.avant);
+  run('DELETE FROM journal');jr.forEach(r=>run('INSERT INTO journal(id,ts,action,detail,sauve) VALUES(?,?,?,?,?)',[r.id,r.ts,r.action,r.detail,r.sauve]));
+  run('DELETE FROM meta');mt.forEach(r=>run('INSERT INTO meta(cle,valeur) VALUES(?,?)',[r.cle,r.valeur]));
+  run('INSERT INTO journal(ts,action,detail,sauve) VALUES(?,?,?,0)',[nowTS(),'Annulation de la modification n°'+e.jid,e.label]);
+  touch(null); // nouvelle photo de référence, sans créer d'entrée annulable
+  if(state.acc&&!scal('SELECT id FROM compte WHERE id=?',[state.acc]))state.acc=+scal('SELECT id FROM compte WHERE actif=1 ORDER BY ordre_affichage,id LIMIT 1');
+  closeModal();render();toast('Modification n°'+e.jid+' annulée');
+}
+/* ---------- persistance (différée, non bloquante) ---------- */
+/* ---------- annulation (Ctrl+Z) : photos de la base en mémoire ----------
+   À chaque modification journalisée, on garde l'état d'avant. Limité aux modifications
+   faites depuis l'ouverture de l'appli (les photos ne survivent pas à un rechargement). */
+const UNDO_MAX=10;
+let UNDO=[],undoBase=null;
+function undoReset(){UNDO=[];undoBase=db.export();majBoutonUndo();}
+function majBoutonUndo(){const b=document.getElementById('btn-undo');if(!b)return;
+  const e=UNDO[UNDO.length-1];b.disabled=!e;
+  b.title=e?'Annuler la dernière modification (Ctrl+Z) : n°'+e.jid+' '+e.label:'Rien à annuler (Ctrl+Z — jusqu’à 10 modifications faites depuis l’ouverture)';}
+function touch(action,detail){
+  let jid=null;
+  if(action){run('INSERT INTO journal(ts,action,detail,sauve) VALUES(?,?,?,0)',[nowTS(),action,detail||'']);jid=lastId();}
+  if(undoBase){
+    if(jid){UNDO.push({jid,label:action+(detail?' — '+detail:''),avant:undoBase});if(UNDO.length>UNDO_MAX)UNDO.shift();}
+    undoBase=db.export();majBoutonUndo();
+  }
+  invalidateCaches();setMeta('updated',nowTS());refreshDirty();
+  clearTimeout(saveTimer);saveTimer=setTimeout(flushIDB,900);}
+function refreshDirty(){try{dirty=scal('SELECT COUNT(*) FROM journal WHERE sauve=0')||0;}catch(e){dirty=0;}updateStatus();}
+async function voirModifications(){
+  const rows=qy("SELECT id,ts,action,detail FROM journal WHERE sauve=0 ORDER BY id DESC LIMIT 300");
+  if(!rows.length){await dlgAlert('Aucune modification en attente : ta base est identique à ta dernière sauvegarde.','Modifications');return;}
+  const html='<div style="max-height:44vh;overflow:auto;border:1px solid var(--line);border-radius:9px">'+
+    '<table style="width:100%"><tbody>'+rows.map(r=>
+      '<tr><td class="num" style="white-space:nowrap;color:var(--ink-3);font-size:.78rem">n°'+r.id+'</td>'+
+      '<td class="num" style="white-space:nowrap;color:var(--ink-3);font-size:.78rem">'+esc(r.ts.slice(8,10)+'/'+r.ts.slice(5,7)+' '+r.ts.slice(11,16))+'</td>'+
+      '<td style="font-size:.82rem"><b>'+esc(r.action)+'</b>'+(r.detail?'<div style="color:var(--ink-2)">'+esc(r.detail)+'</div>':'')+'</td></tr>').join('')+
+    '</tbody></table></div>'+
+    '<div style="font-size:.8rem;color:var(--ink-3);margin-top:10px">Version de tes données : révision '+getMeta('rev',0)+
+    ', modifiée le '+(getMeta('updated','')||'—')+'.<br>Ces modifications sont bien enregistrées dans ce navigateur. '+
+    'Elles ne sont simplement pas encore recopiées dans un fichier de sauvegarde.</div>';
+  const go=await dlgOpen({title:rows.length+' modification'+(rows.length>1?'s':'')+' non sauvegardée'+(rows.length>1?'s':''),msg:'',html,
+    buttons:[{t:'Fermer',v:false}].concat(UNDO.length?[{t:'Annuler la dernière (n°'+UNDO[UNDO.length-1].jid+')',v:'undo'}]:[]).concat([{t:'Sauvegarder maintenant',v:true,p:true}])});
+  if(go==='undo')annulerDerniere();
+  else if(go)sauvegarder();
+}
+async function flushIDB(){
+  if(!idbOK||!db)return;
+  try{await idbPut(db.export().buffer);idbErr=null;}
+  catch(e){idbErr=e;idbOK=false;}
+  updateStatus();
+}
+let idbErr=null;
+function updateStatus(){
+  const el=document.getElementById('status'),tx=document.getElementById('status-txt');
+  if(!el)return;el.className='status';
+  if(idbErr){el.classList.add('err');tx.textContent='Stockage local en échec — sauvegarde le fichier !';return;}
+  if(dirty>0){el.classList.add('dirty');tx.textContent=dirty+' modification'+(dirty>1?'s':'')+' non sauvegardée'+(dirty>1?'s':'')+' — voir';}
+  else tx.textContent='À jour';
+}
+
+/* ---------- dialogues maison ---------- */
+let dlgResolve=null,dlgKeyHandler=null;
+function dlgClose(v){const b=document.getElementById('dlgBack');b.classList.remove('show');
+  document.getElementById('dlgProg').style.display='none';document.getElementById('dlgBody').innerHTML='';
+  if(dlgKeyHandler){document.removeEventListener('keydown',dlgKeyHandler,true);dlgKeyHandler=null;}
+  const r=dlgResolve;dlgResolve=null;if(r)r(v);}
+function dlgOpen({title,msg,html,buttons,onOpen,wide,focusBtn,fermeDehors}){
+  return new Promise(res=>{
+    dlgResolve=res;
+    // fermeDehors : un clic à côté de la boîte la ferme (comme le bouton Fermer)
+    document.getElementById('dlgBack').onclick=fermeDehors?(e=>{if(e.target.id==='dlgBack')dlgClose(false);}):null;
+    document.getElementById('dlgTitle').textContent=title||'';
+    document.getElementById('dlgMsg').textContent=msg||'';
+    document.getElementById('dlgBody').innerHTML=html||'';
+    const foot=document.getElementById('dlgFoot');foot.innerHTML='';
+    (buttons||[{t:'OK',v:true,p:true}]).forEach((b,i)=>{
+      const el=document.createElement('button');el.textContent=b.t;
+      if(b.p)el.className='primary';if(b.d||b.danger)el.className='danger';
+      el.onclick=()=>{if(b.before&&b.before()===false)return;dlgClose(b.v);};
+      el.dataset.def=b.p?'1':'';foot.appendChild(el);});
+    const boite=document.querySelector('#dlgBack .dlg');
+    if(boite)boite.classList.toggle('wide',!!wide);
+    document.getElementById('dlgBack').classList.add('show');
+    const def=foot.querySelector('button[data-def="1"]')||foot.lastChild;
+    setTimeout(()=>{if(onOpen)onOpen();
+      if(def&&(focusBtn||!document.querySelector('#dlgBody input,#dlgBody select')))def.focus();},40);
+    dlgKeyHandler=e=>{
+      if(e.key==='Escape'){e.preventDefault();e.stopPropagation();dlgClose(false);}
+      else if(e.key==='Enter'){const t=e.target;if(t&&t.tagName==='BUTTON')return;
+        if(t&&t.type==='checkbox'){e.preventDefault();e.stopPropagation();t.checked=!t.checked;t.dispatchEvent(new Event('change',{bubbles:true}));return;}
+        e.preventDefault();e.stopPropagation();if(def)def.click();}
+    };
+    document.addEventListener('keydown',dlgKeyHandler,true);
+  });
+}
+const dlgAlert=(msg,title)=>dlgOpen({title:title||'Information',msg,buttons:[{t:'OK',v:true,p:true}]});
+const dlgConfirm=(msg,title,okTxt,danger)=>dlgOpen({title:title||'Confirmation',msg,
+  buttons:[{t:'Annuler',v:false},{t:okTxt||'Confirmer',v:true,p:!danger,d:danger}]});
+function busy(txt){const b=document.getElementById('busy');document.getElementById('busyTxt').textContent=txt||'Traitement…';b.classList.add('show');}
+function unbusy(){document.getElementById('busy').classList.remove('show');}
+const nextFrame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+
+/* ---------- écran tactile : le clavier ne doit s'ouvrir que sur un toucher volontaire ---------- */
+const ecranTactile=()=>window.matchMedia('(pointer:coarse)').matches;
+let _dernierToucher={el:null,t:0};
+document.addEventListener('pointerdown',e=>{_dernierToucher={el:e.target,t:Date.now()};},true);
+// champs de recherche : si le focus arrive sans qu'on les ait touchés (glissement du curseur, défilement,
+// mise à jour de l'écran…), on le retire aussitôt pour ne pas ouvrir le clavier
+document.addEventListener('focusin',e=>{
+  const el=e.target;
+  if(!ecranTactile()||!el||['f-search','ti-search','cat-search'].indexOf(el.id)<0)return;
+  const t=_dernierToucher;
+  if(!(t.el&&(t.el===el||el.contains(t.el))&&Date.now()-t.t<1000))el.blur();
+},true);
+/* ---------- formats ---------- */
+const fmt=new Intl.NumberFormat('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmt0=new Intl.NumberFormat('fr-FR',{maximumFractionDigits:0});
+const eur=c=>(c<0?'-':'')+fmt.format(Math.abs(c)/100)+' €';
+const eur0=c=>fmt0.format(Math.round(c/100))+' €';
+const clsSigne=c=>c>0?'credit':c<0?'debit':'zero';
+const catParts=c=>(c||'').split(/\s*:\s*/).filter(Boolean);
+const catTop=c=>catParts(c)[0]||'Divers';
+function frToISO(s){return shortToISO(s);}
+/* ===== masque de date par écrasement, format JJ/MM/AA ===== */
+const DIGPOS=[0,1,3,4,6,7];
+function slotsDe(value){const s=['','','','','',''];for(let k=0;k<6;k++){const c=value[DIGPOS[k]];if(c&&/\d/.test(c))s[k]=c;}return s;}
+function construireDate(slots){
+  const ch=[slots[0]||' ',slots[1]||' ','/',slots[2]||' ',slots[3]||' ','/',slots[4]||' ',slots[5]||' '];
+  let s=ch.join('').replace(/[ /]+$/,'');
+  let pref=0;while(pref<6&&slots[pref]!=='')pref++;
+  const total=slots.filter(x=>x!=='').length;
+  if(pref===total){if(pref===2)s+='/';else if(pref===4)s+='/';}
+  return s;
+}
+function caretPourK(k){return [0,1,3,4,6,7,8][Math.max(0,Math.min(6,k))];}
+function kDeCaret(value,caret){let k=0;for(const p of DIGPOS){if(p<caret)k++;}return k;}
+function dateStep(value,selStart,selEnd,inputType,data){
+  value=(value||'').slice(0,8);let slots=slotsDe(value);const it=inputType||'';
+  const cl=(v,c)=>Math.min(c,v.length);
+  if(it==='insertText'||it==='insertFromPaste'){
+    const digits=(data||'').replace(/\D/g,'');
+    if(!digits){const v=construireDate(slots);return {value:v,caret:cl(v,selStart)};}
+    let k=kDeCaret(value,selStart);
+    for(const d of digits){if(k>=6)break;slots[k]=d;k++;}
+    const v=construireDate(slots);return {value:v,caret:cl(v,caretPourK(k))};
+  }
+  if(it==='deleteContentBackward'||it==='deleteContentForward'){
+    if(selStart!==selEnd){const a=kDeCaret(value,selStart),b=kDeCaret(value,selEnd);
+      for(let i=a;i<b&&i<6;i++)slots[i]='';const v=construireDate(slots);return {value:v,caret:cl(v,caretPourK(a))};}
+    let k=kDeCaret(value,selStart);const cible=it==='deleteContentBackward'?k-1:k;
+    if(cible<0||cible>5){const v=construireDate(slots);return {value:v,caret:cl(v,selStart)};}
+    slots[cible]='';const v=construireDate(slots);return {value:v,caret:cl(v,caretPourK(cible))};
+  }
+  const digs=value.replace(/\D/g,'').slice(0,6).split('');while(digs.length<6)digs.push('');
+  const v=construireDate(digs);return {value:v,caret:cl(v,caretPourK(kDeCaret(value,selStart)))};
+}
+function shortToISO(s){
+  let m=(s||'').match(/^(\d{2})\/(\d{2})\/(\d{2})$/),d,mo,y;
+  if(m){d=+m[1];mo=+m[2];y=2000+ +m[3];}
+  else{m=(s||'').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);if(!m)return '';d=+m[1];mo=+m[2];y=+m[3];}
+  const dt=new Date(y,mo-1,d);
+  if(dt.getFullYear()!==y||dt.getMonth()!==mo-1||dt.getDate()!==d)return '';
+  return String(y).padStart(4,'0')+'-'+String(mo).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+}
+function isoToShort(iso){if(!iso)return '';const p=iso.split('-');return p[2]+'/'+p[1]+'/'+p[0].slice(2);}
+function isoToFr(iso){if(!iso)return '';const p=iso.split('-');return p[2]+'/'+p[1]+'/'+p[0];}
+/* Masque de saisie : borne les valeurs DÈS la frappe.
+   jour 1-31 (ajusté au mois à la sortie du champ), mois 1-12, année 4 chiffres. */
+function maskDate(el){el.classList.toggle('bad',el.value.length>0&&!shortToISO(el.value));}
+/* Sortie du champ : ramène le jour au dernier jour du mois (31/02 -> 28/02) */
+function fixDate(el){
+  const raw=(el.value||'').trim();if(!raw){el.classList.remove('bad');return;}
+  const m=raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}(?:\d{2})?)$/);
+  if(!m){el.classList.add('bad');return;}
+  let d=+m[1],mo=+m[2];let y=+m[3];if(m[3].length===2)y+=2000;
+  if(mo<1)mo=1;if(mo>12)mo=12;
+  const dim=new Date(y,mo,0).getDate();if(d<1)d=1;if(d>dim)d=dim;
+  el.value=isoToShort(String(y).padStart(4,'0')+'-'+String(mo).padStart(2,'0')+'-'+String(d).padStart(2,'0'));
+  el.classList.remove('bad');
+}
+/* écouteur unique : tout champ .datef reçoit le masque par écrasement */
+function brancherMasqueDates(){
+  document.addEventListener('beforeinput',e=>{
+    const el=e.target;
+    if(!el||!el.classList||!el.classList.contains('datef'))return;
+    if(!/^(insertText|insertFromPaste|deleteContentBackward|deleteContentForward)$/.test(e.inputType||''))return;
+    const r=dateStep(el.value,el.selectionStart,el.selectionEnd,e.inputType,e.data);
+    e.preventDefault();el.value=r.value;
+    try{el.setSelectionRange(r.caret,r.caret);}catch(_){}
+    el.classList.toggle('bad',el.value.length>0&&!shortToISO(el.value));
+    // date de début : passer à la date de fin uniquement quand on vient de TAPER le dernier chiffre
+    if((e.inputType==='insertText'||e.inputType==='insertFromPaste')&&r.caret>=8&&el.value.length===8&&shortToISO(el.value)){
+      const suiv=el.id==='f-from'?'f-to':el.id==='an-from'?'an-to':null;
+      if(suiv){const e2=document.getElementById(suiv);if(e2&&e2.offsetParent!==null){e2.focus();e2.select&&e2.select();}}
+    }
+  },true);
+}
+function bindDate(id,onchg){
+  const el=document.getElementById(id);if(!el)return;
+  el.addEventListener('input',e=>maskDate(el,e));
+  el.addEventListener('blur',()=>{fixDate(el);if(onchg)onchg();});
+  el.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();fixDate(el);if(onchg)onchg();}});
+}
+function parseMontantC(s){s=(s||'').trim().replace(/\s/g,'').replace(',','.');const v=parseFloat(s);
+  return isNaN(v)?null:Math.round(v*100);}
+
+const META={
+  non_pointe:{label:'Non pointé',col:'#F59E0B'},
+  pointe:{label:'Pointé',col:'#2563EB'},
+  rapproche:{label:'Rapproché',col:'#15803D'},
+  previsionnel:{label:'Prévisionnel',col:'#7C3AED'},
+  annule:{label:'Annulé',col:'#94A3B8'}
+};
+const ACC_TYPES={courant:'Compte courant',livret:'Livret',pel:'PEL',autre:'Compte'};
+const PAL=['#0F6E56','#3E6FA8','#B5790C','#A8392B','#6B5BA6','#1B8A8A','#C2723A','#8A6D3B'];
+
+let state={view:'registre',acc:null,sort:'date',dir:-1,page:1,anPath:[],tiSort:'last',tiDir:-1,
+  editing:null,addType:'debit',anSens:'debit',recSort:'prochaine',recDir:1};
+let anGroups=[];
+
+/* ============================================================
+   Démarrage
+   ============================================================ */
+async function boot(){
+  busy('Démarrage du moteur…');
+  try{
+    const rep=await fetch('vendor/sql-wasm.wasm');if(!rep.ok)throw new Error('vendor/sql-wasm.wasm : '+rep.status);
+    SQL=await initSqlJs({wasmBinary:new Uint8Array(await rep.arrayBuffer())});
+  }catch(e){unbusy();await dlgAlert('Impossible de démarrer le moteur SQLite.\n\n'+e.message,'Erreur');return;}
+  let restored=false;
+  try{const b=await idbGet();if(b&&b.byteLength){db=new SQL.Database(new Uint8Array(b));restored=true;}}
+  catch(e){idbOK=false;idbErr=e;}
+  if(!db){db=new SQL.Database();}
+  db.run(SCHEMA);migrer();
+  try{const nv=renommerVirements();if(nv)touch('Libellés des virements',nv+' opération(s) renommée(s)');}catch(e){console.error('virements',e);}
+  if(!scal('SELECT COUNT(*) FROM compte'))
+    run("INSERT INTO compte(nom,type,solde_initial,date_ouverture) VALUES('Compte courant','courant',0,?)",[todayISO()]);
+  if(getMeta('app')==null){setMeta('app','mes-comptes');setMeta('rev',0);setMeta('updated',nowTS());}
+  try{const hasStat=scal("SELECT COUNT(*) FROM sqlite_master WHERE name='sqlite_stat1'");
+      if(!hasStat&&scal('SELECT COUNT(*) FROM operation')>500)run('ANALYZE');}catch(_){}
+  state.acc=+scal('SELECT id FROM compte WHERE actif=1 ORDER BY ordre_affichage,id LIMIT 1');
+  remplirMois();brancherMasqueDates();setTimeout(()=>setHauteurRegistre(+getMeta('regRows',12)),0);setTimeout(appliquerLargeurs,0);
+  setTimeout(()=>{try{const nav=getMeta('nav');if(nav){const s=JSON.parse(nav);
+    if(s.view==='releve'&&!(REL&&REL.res))s.view='registre';
+    _navSuppress=true;restoreNav(s);_navSuppress=false;}}catch(e){}syncHist();installerGardeRetour();},0);
+  try{const _n=genererRecurrences();if(_n){touch('Échéances récurrentes',_n+' opération(s) générée(s)');}}catch(e){console.error('récurrences',e);}
+  unbusy();refreshDirty();undoReset();majBoutonPleinEcran();render();
+  state.jour=todayISO();
+  const verifierJour=()=>{if(todayISO()===state.jour)return;state.jour=todayISO();
+    try{const n=genererRecurrences();if(n)touch('Échéances récurrentes',n+' opération(s) générée(s)');}catch(e){console.error('récurrences',e);}
+    render();};
+  setInterval(verifierJour,60000);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)verifierJour();});
+  if(restored){const n=scal('SELECT COUNT(*) FROM operation WHERE supprime=0');
+    if(n)toast(n.toLocaleString('fr-FR')+' opérations chargées depuis ce navigateur');}
+  if(!idbOK)dlgAlert("Le stockage local de ce navigateur n'est pas disponible ici.\nL'application fonctionne, mais pense à Sauvegarder avant de fermer.",'Attention');
+}
+
+/* ============================================================
+   Navigation / rendu
+   ============================================================ */
+let _navSuppress=false;
+function toggleMenu(){document.body.classList.toggle('menu-open');}
+function closeMenu(){document.body.classList.remove('menu-open');}
+function setView(v,noPush){if(v!=='graphiques'&&document.body.classList.contains('gr-plein'))grPleinEcran(false);state.view=v;
+  document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('on',a.dataset.v===v));
+  document.querySelectorAll('.view').forEach(s=>s.classList.toggle('on',s.id==='v-'+v));
+  const m=document.querySelector('main');if(m)m.scrollTop=0;render();
+  closeMenu();
+  if(v==='graphiques')grAuto();
+  if(!noPush&&!_navSuppress)pushHist();}
+/* ---- historique de navigation (retour / avancer partout) ---- */
+function snapshotNav(){
+  return {view:state.view,anPath:state.anPath.slice(),anSens:state.anSens,grMode:state.grMode||'compte',
+    fSearch:(document.getElementById('f-search')||{}).value||'',
+    fStatuts:statutsChips().filter(c=>c.classList.contains('on')).map(c=>c.dataset.s),
+    fPeriode:(document.getElementById('f-periode')||{}).value||'tout',
+    fHorizon:(document.getElementById('f-horizon')||{}).value||'tout',
+    catSearch:(document.getElementById('cat-search')||{}).value||'',
+    tiSearch:(document.getElementById('ti-search')||{}).value||'',
+    catVides:!!state.catVides,fSens:state.fSens||null,fCat:state.fCat||null};
+}
+let _navFlush=null;
+function persistNav(){try{const s=snapshotNav();if(s.view==='releve')return; // on ne restaure pas une comparaison en cours
+    setMeta('nav',JSON.stringify(s));
+    clearTimeout(_navFlush);_navFlush=setTimeout(()=>{try{flushIDB();}catch(e){}},800);
+  }catch(e){}}
+function pushHist(){try{history.pushState(snapshotNav(),'');}catch(e){}persistNav();}
+function syncHist(){try{history.replaceState(Object.assign(snapshotNav(),estBase()?{__base:true}:{}),'');}catch(e){}persistNav();}
+/* ---- garde-fou « Retour » : la 1re entrée de l'historique (__base) sert de tampon.
+   Y revenir par « retour » ne ferme pas l'appli : on demande d'abord confirmation. ---- */
+const estBase=()=>!!(history.state&&history.state.__base);
+function armerGardeRetour(){ // ajoute une entrée au-dessus du tampon (à faire pendant un geste de l'utilisateur, sinon Chrome l'ignore)
+  if(estBase())try{history.pushState(snapshotNav(),'');}catch(e){}
+}
+function installerGardeRetour(){
+  try{history.replaceState(Object.assign(snapshotNav(),{__base:true}),'');}catch(e){}
+  ['pointerdown','keydown'].forEach(t=>document.addEventListener(t,armerGardeRetour,{capture:true,once:true}));
+}
+async function demanderQuitter(){
+  const msg='Tu as appuyé sur Retour : veux-tu vraiment quitter l’application ?'+
+    (dirty>0?'\n\nAttention : '+dirty+' modification'+(dirty>1?'s':'')+' pas encore sauvegardée'+(dirty>1?'s':'')+' dans un fichier (elles restent dans ce navigateur).':'');
+  const v=await dlgOpen({title:'Quitter ?',msg,buttons:[{t:'Quitter',v:'q',d:true},{t:'Rester',v:false,p:true}]});
+  if(v==='q'){toast('Appuie encore sur Retour pour quitter');try{history.back();}catch(e){}return;}
+  armerGardeRetour(); // on reste : le tampon est de nouveau protégé
+}
+function restoreNav(s){
+  if(!s)return;
+  state.anPath=(s.anPath||[]).slice();state.anSens=s.anSens||'debit';state.grMode=s.grMode||'compte';state.catVides=!!s.catVides;state.fSens=s.fSens||null;state.fCat=s.fCat||null;
+  const set=(id,val)=>{const e=document.getElementById(id);if(e&&val!==undefined)e.value=val;};
+  set('f-search',s.fSearch||'');set('cat-search',s.catSearch||'');set('ti-search',s.tiSearch||'');
+  set('f-periode',s.fPeriode||'tout');set('f-horizon',s.fHorizon||'tout');
+  document.querySelectorAll('#f-periode-wrap .pchip').forEach(b=>b.classList.toggle('on',b.dataset.m===(s.fPeriode||'tout')));
+  if(s.fStatuts)statutsChips().forEach(c=>c.classList.toggle('on',s.fStatuts.indexOf(c.dataset.s)>=0));
+  const cv=document.getElementById('cat-vides');if(cv)cv.checked=!!s.catVides;
+  syncClear&&syncClear();
+  _navSuppress=true;setView(s.view||'registre',true);_navSuppress=false;
+}
+function navBack(){history.back();}
+function navFwd(){history.forward();}
+function render(){
+  sidebar();
+  if(state.view==='registre')renderRegistre();
+  else if(state.view==='analyse')renderAnalyse();
+  else if(state.view==='graphiques')renderGraphiques();
+  else if(state.view==='tiers')renderTiers();
+  else if(state.view==='categories')renderCategories();
+  else if(state.view==='corbeille')renderCorbeille();
+
+  else if(state.view==='recurrences')renderRecurrences();
+  else if(state.view==='releve')renderReleve();
+  majNavReleve();
+  const n=scal('SELECT COUNT(*) FROM operation WHERE supprime=1');
+  document.getElementById('nav-trash-n').textContent=n?n:'';
+  showVersion();
+}
+/* solde réel = opérations effectives datées jusqu'à aujourd'hui inclus (débits comme crédits) */
+function soldeReel(id){return scal(`SELECT (SELECT solde_initial FROM compte WHERE id=$i)
+  +COALESCE(SUM(montant),0) FROM operation WHERE compte_id=$i AND supprime=0
+  AND statut IN('non_pointe','pointe','rapproche') AND previsionnel=0 AND date_operation<=$t`,{$i:id,$t:todayISO()});}
+function _chiffres(s){return (s||'').replace(/\D/g,'');}
+function numeroDuTitre(rc){
+  if(rc&&rc.cle&&rc.cle.indexOf('n:')===0)return rc.cle.slice(2);
+  const m=((rc&&rc.titre)||'').match(/N[°o]\s*([0-9 ]{5,})/i);
+  return m?_chiffres(m[1]):'';
+}
+function compteCorrespondant(numRel){
+  if(!numRel||numRel.length<4)return null;
+  const last5=numRel.slice(-5);
+  const cs=qy('SELECT id,nom,numero FROM compte WHERE actif=1');
+  for(const c of cs){
+    const nd=_chiffres(c.numero||'');
+    if(nd&&(nd.slice(-5)===last5||nd.indexOf(last5)>=0||numRel.indexOf(nd.slice(-5))>=0))return c.id;
+  }
+  for(const c of cs){ // repli : chiffres présents dans le nom du compte
+    const nn=_chiffres(c.nom||'');
+    if(last5.length===5&&nn.indexOf(last5)>=0)return c.id;
+  }
+  return null;
+}
+async function editCompte(id){
+  const c=qy('SELECT nom,type,numero FROM compte WHERE id=?',[id])[0];if(!c)return;
+  const nbAutres=scal('SELECT COUNT(*) FROM compte WHERE actif=1 AND id<>?',[id])||0;
+  const html='<div class="field"><label>Nom du compte</label><input id="ec-nom" value="'+esc(c.nom)+'"></div>'+
+    '<div class="field"><label>Type</label><select id="ec-type">'+
+      Object.keys(ACC_TYPES).map(k=>'<option value="'+k+'"'+(c.type===k?' selected':'')+'>'+ACC_TYPES[k]+'</option>').join('')+'</select></div>'+
+    '<div class="field"><label>Numéro de compte <span class="hint">facultatif — sert à reconnaître ce compte dans un relevé PDF</span></label>'+
+    '<input id="ec-num" value="'+esc(c.numero||'')+'" placeholder="ex. 00012345"></div>';
+  let data=null;
+  const boutons=[{t:'Annuler',v:false}];
+  if(nbAutres>0)boutons.push({t:'Supprimer',v:'del',danger:true});
+  boutons.push({t:'Enregistrer',v:true,p:true,before:()=>{
+    const nom=document.getElementById('ec-nom').value.trim();
+    if(!nom){toast('Le nom est requis');return false;}
+    data={nom,type:document.getElementById('ec-type').value,numero:document.getElementById('ec-num').value.trim()||null};
+  }});
+  const ok=await dlgOpen({title:'Modifier le compte',msg:'',html,buttons:boutons,
+    onOpen:()=>{const e=document.getElementById('ec-nom');if(e){e.focus();e.select();}}});
+  if(ok==='del'){return supprimerCompte(id);}
+  if(!ok||!data)return;
+  run('UPDATE compte SET nom=?,type=?,numero=? WHERE id=?',[data.nom,data.type,data.numero,id]);
+  renommerVirements();
+  touch('Compte modifié',data.nom);render();
+}
+function remonterEnHaut(){
+  const m=document.querySelector('main');if(m)m.scrollTop=0;
+  const sc=document.getElementById('reg-scroll');if(sc)sc.scrollTop=0;
+}
+function sidebar(){
+  const el=document.getElementById('acctlist');el.innerHTML='';
+  qy('SELECT id,nom,type,numero FROM compte WHERE actif=1 ORDER BY ordre_affichage,id').forEach(c=>{
+    const d=document.createElement('div');d.className='acct'+(c.id===state.acc?' on':'');
+    d.onclick=()=>{state.acc=c.id;state.page=1;state.anPath=[];render();remonterEnHaut();closeMenu();};
+    d.ondblclick=(e)=>{e.stopPropagation();editCompte(c.id);};
+    const numTxt=c.numero?('<span class="acct-num">n° '+esc(String(c.numero))+'</span>'):'';
+    d.innerHTML='<div class="acct-main"><span class="an">'+esc(c.nom)+numTxt+'</span>'+
+      '<span class="av num">'+eur(soldeReel(c.id))+'</span></div>'+
+      '<button class="acct-edit" title="Renommer / numéro de compte" onclick="event.stopPropagation();editCompte('+c.id+')">✎</button>';
+    el.appendChild(d);});
+  const add=document.createElement('button');add.className='acct-add';add.textContent='+ Nouveau compte';
+  add.onclick=ajouterCompte;el.appendChild(add);
+}
+async function supprimerCompte(id){
+  const nom=scal('SELECT nom FROM compte WHERE id=?',[id])||'ce compte';
+  const nbOps=scal('SELECT COUNT(*) FROM operation WHERE compte_id=? AND supprime=0',[id])||0;
+  if(nbOps>0){
+    if(!await dlgConfirm('« '+nom+' » contient '+nbOps+' opération(s). Le supprimer effacera aussi ces opérations et leurs ventilations. Cette action est définitive.\n\nSupprimer quand même ?','Supprimer le compte',"Tout supprimer",true))return;
+  }else{
+    if(!await dlgConfirm('Supprimer le compte « '+nom+' » ?','Supprimer le compte','Supprimer',true))return;
+  }
+  run('DELETE FROM ventilation WHERE operation_id IN (SELECT id FROM operation WHERE compte_id=?)',[id]);
+  run('DELETE FROM operation WHERE compte_id=?',[id]);
+  run('DELETE FROM recurrence WHERE compte_id=?',[id]);
+  run('DELETE FROM compte WHERE id=?',[id]);
+  if(state.acc===id)state.acc=+scal('SELECT id FROM compte WHERE actif=1 ORDER BY ordre_affichage,id LIMIT 1');
+  touch('Compte supprimé',nom);render();remonterEnHaut();
+  toast('Compte « '+nom+' » supprimé');
+}
+async function ajouterCompte(){
+  let data=null;
+  const html='<div class="field"><label>Nom du compte</label><input id="ec-nom" placeholder="ex. Livret A"></div>'+
+    '<div class="row2"><div class="field"><label>Type</label><select id="ec-type">'+
+      Object.keys(ACC_TYPES).map(k=>'<option value="'+k+'">'+ACC_TYPES[k]+'</option>').join('')+'</select></div>'+
+    '<div class="field"><label>Solde initial (€)</label><input id="ec-solde" inputmode="decimal" value="0"></div></div>'+
+    '<div class="field"><label>Numéro de compte <span class="hint">facultatif — pour la reconnaissance dans un relevé PDF</span></label>'+
+    '<input id="ec-num" placeholder="ex. 00012345"></div>';
+  const ok=await dlgOpen({title:'Nouveau compte',msg:'',html,
+    buttons:[{t:'Annuler',v:false},{t:'Créer le compte',v:true,p:true,before:()=>{
+      const nom=document.getElementById('ec-nom').value.trim();if(!nom){toast('Le nom est requis');return false;}
+      data={nom,type:document.getElementById('ec-type').value,
+        numero:document.getElementById('ec-num').value.trim()||null,
+        solde:parseMontantC(document.getElementById('ec-solde').value)||0};
+    }}],
+    onOpen:()=>{const e=document.getElementById('ec-nom');if(e)e.focus();}});
+  if(!ok||!data)return;
+  const ord=(scal('SELECT COALESCE(MAX(ordre_affichage),0) FROM compte')||0)+1;
+  run('INSERT INTO compte(nom,type,solde_initial,numero,date_ouverture,actif,ordre_affichage) VALUES(?,?,?,?,?,1,?)',
+    [data.nom,data.type,data.solde,data.numero,todayISO(),ord]);
+  state.acc=lastId();state.page=1;state.anPath=[];
+  touch('Compte créé',data.nom);render();
+  toast('Compte « '+data.nom+' » créé');
+}
+const MOIS_FR=['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
+function remplirMois(){/* remplacé par les puces de période */}
+function showVersion(){
+  const bv=document.getElementById('brandver');if(!bv)return;
+  let nops=0,rev=0,upd='';
+  try{nops=scal('SELECT COUNT(*) FROM operation WHERE supprime=0')||0;
+      rev=+getMeta('rev',0);upd=getMeta('updated','')||'';}catch(e){}
+  const quand=upd?(upd.slice(8,10)+'/'+upd.slice(5,7)+'/'+upd.slice(0,4)+' à '+upd.slice(11,16)):'—';
+  bv.innerHTML='Application '+APP_BUILD+'<br>'+
+    '<span title="Numéro de révision : il augmente à chaque sauvegarde">Données rév. '+rev+'</span><br>'+
+    '<span title="Date de la dernière modification enregistrée">'+quand+'</span><br>'+
+    nops.toLocaleString('fr-FR')+' opérations';
+}
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
+/* ============================================================
+   Registre
+   ============================================================ */
+function periodeChanged(pfx){
+  const mode=document.getElementById(pfx+'-periode').value,show=mode==='perso'?'':'none';
+  const from=document.getElementById(pfx+'-from'),to=document.getElementById(pfx+'-to'),sep=document.getElementById(pfx+'-sep');
+  from.style.display=show;to.style.display=show;if(sep)sep.style.display=show;
+  if(mode==='perso'){
+    // bornes par défaut, visibles et modifiables : 1re opération du compte -> aujourd'hui
+    if(!from.value){const d=scal('SELECT MIN(date_operation) FROM operation WHERE compte_id=? AND supprime=0',[state.acc]);
+      from.value=isoToShort(d||todayISO());}
+    if(!to.value)to.value=isoToShort(todayISO());
+    setTimeout(()=>{if(from){from.focus();from.select&&from.select();}},0);
+  }
+  pfx==='f'?goPage(1):pfx==='gr'?renderGraphiques():renderAnalyse();}
+/* solde du compte à la fin d'une journée (comme la colonne Solde : opérations non annulées,
+   prévisionnelles comprises) */
+function soldeAu(iso){return scal(`SELECT (SELECT solde_initial FROM compte WHERE id=$a)+COALESCE(SUM(montant),0)
+  FROM operation WHERE compte_id=$a AND supprime=0 AND statut<>'annule' AND date_operation<=$d`,{$a:state.acc,$d:iso});}
+/* encadré « Pour info » : solde la veille de la période et à son dernier jour */
+function majInfoSoldes(dmin,dmax){
+  const el=document.getElementById('reg-info');if(!el)return;
+  const b=periodBounds('f')||{};const f=b.f||dmin,t=b.t||dmax;
+  if(!f||!t){el.style.display='none';return;}
+  el.style.display='';
+  const veille=avancerJours(f,-1),s1=soldeAu(veille),s2=soldeAu(t),v=s2-s1;
+  const futur=t>todayISO()?' <span class="hint">(prévisionnels compris)</span>':'';
+  el.innerHTML='<span class="titre">Pour info</span>'+
+    '<span class="lb">Solde au '+isoToFr(veille)+' (veille de la période)</span><span class="vl num">'+eur(s1)+'</span>'+
+    '<span class="lb">Solde au '+isoToFr(t)+' (fin de la période)'+futur+'</span><span class="vl num">'+eur(s2)+'</span>'+
+    '<span class="lb tot">Variation sur la période</span><span class="vl num tot '+clsSigne(v)+'">'+eur(v)+'</span>';
+}
+function setPeriode(pfx,mode){
+  document.getElementById(pfx+'-periode').value=mode;
+  document.querySelectorAll('#'+pfx+'-periode-wrap .pchip').forEach(b=>b.classList.toggle('on',b.dataset.m===mode));
+  periodeChanged(pfx);
+}
+/* texte « du JJ/MM/AAAA au JJ/MM/AAAA » des dates réellement prises en compte ;
+   une borne absente (Tout, dates partielles) est remplacée par la 1re / dernière opération retenue */
+function textePeriode(pfx,dmin,dmax){
+  const b=periodBounds(pfx)||{};const f=b.f||dmin,t=b.t||dmax;
+  if(!f&&!t)return '';
+  return (b.f||b.t?'Période':'Toutes les dates')+' : du '+isoToFr(f||'')+' au '+isoToFr(t||'');
+}
+/* bornes ISO {f,t} de la période choisie (f ou t peuvent manquer) ; null = toute la période.
+   Mêmes définitions dans le registre et l'analyse :
+   « Cette année » = du 1er janvier à aujourd'hui,
+   « 3 mois » = les 3 derniers mois pleins écoulés (hors mois en cours). */
+function periodBounds(pfx){
+  const mode=document.getElementById(pfx+'-periode').value;const now=new Date(),y=now.getFullYear(),mo=now.getMonth();
+  if(mode.indexOf('m:')===0){const pp=mode.slice(2).split('-');return {f:mode.slice(2)+'-01',t:isoDe(new Date(+pp[0],+pp[1],0))};}
+  if(mode==='mois')return {f:isoDe(new Date(y,mo,1)),t:isoDe(new Date(y,mo+1,0))};
+  if(mode==='moisdernier')return {f:isoDe(new Date(y,mo-1,1)),t:isoDe(new Date(y,mo,0))};
+  if(mode==='3mois')return {f:isoDe(new Date(y,mo-3,1)),t:isoDe(new Date(y,mo,0))};
+  if(mode==='annee')return {f:y+'-01-01',t:isoDe(now)};
+  if(mode==='perso'){const f=frToISO(document.getElementById(pfx+'-from').value),t=frToISO(document.getElementById(pfx+'-to').value);
+    return (f||t)?{f:f||null,t:t||null}:null;}
+  return null;
+}
+function periodClause(pfx,params){
+  const b=periodBounds(pfx);if(!b)return '';
+  let c='';if(b.f){params.$pf=b.f;c+=" AND o.date_operation>=$pf";}if(b.t){params.$pt=b.t;c+=" AND o.date_operation<=$pt";}return c;
+}
+function avancerJours(iso,nb){const d=new Date(iso+'T00:00:00');d.setDate(d.getDate()+nb);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+/* borne d'horizon prévisionnel : null=tout, 'MASQUE'=aucun, sinon date ISO limite */
+function horizonMax(){
+  const hz=(document.getElementById('f-horizon')||{}).value||'tout';
+  if(hz==='tout')return null;
+  if(hz==='masque')return 'MASQUE';
+  if(hz==='finmois'){const d=new Date();return isoDe(new Date(d.getFullYear(),d.getMonth()+1,0));}
+  return avancerJours(todayISO(),+hz);
+}
+function buildWhere(params){
+  let w=" WHERE o.compte_id=$acc AND o.supprime=0";params.$acc=state.acc;
+  const q=(document.getElementById('f-search').value||'').toLowerCase();
+  if(/^\(?non pr[ée]cis[ée]e?\)?$/.test(q.trim())){w+=" AND (o.cat_path IS NULL OR TRIM(o.cat_path)='')";}
+  else if(q){w+=" AND o.hay LIKE $q";params.$q='%'+q+'%';}
+  const chips=[].slice.call(document.querySelectorAll('#f-statuts .schip'));
+  const sel=chips.filter(c=>c.classList.contains('on')).map(c=>c.dataset.s);
+  if(chips.length&&sel.length<chips.length){
+    const parts=[];
+    ['non_pointe','pointe','rapproche','annule'].forEach(s=>{if(sel.indexOf(s)>=0)parts.push("(o.previsionnel=0 AND o.statut='"+s+"')");});
+    if(sel.indexOf('previsionnel')>=0)parts.push("o.previsionnel=1");
+    w+=parts.length?(" AND ("+parts.join(" OR ")+")"):" AND 0";
+  }
+  const hm=horizonMax();
+  if(hm==='MASQUE'){w+=" AND o.previsionnel=0";}
+  else if(hm){params.$hmax=hm;w+=" AND (o.previsionnel=0 OR o.date_operation<=$hmax)";}
+  w+=periodClause('f',params);
+  // loupes (catégorie / débits / crédits / virements) : on garde les opérations ayant au moins une ligne retenue
+  if(state.fCat||state.fSens){
+    const ids=[...new Set(lignesOps(w,params).filter(ligneFiltre).map(l=>l.id))];
+    w+=ids.length?" AND o.id IN ("+ids.join(',')+")":" AND 0";
+  }
+  return w;
+}
+function goPage(p){state.page=Math.max(1,p||1);renderRegistre();syncHist();}
+const COL_DEF=[18,120,100,null,150,150,160];
+const COL_DEST_MIN=180; // largeur minimale de la colonne Destinataire avant défilement horizontal
+function appliquerLargeurs(){
+  // largeurs fixes (toutes les colonnes sauf Destinataire)
+  document.querySelectorAll('#reg-head colgroup, #reg-scroll colgroup').forEach(cg=>{
+    const cols=cg.querySelectorAll('col');
+    COL_DEF.forEach((px,i)=>{if(cols[i]&&px!=null)cols[i].style.width=px+'px';});
+  });
+  // largeur de la colonne Destinataire calculée explicitement en pixels à partir de la largeur
+  // réellement disponible (#reg-scroll, sans sa barre de défilement verticale), puis appliquée
+  // à l'identique aux deux tableaux (en-tête + corps) pour garantir un alignement parfait —
+  // on ne compte plus sur la répartition automatique du navigateur, source du désalignement.
+  const sc=document.getElementById('reg-scroll');
+  if(sc){
+    const fixedSum=COL_DEF.reduce((s,px)=>s+(px||0),0);
+    const dispo=sc.clientWidth-fixedSum;
+    const destW=Math.max(COL_DEST_MIN,dispo);
+    document.querySelectorAll('#reg-head colgroup, #reg-scroll colgroup').forEach(cg=>{
+      const cols=cg.querySelectorAll('col');
+      if(cols[3])cols[3].style.width=destW+'px';
+    });
+  }
+}
+
+function syncScrollX(){
+  const sc=document.getElementById('reg-scroll');if(!sc)return;
+  appliquerLargeurs();
+  const sbw=sc.offsetWidth-sc.clientWidth;
+  const hd=document.getElementById('reg-head');
+  if(hd)hd.style.paddingRight=(sbw>0?sbw:0)+'px';
+  if(!sc._xbound){sc.addEventListener('scroll',()=>{
+    const x=sc.scrollLeft;if(hd)hd.scrollLeft=x;
+  });sc._xbound=true;}
+}
+function syncHeadWidth(){syncScrollX();}
+const estMobile=()=>window.matchMedia('(max-width:700px)').matches;
+/* hauteur moyenne réelle d'une ligne (sur mobile les lignes sont des cartes de hauteur variable) */
+function hauteurLigneMesuree(){
+  let s=0,n=0;
+  for(const tr of document.querySelectorAll('#rows tr')){const h=tr.offsetHeight;if(h>0){s+=h;n++;}if(n>=20)break;}
+  return n?s/n:null;
+}
+function appliquerHauteurRegistre(){
+  const el=document.getElementById('reg-scroll');if(!el)return;
+  const rows=state.regRows||12;
+  const hl=estMobile()?hauteurLigneMesuree():null;
+  // hauteur maximale (et non fixe) : s'il y a moins de lignes, le tableau se resserre, sans blanc avant les totaux
+  el.style.height='';el.style.maxHeight=hl?Math.round(rows*hl)+'px':(rows*2.55)+'rem';   // ~ nb de lignes visibles
+}
+function setHauteurRegistre(rows){
+  rows=Math.max(4,Math.min(60,+rows||12));
+  state.regRows=rows;appliquerHauteurRegistre();
+  const sl=document.getElementById('reg-hauteur');if(sl&&+sl.value!==rows)sl.value=rows;
+  try{setMeta('regRows',rows);}catch(e){}
+  setTimeout(syncHeadWidth,0);
+}
+function statutsChips(){return [].slice.call(document.querySelectorAll('#f-statuts .schip'));}
+function toggleStatut(el){el.classList.toggle('on');goPage(1);}
+function setStatutsTous(){statutsChips().forEach(c=>c.classList.add('on'));}
+/* loupe d'une barre de l'analyse : registre filtré exactement comme l'analyse
+   (même période, ni prévisionnels ni annulés, même sens, catégorie précise) */
+function voirDepuisAnalyse(chemin){
+  const sens=state.anSens||'debit';
+  ['periode','from','to'].forEach(k=>{const a=document.getElementById('an-'+k),f=document.getElementById('f-'+k);if(a&&f)f.value=a.value;});
+  const mode=document.getElementById('f-periode').value,perso=mode==='perso'?'':'none';
+  document.querySelectorAll('#f-periode-wrap .pchip').forEach(b=>b.classList.toggle('on',b.dataset.m===mode));
+  ['f-from','f-to','f-sep'].forEach(i=>{const e=document.getElementById(i);if(e)e.style.display=perso;});
+  statutsChips().forEach(c=>c.classList.toggle('on',['non_pointe','pointe','rapproche'].indexOf(c.dataset.s)>=0));
+  const s=document.getElementById('f-search');
+  if(sens==='virement'){state.fCat=null;state.fSens='virement';s.value=chemin;}   // virements : regroupés par compte
+  else{state.fCat=chemin;state.fSens=(sens==='net')?null:sens;s.value='';}
+  syncClear();setView('registre');goPage(1);
+  toast('Registre filtré comme l’analyse : « '+chemin+' »');
+}
+const SENS_LIB={debit:'débits uniquement',credit:'crédits uniquement',virement:'virements uniquement'};
+function setFSens(v){state.fSens=(state.fSens===v)?null:v;goPage(1);
+  if(state.fSens)toast('Registre filtré : '+SENS_LIB[state.fSens]);}
+function retirerFiltreCat(){state.fCat=null;goPage(1);}
+function resetFilters(){state.fSens=null;state.fCat=null;document.getElementById('f-search').value='';setStatutsTous();setPeriode('f','tout');
+  ['f-from','f-to','f-sep'].forEach(i=>{const e=document.getElementById(i);if(e){if(e.value!==undefined)e.value='';e.style.display='none';if(e.classList)e.classList.remove('bad');}});
+  state.sort='date';state.dir=-1;syncClear();goPage(1);}
+function filtreAttente(){const chips=statutsChips();
+  const sel=chips.filter(c=>c.classList.contains('on')).map(c=>c.dataset.s);
+  const onlyNP=sel.length===1&&sel[0]==='non_pointe';
+  chips.forEach(c=>c.classList.toggle('on', onlyNP?true:c.dataset.s==='non_pointe'));
+  goPage(1);toast(onlyNP?'Filtre retiré':'Filtré sur les non pointées');}
+function setSort(k){if(state.sort===k)state.dir*=-1;else{state.sort=k;state.dir=k==='date'?-1:1;}goPage(1);}
+
+function _hmPrv(){const hm=horizonMax();return hm==='MASQUE'?'0000-00-00':hm;} // MASQUE -> aucune prévisionnelle
+function tiles(){
+  const a=state.acc;
+  const r=qy(`SELECT
+    (SELECT solde_initial FROM compte WHERE id=$a)+COALESCE(SUM(CASE WHEN statut='rapproche' THEN montant END),0) rap,
+    (SELECT solde_initial FROM compte WHERE id=$a)+COALESCE(SUM(CASE WHEN statut IN('non_pointe','pointe','rapproche') AND previsionnel=0 AND date_operation<=$t THEN montant END),0) reel,
+    COALESCE(SUM(CASE WHEN statut IN('non_pointe','pointe') AND previsionnel=0 THEN montant END),0) att,
+    COALESCE(SUM(CASE WHEN statut<>'annule' AND (previsionnel=1 OR date_operation>$t) AND ($hm IS NULL OR date_operation<=$hm) THEN montant END),0) prv
+    FROM operation o WHERE compte_id=$a AND supprime=0`,{$a:a,$hm:_hmPrv(),$t:todayISO()})[0];
+  const cards=[
+    {k:'Solde rapproché',v:eur(r.rap),c:'var(--ink)',d:'Confirmé par la banque'},
+    {k:'Solde réel',v:eur(r.reel),c:'var(--ink)',d:'Tout jusqu’à aujourd’hui'},
+    {k:'En attente',v:eur(r.att),c:'#F59E0B',d:'Non rapproché · cliquer pour filtrer',click:true},
+    {k:'Solde prévisionnel',v:eur(r.reel+r.prv),c:'#7C3AED',d:(()=>{const hz=(document.getElementById('f-horizon')||{}).value||'tout';
+    return hz==='masque'?'= solde réel (prévisionnel masqué)':hz==='3'?'Réel + à venir sous 3 jours':hz==='finmois'?'Réel + à venir d’ici fin de mois':'Réel + toutes les opérations à venir';})()}];
+  document.getElementById('tiles').innerHTML=cards.map(c=>'<div class="tile'+(c.click?' clickable':'')+'"'+(c.click?' onclick="filtreAttente()"':'')+
+    '><div class="k">'+c.k+'</div><div class="v num" style="color:'+c.c+'">'+c.v+'</div><div class="d">'+c.d+'</div></div>').join('');
+  const cp=qy('SELECT nom,type,numero FROM compte WHERE id=?',[a])[0]||{nom:'—',type:'autre'};
+  document.getElementById('acct-title').innerHTML=esc(cp.nom)+(cp.numero?' <span style="font-size:.7em;font-weight:400;color:var(--ink-3)">n° '+esc(String(cp.numero))+'</span>':'');
+  document.getElementById('acct-meta').textContent=(ACC_TYPES[cp.type]||'Compte')+' · aujourd’hui le '+new Date().toLocaleDateString('fr-FR');
+}
+function head(){
+  const cols=[['','',0],['N°','num',1],['Date','date',1],['Destinataire','dest',1],['Débit','debit',1],['Crédit','credit',1],['Solde','solde',0]];
+  document.getElementById('head').innerHTML=cols.map(c=>{
+    const r=(c[1]==='debit'||c[1]==='credit'||c[1]==='solde')?' r':'';
+    const arr=state.sort===c[1]?(state.dir===1?' ↑':' ↓'):'';
+    return c[2]?'<th class="'+r.trim()+'" onclick="setSort(\''+c[1]+'\')">'+c[0]+arr+'</th>':'<th class="fix'+r+'">'+c[0]+'</th>';
+  }).join('');
+}
+function orderClause(){
+  const d=state.dir===1?'ASC':'DESC';
+  switch(state.sort){
+    case 'num':return 'o.numero '+d+', o.date_operation DESC';
+    case 'dest':return 'LOWER(COALESCE(t.nom,\'\')) '+d+', o.date_operation DESC';
+    case 'debit':return 'CASE WHEN o.montant<0 THEN -o.montant ELSE 0 END '+d+', o.date_operation DESC';
+    case 'credit':return 'CASE WHEN o.montant>0 THEN o.montant ELSE 0 END '+d+', o.date_operation DESC';
+    default:return 'o.date_operation '+d+', o.id '+d;
+  }
+}
+function renderRegistre(){
+  if(!state.acc)return;
+  tiles();head();
+  const p={};const w=buildWhere(p);
+  const total=scal('SELECT COUNT(*) FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id'+w,p)||0;
+  const pages=Math.max(1,Math.ceil(total/PAGE_SIZE));
+  if(state.page>pages)state.page=pages;
+  const off=(state.page-1)*PAGE_SIZE;
+  const p2=Object.assign({},p,{$lim:PAGE_SIZE,$off:off});
+  const rows=qy(`WITH bal AS (SELECT id, SUM(montant) OVER (ORDER BY date_operation,id) cum
+      FROM operation WHERE compte_id=$acc AND supprime=0 AND statut<>'annule')
+    SELECT o.id,o.date_operation d,o.montant m,o.statut st,o.previsionnel pv,o.numero num,
+      o.commentaire comm,o.cat_path cat,t.nom dest,
+      (SELECT solde_initial FROM compte WHERE id=$acc)+b.cum solde
+    FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id LEFT JOIN bal b ON b.id=o.id
+    `+w+` ORDER BY `+orderClause()+` LIMIT $lim OFFSET $off`,p2);
+
+  const tb=document.getElementById('rows');tb.innerHTML='';
+  if(!rows.length){tb.innerHTML='<tr><td class="empty-msg" colspan="7" style="padding:22px;text-align:center;color:var(--ink-3)">Aucune opération ne correspond à ces filtres.</td></tr>';}
+  const frag=document.createDocumentFragment();
+  rows.forEach(o=>{
+    const stt=o.st==='annule'?'annule':(o.pv?'previsionnel':o.st);
+    const m=META[stt]||META.non_pointe;
+    const tr=document.createElement('tr');
+    tr.className='click '+(stt==='previsionnel'?'prev':stt==='annule'?'ann':'');
+    tr.ondblclick=()=>openModal(o.id);
+    const debit=o.m<0?'<span class="debit">'+eur(-o.m)+'</span>':'';
+    const credit=o.m>0?'<span class="credit">'+eur(o.m)+'</span>':'';
+    const solde=(stt==='annule'||o.solde==null)?'<span style="color:var(--ink-3)">—</span>':eur(o.solde);
+    const note=o.comm?'<div class="note">'+esc(o.comm)+'</div>':'';
+    tr.innerHTML='<td class="st" title="'+m.label+' — cliquer pour pointer/dépointer" onclick="togglePointe('+o.id+',event)">'+
+        '<div class="stbar" style="background:'+m.col+'"></div></td>'+
+      '<td class="num" ondblclick="event.stopPropagation();openModal('+o.id+',&#39;num&#39;)">'+esc(o.num||'')+'</td>'+
+      '<td class="num" ondblclick="event.stopPropagation();openModal('+o.id+',&#39;date&#39;)">'+isoToFr(o.d)+'</td>'+
+      '<td class="dest" ondblclick="event.stopPropagation();openModal('+o.id+',&#39;dest&#39;)">'+esc(o.dest||'')+
+        '<div class="cat" ondblclick="event.stopPropagation();openModal('+o.id+',&#39;cat&#39;)">'+esc(o.cat||'')+'</div>'+
+        (o.comm?'<div class="note" ondblclick="event.stopPropagation();openModal('+o.id+',&#39;comm&#39;)">'+esc(o.comm)+'</div>':'')+'</td>'+
+      '<td class="r num" ondblclick="event.stopPropagation();openModal('+o.id+',&#39;montant&#39;)">'+debit+'</td>'+
+      '<td class="r num" ondblclick="event.stopPropagation();openModal('+o.id+',&#39;montant&#39;)">'+credit+'</td>'+
+      '<td class="r num">'+solde+'</td>';
+    frag.appendChild(tr);});
+  tb.appendChild(frag);
+
+  document.getElementById('count').textContent=total.toLocaleString('fr-FR')+' opération'+(total>1?'s':'')+
+    (total>PAGE_SIZE?(' · '+(off+1)+'–'+Math.min(off+PAGE_SIZE,total)+' affichées'):'');
+  // totaux adaptés au filtre courant (toutes pages), calculés ligne par ligne comme l'analyse :
+  // débits et crédits hors virements, virements à part ; les opérations annulées ne comptent pas.
+  // Avec une loupe active, seules les lignes concernées comptent (ex. catégorie Salaire = montant de l'analyse).
+  const sums={deb:0,cre:0,vir:0};
+  lignesOps(w,p).forEach(l=>{if(l.st==='annule'||!ligneFiltre(l))return;
+    if(l.vir)sums.vir+=l.m;else if(l.m<0)sums.deb-=l.m;else sums.cre+=l.m;});
+  Object.assign(sums,qy('SELECT MIN(o.date_operation) dmin,MAX(o.date_operation) dmax FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id'+w,p)[0]||{});
+  const net=sums.cre-sums.deb+sums.vir;
+  const per=textePeriode('f',sums.dmin,sums.dmax);
+  if(per)document.getElementById('count').textContent+=' · '+per;
+  if(state.fCat)document.getElementById('count').insertAdjacentHTML('beforeend',
+    ' · <a style="color:var(--brand);cursor:pointer" title="Retirer ce filtre" onclick="retirerFiltreCat()">catégorie : '+esc(state.fCat)+' ✕</a>');
+  if(state.fSens)document.getElementById('count').insertAdjacentHTML('beforeend',
+    ' · <a style="color:var(--brand);cursor:pointer" title="Retirer ce filtre" onclick="setFSens(null)">filtre : '+SENS_LIB[state.fSens]+' ✕</a>');
+  majInfoSoldes(sums.dmin,sums.dmax);
+  const foot=document.getElementById('reg-sums');
+  if(foot)foot.innerHTML=
+    '<span class="lb">Total négatif (hors virements) <span class="voircat'+(state.fSens==='debit'?' on':'')+'" title="Afficher uniquement ces opérations (re-cliquer pour tout réafficher)" onclick="setFSens(&#39;debit&#39;)">🔍</span></span><span class="vl num '+clsSigne(-sums.deb)+'">'+eur(-sums.deb)+'</span>'+
+    '<span class="lb">Total positif (hors virements) <span class="voircat'+(state.fSens==='credit'?' on':'')+'" title="Afficher uniquement ces opérations (re-cliquer pour tout réafficher)" onclick="setFSens(&#39;credit&#39;)">🔍</span></span><span class="vl num '+clsSigne(sums.cre)+'">'+eur(sums.cre)+'</span>'+
+    '<span class="lb">Total des virements <span class="voircat'+(state.fSens==='virement'?' on':'')+'" title="Afficher uniquement ces opérations (re-cliquer pour tout réafficher)" onclick="setFSens(&#39;virement&#39;)">🔍</span></span><span class="vl num '+clsSigne(sums.vir)+'">'+eur(sums.vir)+'</span>'+
+    '<span class="lb tot">Total net</span><span class="vl num tot '+clsSigne(net)+'">'+eur(net)+'</span>';
+  appliquerLargeurs();syncScrollX();appliquerHauteurRegistre();
+  document.getElementById('legend').innerHTML=Object.keys(META).map(s=>
+    '<span><span class="dot" style="background:'+META[s].col+'"></span>'+META[s].label+'</span>').join('');
+  document.getElementById('pager').innerHTML=pages>1?
+    ('<button onclick="goPage(1)" '+(state.page===1?'disabled':'')+'>«</button>'+
+     '<button onclick="goPage('+(state.page-1)+')" '+(state.page===1?'disabled':'')+'>‹</button>'+
+     '<span>page</span><input type="number" min="1" max="'+pages+'" value="'+state.page+'" '+
+       'onkeydown="if(event.key===\'Enter\'){goPage(+this.value)}" onchange="goPage(+this.value)">'+
+     '<span>/ '+pages+'</span>'+
+     '<button onclick="goPage('+(state.page+1)+')" '+(state.page===pages?'disabled':'')+'>›</button>'+
+     '<button onclick="goPage('+pages+')" '+(state.page===pages?'disabled':'')+'>»</button>'):'';
+}
+
+/* ---------- pointage manuel ---------- */
+function togglePointe(id,ev){
+  if(ev)ev.stopPropagation();
+  const o=qy('SELECT statut,previsionnel FROM operation WHERE id=?',[id])[0];
+  if(!o)return;
+  if(o.previsionnel){
+    run('UPDATE operation SET previsionnel=0,date_modification=? WHERE id=?',[nowTS(),id]);
+    touch('Confirmation',libOp(id));
+    toast('Opération confirmée : elle compte maintenant dans ton solde. Clique encore pour la pointer.');
+    renderRegistre();return;
+  }
+  if(o.statut==='rapproche'){toast('Opération déjà rapprochée (verrouillée)');return;}
+  if(o.statut==='annule'){toast('Opération annulée');return;}
+  const nv=o.statut==='pointe'?'non_pointe':'pointe';
+  run('UPDATE operation SET statut=?,date_modification=? WHERE id=?',[nv,nowTS(),id]);
+  touch(nv==='pointe'?'Pointage':'Dépointage',libOp(id));renderRegistre();
+}
+async function ouvrirRapprochement(){
+  const r=qy(`SELECT COUNT(*) n,COALESCE(SUM(montant),0) s FROM operation
+    WHERE compte_id=? AND supprime=0 AND statut='pointe' AND previsionnel=0`,[state.acc])[0];
+  if(!r.n){await dlgAlert('Aucune opération pointée sur ce compte.\n\nPointe d’abord les lignes présentes sur ton relevé en cliquant leur barre de statut à gauche.','Rapprochement');return;}
+  const rap=scal(`SELECT (SELECT solde_initial FROM compte WHERE id=$a)+COALESCE(SUM(montant),0)
+    FROM operation WHERE compte_id=$a AND supprime=0 AND statut='rapproche'`,{$a:state.acc});
+  const ok=await dlgConfirm(
+    r.n+' opération'+(r.n>1?'s':'')+' pointée'+(r.n>1?'s':'')+' pour un total de '+eur(r.s)+'.\n\n'+
+    'Solde rapproché actuel : '+eur(rap)+'\nAprès rapprochement : '+eur(rap+r.s)+'\n\n'+
+    'Les opérations rapprochées seront verrouillées (plus modifiables ni supprimables).','Valider le rapprochement','Rapprocher');
+  if(!ok)return;
+  const nomC=scal('SELECT nom FROM compte WHERE id=?',[state.acc]);
+  run(`UPDATE operation SET statut='rapproche',date_modification=? WHERE compte_id=? AND supprime=0 AND statut='pointe' AND previsionnel=0`,[nowTS(),state.acc]);
+  touch('Rapprochement',r.n+' opérations · '+eur(r.s)+' · '+nomC);render();toast(r.n+' opération'+(r.n>1?'s':'')+' rapprochée'+(r.n>1?'s':''));
+}
+
+/* ============================================================
+   Corbeille
+   ============================================================ */
+function renderCorbeille(){
+  const rows=qy(`SELECT o.id,o.date_operation d,o.montant m,o.numero num,o.cat_path cat,o.commentaire comm,
+      o.date_suppression ds,t.nom dest,c.nom cpt
+    FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id LEFT JOIN compte c ON c.id=o.compte_id
+    WHERE o.supprime=1 ORDER BY o.date_suppression DESC`);
+  document.getElementById('tr-meta').textContent=rows.length?
+    (rows.length+' opération'+(rows.length>1?'s':'')+' en corbeille — restaurables tant que tu ne vides pas'):'La corbeille est vide';
+  document.getElementById('tr-head').innerHTML=['Supprimée le','Compte','Date','Destinataire','Montant','']
+    .map((h,i)=>'<th class="fix'+(i===4?' r':'')+'">'+h+'</th>').join('');
+  document.getElementById('tr-rows').innerHTML=rows.map(o=>'<tr>'+
+    '<td class="num">'+esc((o.ds||'').slice(0,10).split('-').reverse().join('/'))+'</td>'+
+    '<td>'+esc(o.cpt||'')+'</td><td class="num">'+isoToFr(o.d)+'</td>'+
+    '<td>'+esc(o.dest||'')+'<div class="cat" style="font-size:.76rem;color:var(--ink-3)">'+esc(o.cat||'')+'</div></td>'+
+    '<td class="r num" style="color:'+(o.m<0?'var(--debit)':'var(--credit)')+'">'+eur(o.m)+'</td>'+
+    '<td class="r"><button onclick="restaurer('+o.id+')">Restaurer</button> '+
+      '<button class="danger" onclick="supprDef('+o.id+')">Supprimer</button></td></tr>').join('');
+}
+function restaurer(id){const l=libOp(id);
+  run('UPDATE operation SET supprime=0,date_suppression=NULL,date_modification=? WHERE id=?',[nowTS(),id]);
+  run(`UPDATE operation SET miroir_id=$i WHERE id=(SELECT miroir_id FROM operation WHERE id=$i)
+    AND miroir_id IS NULL AND supprime=0`,{$i:id});
+  touch('Restauration depuis la corbeille',l);render();toast('Opération restaurée');}
+async function supprDef(id){
+  const o=qy('SELECT o.montant m,t.nom dest FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id WHERE o.id=?',[id])[0];
+  const ok=await dlgConfirm('Supprimer définitivement « '+(o.dest||'')+' » ('+eur(o.m)+') ?\n\nCette action est irréversible.','Suppression définitive','Supprimer',true);
+  if(!ok)return;
+  const l=libOp(id);
+  run('DELETE FROM ventilation WHERE operation_id=?',[id]);run('DELETE FROM operation WHERE id=?',[id]);
+  touch('Suppression définitive',l);render();toast('Opération supprimée définitivement');
+}
+async function viderCorbeille(){
+  const n=scal('SELECT COUNT(*) FROM operation WHERE supprime=1');
+  if(!n){await dlgAlert('La corbeille est déjà vide.');return;}
+  const ok=await dlgConfirm('Supprimer définitivement les '+n+' opérations de la corbeille ?\n\nCette action est irréversible.','Vider la corbeille','Tout supprimer',true);
+  if(!ok)return;
+  run('DELETE FROM ventilation WHERE operation_id IN (SELECT id FROM operation WHERE supprime=1)');
+  run('DELETE FROM operation WHERE supprime=1');
+  touch('Corbeille vidée',n+' opération'+(n>1?'s':'')+' définitivement supprimée'+(n>1?'s':''));render();toast('Corbeille vidée');
+}
+
+/* ============================================================
+   Tiers / Catégories
+   ============================================================ */
+function setTiSort(k){if(state.tiSort===k)state.tiDir*=-1;else{state.tiSort=k;state.tiDir=(k==='n'||k==='last'||k==='first')?-1:1;}renderTiers();}
+function renderTiers(){
+  const rows=qy(`SELECT t.nom dest,MIN(o.date_operation) first,MAX(o.date_operation) last,COUNT(o.id) n,
+      (SELECT o2.cat_path FROM operation o2 WHERE o2.tiers_id=t.id AND o2.supprime=0 ORDER BY o2.date_operation DESC,o2.id DESC LIMIT 1) cat
+    FROM tiers t LEFT JOIN operation o ON o.tiers_id=t.id AND o.supprime=0
+    GROUP BY t.id ORDER BY last DESC`);
+  const q=((document.getElementById('ti-search')||{}).value||'').trim().toLowerCase();
+  const rowsF=q?rows.filter(r=>(r.dest||'').toLowerCase().includes(q)||(r.cat||'').toLowerCase().includes(q)):rows;
+  const k=state.tiSort,dir=state.tiDir;
+  rowsF.sort((x,y)=>{let vx=x[k],vy=y[k];if(vx==null)vx='';if(vy==null)vy='';
+    if(typeof vx==='string'){vx=vx.toLowerCase();vy=String(vy).toLowerCase();}return vx<vy?-dir:vx>vy?dir:0;});
+  document.getElementById('ti-meta').textContent=rows.length+' destinataires enregistrés';
+  const cols=[['Destinataire','dest'],['Catégorie habituelle','cat'],['Ajouté le','first'],['Dernier paiement','last'],['Opér.','n']];
+  document.getElementById('ti-head').innerHTML=cols.map(c=>{const r=c[1]==='n'?' class="r"':'';
+    const arr=state.tiSort===c[1]?(state.tiDir===1?' ↑':' ↓'):'';
+    return '<th'+r+' onclick="setTiSort(\''+c[1]+'\')">'+c[0]+arr+'</th>';}).join('');
+  document.getElementById('ti-rows').innerHTML=rowsF.map(t=>'<tr>'+
+    '<td>'+esc(t.dest)+'</td><td style="color:var(--ink-2)">'+esc(t.cat||'')+'</td>'+
+    '<td class="num">'+(t.first?isoToFr(t.first):'—')+'</td>'+
+    '<td class="num">'+(t.last?isoToFr(t.last):'—')+'</td>'+
+    '<td class="r num">'+t.n+'</td></tr>').join('');
+}
+function cheminCategorie(id){
+  const by={};qy('SELECT id,libelle,parent_id FROM categorie').forEach(c=>by[c.id]=c);
+  const parts=[];let x=id;while(x!=null){const z=by[x];if(!z)break;parts.unshift(z.libelle);x=z.parent_id;}
+  return parts.join(' : ');
+}
+/* clique une catégorie -> registre filtré sur son chemin */
+function voirCategorieChemin(chemin){
+  if(!chemin)return;
+  const s=document.getElementById('f-search');if(s)s.value='';
+  state.fCat=chemin;state.fSens=null;syncClear();
+  setStatutsTous();
+  setView('registre');goPage(1);
+  toast('Opérations de « '+chemin+' »');
+}
+function voirCategorie(id){voirCategorieChemin(cheminCategorie(id));}
+async function supprCategorie(id){
+  // refuser s'il reste des opérations rattachées (ici ou dans les sous-catégories)
+  const ids=[id];const tous=qy('SELECT id,parent_id FROM categorie');
+  let chg=true;while(chg){chg=false;tous.forEach(c=>{if(c.parent_id!=null&&ids.includes(c.parent_id)&&!ids.includes(c.id)){ids.push(c.id);chg=true;}});}
+  const marks=ids.map(()=>'?').join(',');
+  const nb=scal('SELECT COUNT(*) FROM ventilation WHERE categorie_id IN('+marks+')',ids)||0;
+  if(nb>0){await dlgAlert('Cette catégorie (ou une de ses sous-catégories) contient encore '+nb+' opération(s). Impossible de la supprimer.','Suppression impossible');return;}
+  if(!await dlgConfirm('Supprimer cette catégorie'+(ids.length>1?' et ses '+(ids.length-1)+' sous-catégorie(s)':'')+' ?','Supprimer la catégorie','Supprimer',true))return;
+  run('DELETE FROM categorie WHERE id IN('+marks+')',ids);
+  touch('Catégorie supprimée',cheminCategorie(id)||'');render();
+}
+function renderCategories(){
+  const cats=qy('SELECT id,libelle,parent_id FROM categorie');
+  const cnt={};qy(`SELECT v.categorie_id c,COUNT(*) n FROM ventilation v JOIN operation o ON o.id=v.operation_id
+    WHERE o.supprime=0 GROUP BY v.categorie_id`).forEach(r=>cnt[r.c]=r.n);
+  const kids={};cats.forEach(c=>{(kids[c.parent_id==null?0:c.parent_id]=kids[c.parent_id==null?0:c.parent_id]||[]).push(c);});
+  const tot={};
+  function totOf(id){if(tot[id]!=null)return tot[id];let n=cnt[id]||0;(kids[id]||[]).forEach(k=>n+=totOf(k.id));return tot[id]=n;}
+  function cheminDe(id){const parts=[];let x=id;const by={};cats.forEach(z=>by[z.id]=z);
+    while(x!=null){const z=by[x];if(!z)break;parts.unshift(z.libelle);x=z.parent_id;}return parts.join(' : ');}
+  function renderNode(c,depth){const t=totOf(c.id);
+    return '<div class="tnode d'+(depth+1)+'" style="padding-left:'+(depth*22)+'px">'+
+      '<span class="tname" style="cursor:pointer" title="Voir les opérations" onclick="voirCategorie('+c.id+')">'+esc(c.libelle)+'</span>'+
+      '<span class="tcount">'+t+'</span>'+
+      (t===0?' <button class="ghost" style="padding:2px 8px;font-size:.75rem" onclick="supprCategorie('+c.id+')">Supprimer</button>':'')+
+      '</div>';}
+  function walk(pid,depth){const list=(kids[pid]||[]).slice().sort((a,b)=>a.libelle.localeCompare(b.libelle,'fr'));
+    return list.map(c=>renderNode(c,depth)+walk(c.id,depth+1)).join('');}
+  const q=((document.getElementById('cat-search')||{}).value||'').trim().toLowerCase();
+  const vides=!!state.catVides;
+  let html;
+  if(q||vides){
+    const critere=c=>(!q||c.libelle.toLowerCase().includes(q))&&(!vides||totOf(c.id)===0);
+    const keepCache={};
+    function keep(c){if(keepCache[c.id]!=null)return keepCache[c.id];
+      let k=critere(c);if(!k)k=(kids[c.id]||[]).some(x=>keep(x));return keepCache[c.id]=k;}
+    function walkF(pid,depth){
+      const list=(kids[pid]||[]).filter(keep).sort((a,b)=>a.libelle.localeCompare(b.libelle,'fr'));
+      return list.map(c=>renderNode(c,depth)+(critere(c)?walk(c.id,depth+1):walkF(c.id,depth+1))).join('');
+    }
+    html=walkF(0,0)||'<div style="color:var(--ink-3)">Aucune catégorie ne correspond.</div>';
+  }else{
+    html=walk(0,0)||'<div style="color:var(--ink-3)">Aucune catégorie pour l’instant.</div>';
+  }
+  document.getElementById('cat-tree').innerHTML=html;
+}
+
+/* ============================================================
+   Analyse — uniquement des barres horizontales, avec descente
+   dans les niveaux de catégories (3 niveaux max).
+   ============================================================ */
+function _catPathFn(){
+  const cats=qy('SELECT id,libelle,parent_id FROM categorie');
+  const by={};cats.forEach(c=>by[c.id]=c);const cache={};
+  return function(id){
+    if(id==null)return null;
+    if(cache[id]!=null)return cache[id];
+    const parts=[];let g=by[id];while(g){parts.unshift(g.libelle);g=(g.parent_id!=null)?by[g.parent_id]:null;}
+    return cache[id]=parts.join(' : ');
+  };
+}
+/* Lignes comptables d'un ensemble d'opérations — MÊME règle pour le registre et l'analyse :
+   - une opération répartie compte ligne par ligne, chaque ligne selon SON signe
+     (salaire 3 000 € = Salaire +3 500 € en revenu et Impôts −500 € en dépense) ;
+   - une opération non répartie compte pour son montant ;
+   - si les lignes ne font pas le montant de l'opération, la différence forme une ligne
+     « (répartition incomplète) », pour que la somme des lignes = montant de l'opération ;
+   - virement = opération de type virement / catégorie « Virement… » (une ligne, montant total),
+     ou ligne classée en « Virement… ». */
+function lignesOps(w,p){
+  const rows=qy('SELECT o.id,o.type ty,o.date_operation d,o.montant om,o.cat_path cp,o.statut st,t.nom ti,v.montant vm,v.categorie_id c '+
+    'FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id LEFT JOIN ventilation v ON v.operation_id=o.id'+w,p);
+  const path=_catPathFn();const ops=new Map();
+  rows.forEach(r=>{let o=ops.get(r.id);if(!o){o={r,lignes:[]};ops.set(r.id,o);}
+    if(r.c!=null)o.lignes.push({m:r.vm,cat:path(r.c)});});
+  const out=[];
+  ops.forEach(({r,lignes})=>{
+    const base={id:r.id,d:r.d,ti:r.ti,om:r.om,st:r.st};
+    if(r.ty==='virement'||isVirCat(r.cp)){out.push(Object.assign({m:r.om,cat:r.cp,vir:true,opVir:true},base));return;}
+    if(!lignes.length)lignes.push({m:r.om,cat:r.cp});
+    const somme=lignes.reduce((t,l)=>t+l.m,0);
+    if(somme!==r.om)lignes.push({m:r.om-somme,cat:'(répartition incomplète)',adj:true});
+    lignes.forEach(l=>out.push(Object.assign({m:l.m,cat:l.cat,vir:isVirCat(l.cat),adj:!!l.adj},base)));
+  });
+  return out;
+}
+/* filtres des loupes du registre, appliqués ligne par ligne */
+const memeCat=(cat,chemin)=>{const a=catParts(cat).join(' : '),b=catParts(chemin).join(' : ');return a===b||a.indexOf(b+' : ')===0;};
+function ligneFiltre(l){
+  if(state.fSens==='debit'&&!(!l.vir&&l.m<0))return false;
+  if(state.fSens==='credit'&&!(!l.vir&&l.m>0))return false;
+  if(state.fSens==='virement'&&!l.vir)return false;
+  if(state.fCat&&!memeCat(l.cat,state.fCat))return false;
+  return true;
+}
+function anOps(){
+  const p={$acc:state.acc};
+  const w=" WHERE o.compte_id=$acc AND o.supprime=0 AND o.statut<>'annule' AND o.previsionnel=0"+periodClause('an',p);
+  return lignesOps(w,p);
+}
+const isVirCat=c=>/^virement/i.test(c||'');
+
+/* boutons Dépenses / Revenus / Net / Virements alignés sur state.anSens (seule référence) */
+function majBoutonsSens(){const s=state.anSens||'debit';
+  [['an-dep','debit'],['an-cre','credit'],['an-net','net'],['an-vir','virement']].forEach(([id,v])=>{
+    const b=document.getElementById(id);if(b)b.classList.toggle('on',s===v);});}
+function anSetSens(s){state.anSens=s;
+  state.anPath=[];renderAnalyse();
+  syncHist();} // l'historique mémorise le sens choisi (sinon « retour » restaurait un ancien sens)
+/* moyenne qui s'adapte à la période : par mois si longue, par semaine si moyenne, par jour si courte */
+function anMoyenne(total,mode,sel){
+  if(!total)return null;
+  let d1,d2;const b=periodBounds('an');
+  if(b&&b.f&&b.t){d1=new Date(b.f+'T00:00:00');d2=new Date(b.t+'T00:00:00');}
+  else{ // tout / perso partiel : bornes réelles des opérations affichées
+    if(!sel||!sel.length)return null;
+    const ds=sel.map(o=>o.d).sort();d1=new Date((b&&b.f||ds[0])+'T00:00:00');d2=new Date((b&&b.t||ds[ds.length-1])+'T00:00:00');
+  }
+  const jours=Math.max(1,Math.round((d2-d1)/86400000)+1);
+  let unite,div;
+  if(jours>=80){unite='mois';div=jours/30.44;}
+  else if(jours>=14){unite='semaine';div=jours/7;}
+  else{unite='jour';div=jours;}
+  div=Math.max(div,1);
+  return {montant:Math.round(total/div),unite,div};
+}
+function renderAnalyse(){
+  if(!state.acc)return;
+  const cp=qy('SELECT nom FROM compte WHERE id=?',[state.acc])[0];
+  document.getElementById('an-meta').textContent=cp?cp.nom:'';
+
+  majBoutonsSens();
+  const sens=state.anSens||'debit';
+  const virMode=(sens==='virement');
+  // dépenses / revenus / net : hors virements intercomptes ; « Virements » : uniquement eux
+  const dep=anOps().filter(o=>o.m!==0&&(virMode?o.vir:(!o.vir&&(sens==='net'||(sens==='debit'?o.m<0:o.m>0)))));
+  // les virements sont regroupés par compte (« Virement vers … » / « Virement reçu de … »)
+  if(virMode)dep.forEach(o=>{o.cat=o.ti||o.cat||'Virement';});
+
+  // on ne garde que celles qui appartiennent au chemin courant
+  const depth=state.anPath.length;
+  const sel=dep.filter(o=>{const p=catParts(o.cat);return state.anPath.every((s,i)=>p[i]===s);});
+
+  // regroupement sur le niveau suivant
+  const net=(state.anSens==='net'||virMode);
+  const g={},deeper=new Set(),nb={};
+  sel.forEach(o=>{const p=virMode?[o.cat]:catParts(o.cat);const k=p[depth]||'(non précisé)';
+    g[k]=(g[k]||0)+(net||sens==='credit'?o.m:-o.m);(nb[k]=nb[k]||new Set()).add(o.id);
+    if(p[depth]&&p[depth+1]&&depth<2)deeper.add(k);});
+  anGroups=Object.entries(g).map(([c,v])=>({c,v,n:nb[c].size})).sort((x,y)=>Math.abs(y.v)-Math.abs(x.v));
+  const tot=anGroups.reduce((t,x)=>t+x.v,0);
+  window.__deeper=deeper;
+  window.__anMoy=anMoyenne(tot,document.getElementById('an-periode').value,sel);
+
+  // fil d'Ariane
+  const motSens=virMode?'virements':state.anSens==='net'?'mouvements (net)':(state.anSens==='credit'?'revenus':'dépenses');
+  const nbOps=new Set(sel.map(o=>o.id)).size; // une opération ventilée compte une seule fois
+  {const ds=sel.map(o=>o.d).sort();const per=textePeriode('an',ds[0],ds[ds.length-1]);
+   document.getElementById('an-meta').textContent=(cp?cp.nom:'')+(per?' · '+per:'');}
+  const sumAbs=anGroups.reduce((t,x)=>t+Math.abs(x.v),0)||1;
+  let cr='<a onclick="goDepth(0)">Tous les '+motSens+'</a>';
+  state.anPath.forEach((x,i)=>{cr+=' <span style="color:var(--ink-3)">›</span> '+
+    (i===state.anPath.length-1?'<b>'+esc(x)+'</b>':'<a onclick="goDepth('+(i+1)+')">'+esc(x)+'</a>');});
+  if(state.anPath.length)cr+='  <span style="color:var(--ink-3);font-size:.8rem">— bouton retour pour remonter</span>';
+  document.getElementById('an-crumb').innerHTML=cr;
+
+  // total de référence des pourcentages
+  document.getElementById('an-total').innerHTML=
+    '<span class="k">'+(state.anPath.length?esc(state.anPath[state.anPath.length-1]):(state.anSens==='net'?'Total net':virMode?'Total net des virements':'Total des '+motSens))+'</span>'+
+    '<span class="v num '+(net?clsSigne(tot):sens==='credit'?'credit':'debit')+'">'+eur(tot)+'</span>'+
+    (window.__anMoy?'<span class="d" style="color:var(--accent,#2563EB)">Moyenne '+eur(window.__anMoy.montant)+' / '+window.__anMoy.unite+'</span>':'')+
+    '<span class="d">'+nbOps.toLocaleString('fr-FR')+' opération'+(nbOps>1?'s':'')+
+    ' · '+anGroups.length+' '+(virMode?'compte':depth===0?'catégorie':depth===1?'sous-catégorie':'sous-sous-catégorie')+(anGroups.length>1?'s':'')+'</span>';
+
+  // les barres
+  const el=document.getElementById('an-bars');
+  if(!anGroups.length){el.innerHTML='<div style="color:var(--ink-3)">Aucun mouvement sur cette période.</div>';return;}
+  const div=(window.__anMoy&&window.__anMoy.div)||1,uni=(window.__anMoy&&window.__anMoy.unite)||'mois';
+  el.innerHTML=anGroups.map((x,i)=>{
+    const pct=Math.abs(x.v)/sumAbs*100;
+    const deep=deeper.has(x.c);
+    const chemin=state.anPath.concat([x.c]).join(' : ');
+    const moy=eur(Math.round(x.v/div))+'/'+uni;
+    const coul=net?(x.v<0?'color:var(--debit)':x.v>0?'color:var(--credit)':'color:var(--ink-3)'):(x.v<0?'color:var(--debit)':''); // déduction en rouge
+    return '<div class="barrow'+(deep?' drill':'')+'" '+(deep?'data-i="'+i+'"':'')+
+      (deep?' title="Cliquer pour voir le détail"':'')+'>'+
+      '<div class="bl">'+esc(x.c)+(deep?' <span class="chev">›</span>':'')+
+        ' <span class="voircat" title="Voir ces opérations dans le registre" data-c="'+esc(chemin)+'">🔍</span></div>'+
+      '<div class="bartrack"><div class="barfill" style="width:'+pct.toFixed(2)+'%"></div></div>'+
+      '<div class="barval num"><b style="'+coul+'">'+eur(x.v)+'</b> · '+pct.toFixed(1).replace('.',',')+' %<div class="sub" style="color:var(--accent,#2563EB)">'+moy+'</div></div></div>';
+  }).join('');
+  el.querySelectorAll('.barrow.drill').forEach(r=>r.addEventListener('click',e=>{if(e.target.closest('.voircat'))return;drillInto(+r.dataset.i);}));
+  el.querySelectorAll('.voircat').forEach(s=>s.addEventListener('click',e=>{e.stopPropagation();voirDepuisAnalyse(s.dataset.c);}));
+}
+
+/* --- descente / remontée dans les niveaux --- */
+function drillInto(i){
+  const x=anGroups[i];
+  if(!x||!window.__deeper.has(x.c)||state.anPath.length>=2)return;
+  state.anPath.push(x.c);
+  renderAnalyse();pushHist();
+}
+function goDepth(d){
+  if(d===state.anPath.length)return;
+  state.anPath=state.anPath.slice(0,d);
+  renderAnalyse();pushHist();
+}
+function anBack(){ if(state.anPath.length){history.back();return true;} return false; }
+
+/* ============================================================
+   Graphiques : cours du solde d'un compte et patrimoine global
+   - solde = opérations réelles (hors prévisionnel / annulées), jusqu'à aujourd'hui ;
+   - flux (revenus / dépenses / virements) = lignes de lignesOps, même règle que le registre
+     et l'analyse ; les virements entre comptes sont à part (reçus / envoyés) ;
+   - solde de fin = solde de début + revenus − dépenses + virements reçus − virements envoyés ;
+   - « Solde sans les virements » = solde de départ + cumul (revenus − dépenses) ;
+   - patrimoine = somme des comptes actifs (les virements internes s'y annulent).
+   ============================================================ */
+const GR_SERIES={
+  avecvir:{lib:'Solde du compte',col:'var(--brand)',ligne:true,mode:'compte'},
+  horsvir:{lib:'Solde sans les virements',col:'var(--ink-2)',ligne:true,tirets:true,mode:'compte'},
+  solde:{lib:'Patrimoine',col:'var(--brand)',ligne:true,mode:'patrimoine'},
+  parcompte:{lib:'Un trait par compte',col:'var(--g1)',ligne:true,mode:'patrimoine'},
+  rev:{lib:'Revenus',col:'var(--credit)'},
+  dep:{lib:'Dépenses',col:'var(--debit)'},
+  vir:{lib:'Virements',col:'var(--st-prev)',mode:'compte'}
+};
+const GR_DEF={avecvir:1,horsvir:0,solde:1,parcompte:0,rev:1,dep:1,vir:0};
+const GR_PAS={jour:'jour',semaine:'semaine',mois:'mois',annee:'année'};
+const GR_CHAQUE={jour:'chaque jour',semaine:'chaque semaine',mois:'chaque mois',annee:'chaque année'};
+const GR_PENDANT={jour:'dans la journée',semaine:'dans la semaine',mois:'dans le mois',annee:'dans l’année'};
+const MOIS_COURT=['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
+let grData=null;
+function grShow(){
+  if(!state.grShow){let s={};try{s=JSON.parse(getMeta('grShow3','{}'))||{};}catch(e){}
+    state.grShow=Object.assign({},GR_DEF,s);
+    if(!state.grShow.v63){state.grShow.avecvir=1;state.grShow.horsvir=0;state.grShow.v63=1;}} // v63 : la courbe principale redevient le vrai solde
+  return state.grShow;
+}
+function grToggle(k){const s=grShow();s[k]=s[k]?0:1;try{setMeta('grShow3',JSON.stringify(s));}catch(e){}renderGraphiques();}
+function grAideOuverte(o){const s=grShow();if((s.aide===1)===o)return;s.aide=o?1:0;try{setMeta('grShow3',JSON.stringify(s));}catch(e){}}
+function grSetMode(m){state.grMode=m;renderGraphiques();syncHist();}
+function grPasAuto(f,t){const j=Math.round((new Date(t+'T00:00:00')-new Date(f+'T00:00:00'))/86400000)+1;
+  return j<=45?'jour':j<=190?'semaine':j<=366*6?'mois':'annee';}
+/* découpe [f,t] en tranches (semaines du lundi au dimanche, mois et années civils, bornées à la période) */
+function grTranches(f,t,pas){
+  const out=[],fin=new Date(t+'T00:00:00');let d=new Date(f+'T00:00:00');
+  while(d<=fin){let e;
+    if(pas==='jour')e=new Date(d);
+    else if(pas==='semaine'){e=new Date(d);e.setDate(e.getDate()+(7-e.getDay())%7);}
+    else if(pas==='mois')e=new Date(d.getFullYear(),d.getMonth()+1,0);
+    else e=new Date(d.getFullYear(),11,31);
+    if(e>fin)e=new Date(fin);
+    out.push({f:isoDe(d),t:isoDe(e)});
+    d=new Date(e.getFullYear(),e.getMonth(),e.getDate()+1);
+  }
+  return out;
+}
+function grLib(tr,pas,long){const p=tr.f.split('-');
+  if(pas==='jour')return long?isoToFr(tr.f):p[2]+'/'+p[1];
+  if(pas==='semaine')return long?'Semaine du '+isoToFr(tr.f)+' au '+isoToFr(tr.t):p[2]+'/'+p[1];
+  if(pas==='mois')return long?MOIS_FR[+p[1]-1].replace(/^./,c=>c.toUpperCase())+' '+p[0]:MOIS_COURT[+p[1]-1]+' '+p[0].slice(2);
+  return long?'Année '+p[0]:p[0];}
+function grCalcul(){
+  const mode=state.grMode||'compte';
+  const comptes=mode==='compte'?qy('SELECT id,nom,solde_initial si FROM compte WHERE id=?',[state.acc])
+    :qy('SELECT id,nom,solde_initial si FROM compte WHERE actif=1 ORDER BY ordre_affichage,id');
+  if(!comptes.length)return null;
+  const OK=" o.compte_id IN ("+comptes.map(c=>+c.id).join(',')+") AND o.supprime=0 AND o.statut<>'annule' AND o.previsionnel=0";
+  const auj=todayISO(),b=periodBounds('gr')||{};
+  const f=b.f||scal('SELECT MIN(o.date_operation) FROM operation o WHERE'+OK)||auj;
+  const t=b.t&&b.t<auj?b.t:auj; // pas d'avenir : le solde s'arrête à aujourd'hui
+  if(f>t)return {mode,comptes,f,t,vide:true};
+  const pasSel=(document.getElementById('gr-pas')||{}).value||'auto';
+  let pas=pasSel==='auto'?grPasAuto(f,t):pasSel,tr=grTranches(f,t,pas);
+  const plusGros=['jour','semaine','mois','annee'];
+  while(tr.length>400&&pas!=='annee'){pas=plusGros[plusGros.indexOf(pas)+1];tr=grTranches(f,t,pas);}
+  // jours de la période : index 0 = f ; chaque tranche couvre les jours [a, b]
+  const t0=Date.parse(f+'T00:00:00Z'),jIdx=d=>Math.round((Date.parse(d+'T00:00:00Z')-t0)/864e5),N=jIdx(t)+1;
+  tr.forEach(x=>{x.a=jIdx(x.f);x.b=jIdx(x.t);});
+  const p={$f:f,$t:t},z=()=>new Array(N).fill(0);
+  // solde de chaque compte la veille de la période, puis mouvements jour par jour
+  const s0={},delta={};
+  comptes.forEach(c=>{s0[c.id]=c.si;delta[c.id]=z();});
+  qy('SELECT o.compte_id c,SUM(o.montant) s FROM operation o WHERE'+OK+' AND o.date_operation<$f GROUP BY o.compte_id',{$f:f})
+    .forEach(r=>{s0[r.c]+=r.s;});
+  qy('SELECT o.compte_id c,o.date_operation d,SUM(o.montant) s FROM operation o WHERE'+OK+
+     ' AND o.date_operation BETWEEN $f AND $t GROUP BY o.compte_id,o.date_operation',p)
+    .forEach(r=>{delta[r.c][jIdx(r.d)]+=r.s;});
+  const jParCompte=comptes.map(c=>{let s=s0[c.id];return {id:c.id,nom:c.nom,s0:s0[c.id],v:delta[c.id].map(x=>s+=x)};});
+  const sDebut=jParCompte.reduce((a,c)=>a+c.s0,0);
+  const jSolde=z().map((_,k)=>jParCompte.reduce((a,c)=>a+c.v[k],0));
+  // flux : lignes comptables (opérations réparties ligne par ligne), virements à part
+  const jRev=z(),jDep=z(),jVirIn=z(),jVirOut=z();
+  lignesOps(' WHERE'+OK+' AND o.date_operation BETWEEN $f AND $t',p).forEach(l=>{
+    const k=jIdx(l.d);if(l.vir){if(l.m>0)jVirIn[k]+=l.m;else jVirOut[k]-=l.m;}else if(l.m>0)jRev[k]+=l.m;else jDep[k]-=l.m;});
+  let h=sDebut;const jHors=jRev.map((r,k)=>h+=r-jDep[k]);
+  const jours={N,solde:jSolde,horsvir:jHors,parCompte:jParCompte,rev:jRev,dep:jDep,virIn:jVirIn,virOut:jVirOut};
+  // tranches (barres, bilan, tableau) : sommes des jours ; soldes = fin du dernier jour de la tranche
+  const somme=(a,x)=>{let s=0;for(let k=x.a;k<=x.b;k++)s+=a[k];return s;};
+  const rev=tr.map(x=>somme(jRev,x)),dep=tr.map(x=>somme(jDep,x)),virIn=tr.map(x=>somme(jVirIn,x)),virOut=tr.map(x=>somme(jVirOut,x));
+  const solde=tr.map(x=>jSolde[x.b]),horsvir=tr.map(x=>jHors[x.b]),debut=tr.map(x=>x.a?jSolde[x.a-1]:sDebut);
+  const parCompte=jParCompte.map(c=>({id:c.id,nom:c.nom,s0:c.s0,v:tr.map(x=>c.v[x.b])}));
+  return {mode,comptes,f,t,pas,pasSel,tr,sDebut,debut,solde,horsvir,parCompte,rev,dep,virIn,virOut,jours};
+}/* graduations « rondes » */
+function grNice(min,max,n){
+  if(min===max){const e=Math.max(Math.abs(min)*0.1,10000);min-=e;max+=e;}
+  const brut=(max-min)/n,mag=Math.pow(10,Math.floor(Math.log10(brut))),r=brut/mag;
+  const pas=(r>=7.5?10:r>=3.5?5:r>=1.5?2:1)*mag;
+  const lo=Math.floor(min/pas)*pas,hi=Math.ceil(max/pas)*pas,ticks=[];
+  for(let v=lo;v<=hi+pas/2;v+=pas)ticks.push(Math.round(v));
+  return {lo,hi,ticks};
+}
+function grEurAxe(c){const a=Math.abs(c)/100,s=c<0?'−':'';
+  if(a>=1e6)return s+fmt0.format(a/1e6)+' M€';
+  if(a>=1e4)return s+fmt0.format(a/1e3)+' k€';
+  return s+fmt0.format(a)+' €';}
+/* hauteur de chaque graphique : réglable (curseur ⇕) et mémorisée ; par défaut selon la largeur */
+function grH(k,el){
+  if(document.body.classList.contains('gr-plein')){
+    const bar=document.getElementById('gr-fsbar'),leg=document.getElementById('gr-leg');
+    return Math.max(120,window.innerHeight-16-bar.offsetHeight-6-(k==='solde'&&leg?leg.offsetHeight:0)-44-(state.grFsTrop||0));
+  }
+  const v=+grShow()['h_'+k];if(v)return v;
+  return k==='solde'?(el.clientWidth<520?220:270):(el.clientWidth<520?180:220);}
+function grHauteur(k,v,garder){const s=grShow();s['h_'+k]=+v;
+  if(garder)try{setMeta('grShow3',JSON.stringify(s));}catch(e){}
+  const D=grData;if(!D||!D.tr)return;const el=document.getElementById('gr-'+k);grSortie();
+  (k==='solde'?grSvgSolde:grSvgFlux)(el,D,s);grBrancherSurvol(el);}
+function grBrancherSurvol(root){root.querySelectorAll('.gr-hit').forEach(h=>{
+  h.addEventListener('pointermove',grSurvol);h.addEventListener('pointerdown',grSurvol);
+  h.addEventListener('pointerleave',e=>{if(e.pointerType!=='touch')grSortie();});});} // au doigt, l'info-bulle reste après avoir levé le doigt
+// toucher ailleurs que sur un graphique referme l'info-bulle
+document.addEventListener('pointerdown',e=>{if(state.view==='graphiques'&&!(e.target.closest&&e.target.closest('.gr-hit')))grSortie();},true);
+/* plein écran (mobile : à l'horizontale) : la courbe seule, les barres en option */
+let grFsNatif=false;
+async function grPleinEcran(on,auto){
+  const d=document,el=d.documentElement;
+  d.body.classList.toggle('gr-plein',on);d.body.classList.toggle('gr-auto',on&&!!auto);
+  d.body.classList.toggle('gr-fs-barres',on&&!!grShow().fsBarres);grSortie();
+  if(!on)grFsAuto=false;
+  if(on&&!auto){
+    if(!pleinEcranActif()&&(el.requestFullscreen||el.webkitRequestFullscreen)){
+      try{await (el.requestFullscreen||el.webkitRequestFullscreen).call(el,{navigationUI:'hide'});grFsNatif=true;}catch(e){grFsNatif=false;}}
+    try{if(screen.orientation&&screen.orientation.lock)await screen.orientation.lock('landscape');}catch(e){} // refusé hors plein écran (iPhone…) : on invite à tourner
+  }else if(!on){
+    try{if(screen.orientation&&screen.orientation.unlock)screen.orientation.unlock();}catch(e){}
+    if(grFsNatif&&pleinEcranActif())try{await (d.exitFullscreen||d.webkitExitFullscreen).call(d);}catch(e){}
+    grFsNatif=false;
+  }
+  if(state.view==='graphiques')renderGraphiques();
+}
+function grFsVue(barres){const s=grShow();s.fsBarres=barres?1:0;try{setMeta('grShow3',JSON.stringify(s));}catch(e){}
+  document.body.classList.toggle('gr-fs-barres',!!s.fsBarres);renderGraphiques();}
+/* téléphone tourné à l'horizontale sur la vue Graphiques : plein écran automatique ; retour à la verticale : on en sort */
+const grMQ=window.matchMedia('(orientation: landscape) and (pointer: coarse) and (max-height: 520px)');
+let grFsAuto=false;
+function grAuto(){
+  const on=grMQ.matches&&state.view==='graphiques',plein=document.body.classList.contains('gr-plein');
+  if(on&&!plein){grFsAuto=true;grPleinEcran(true,true);}
+  else if(!on&&grFsAuto)grPleinEcran(false,true);
+}
+if(grMQ.addEventListener)grMQ.addEventListener('change',grAuto);else if(grMQ.addListener)grMQ.addListener(grAuto);
+/* téléphone à l'horizontale : le navigateur n'accepte le vrai plein écran (sans sa barre) qu'après un geste ;
+   le premier appui sur l'écran le déclenche (pointerup / touchend comptent comme geste, pas la rotation) */
+async function grFsNatifAuto(){
+  const el=document.documentElement;
+  if(!document.body.classList.contains('gr-auto')||pleinEcranActif()||!(el.requestFullscreen||el.webkitRequestFullscreen))return;
+  try{await (el.requestFullscreen||el.webkitRequestFullscreen).call(el,{navigationUI:'hide'});grFsNatif=true;}catch(e){}
+}
+document.addEventListener('pointerup',e=>{if(e.pointerType!=='mouse')grFsNatifAuto();},true);
+// sortie du plein écran par le système (retour, Échap) : en mode manuel on quitte la vue plein écran ;
+// en mode automatique (téléphone à l'horizontale) on la garde, seule la barre du navigateur revient
+['fullscreenchange','webkitfullscreenchange'].forEach(t=>document.addEventListener(t,()=>{
+  document.body.classList.toggle('gr-natif',pleinEcranActif());
+  if(pleinEcranActif()||!grFsNatif||!document.body.classList.contains('gr-plein'))return;
+  if(document.body.classList.contains('gr-auto'))grFsNatif=false;else grPleinEcran(false);}));
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.body.classList.contains('gr-plein')){e.preventDefault();e.stopPropagation();grPleinEcran(false);}},true);
+function grGeom(el,h){const w=Math.max(280,el.clientWidth||600);
+  const m={l:w<520?50:64,r:12,t:12,b:26};return {w,h,m,iw:w-m.l-m.r,ih:h-m.t-m.b};}
+/* cadre commun : grille horizontale, étiquettes Y, étiquettes X (sous-ensemble sans chevauchement) */
+function grCadre(G,D,y,nice){
+  let s='';
+  nice.ticks.forEach(v=>{const yy=y(v).toFixed(1);
+    s+='<line x1="'+G.m.l+'" x2="'+(G.w-G.m.r)+'" y1="'+yy+'" y2="'+yy+'" class="'+(v===0?'gr-zero':'gr-grid')+'"/>'+
+       '<text x="'+(G.m.l-6)+'" y="'+yy+'" dy=".32em" text-anchor="end" class="gr-ax">'+grEurAxe(v)+'</text>';});
+  const n=D.tr.length,lw=D.pas==='mois'?52:D.pas==='annee'?40:44,every=Math.max(1,Math.ceil(lw/(G.iw/n)));
+  for(let i=0;i<n;i+=every)
+    s+='<text x="'+grXT(G,D,i).cx.toFixed(1)+'" y="'+(G.h-8)+'" text-anchor="middle" class="gr-ax">'+esc(grLib(D.tr[i],D.pas))+'</text>';
+  return s;
+}
+const grXJ=(G,D,k)=>G.m.l+G.iw*(k+.5)/D.jours.N; // centre du jour k
+function grXT(G,D,i){const x=D.tr[i],x0=G.m.l+G.iw*x.a/D.jours.N,x1=G.m.l+G.iw*(x.b+1)/D.jours.N;return {x0,x1,cx:(x0+x1)/2};}
+function grJourA(G,D,px){return Math.max(0,Math.min(D.jours.N-1,Math.floor((px-G.m.l)/G.iw*D.jours.N)));}
+function grTrancheDuJour(D,k){let lo=0,hi=D.tr.length-1;while(lo<hi){const mi=(lo+hi)>>1;if(D.tr[mi].b<k)lo=mi+1;else hi=mi;}return lo;}function grLigne(G,D,y,vals,col,larg,tirets){
+  const n=vals.length,X=k=>grXJ(G,D,k),Y=k=>y(vals[k]);
+  if(n===1)return '<circle cx="'+X(0).toFixed(1)+'" cy="'+Y(0).toFixed(1)+'" r="4" style="fill:'+col+'"/>';
+  // pentes de Fritsch–Carlson
+  const dx=[],dy=[],m=[],sl=[];
+  for(let k=0;k<n-1;k++){dx[k]=X(k+1)-X(k);dy[k]=Y(k+1)-Y(k);sl[k]=dy[k]/dx[k];}
+  m[0]=sl[0];m[n-1]=sl[n-2];
+  for(let k=1;k<n-1;k++)m[k]=(sl[k-1]*sl[k]<=0)?0:3*(dx[k-1]+dx[k])/((2*dx[k]+dx[k-1])/sl[k-1]+(dx[k]+2*dx[k-1])/sl[k]);
+  let d='M'+X(0).toFixed(1)+','+Y(0).toFixed(1);
+  for(let k=0;k<n-1;k++){const h=dx[k]/3;
+    d+='C'+(X(k)+h).toFixed(1)+','+(Y(k)+m[k]*h).toFixed(1)+' '+(X(k+1)-h).toFixed(1)+','+(Y(k+1)-m[k+1]*h).toFixed(1)+' '+X(k+1).toFixed(1)+','+Y(k+1).toFixed(1);}
+  return '<path d="'+d+'" fill="none" stroke-width="'+larg+'" stroke-linejoin="round" stroke-linecap="round"'+
+    (tirets?' stroke-dasharray="6 4"':'')+' style="stroke:'+col+'"/>';
+}/* barre à bout arrondi (4px côté valeur), ancrée sur la ligne de base */
+function grBarre(x,w,y0,y1,col){
+  const h=Math.abs(y1-y0);if(h<0.5||w<=0)return '';
+  const r=Math.min(4,w/2,h),haut=y1<y0,a=Math.min(y0,y1),b=Math.max(y0,y1),X=x.toFixed(1),W=(x+w).toFixed(1);
+  const d=haut?'M'+X+','+b+'V'+(a+r)+'Q'+X+','+a+' '+(x+r).toFixed(1)+','+a+'H'+(x+w-r).toFixed(1)+'Q'+W+','+a+' '+W+','+(a+r)+'V'+b+'Z'
+              :'M'+X+','+a+'V'+(b-r)+'Q'+X+','+b+' '+(x+r).toFixed(1)+','+b+'H'+(x+w-r).toFixed(1)+'Q'+W+','+b+' '+W+','+(b-r)+'V'+a+'Z';
+  return '<path d="'+d+'" style="fill:'+col+'"/>';
+}
+function grColCompte(i){return 'var(--g'+((i%8)+1)+')';}
+function grSvgSolde(el,D,sh){
+  const G=grGeom(el,grH('solde',el)),series=[];
+  const J=D.jours;
+  if(sh.parcompte&&D.mode==='patrimoine')J.parCompte.forEach((c,i)=>series.push({v:c.v,col:grColCompte(i),larg:1.5}));
+  if(D.mode==='compte'){
+    if(sh.horsvir)series.push({v:J.horsvir,col:GR_SERIES.horsvir.col,larg:2,tirets:true});
+    if(sh.avecvir)series.push({v:J.solde,col:GR_SERIES.avecvir.col,larg:2.25});
+  }else if(sh.solde)series.push({v:J.solde,col:GR_SERIES.solde.col,larg:2.25});
+  let mn=Infinity,mx=-Infinity;series.forEach(s=>s.v.forEach(v=>{if(v<mn)mn=v;if(v>mx)mx=v;}));
+  const nice=grNice(mn,mx,Math.max(2,Math.round(G.ih/55))),y=v=>G.m.t+G.ih*(1-(v-nice.lo)/(nice.hi-nice.lo));
+  let s=grCadre(G,D,y,nice);
+  series.forEach(se=>{s+=grLigne(G,D,y,se.v,se.col,se.larg,se.tirets);});
+  el.innerHTML='<svg width="'+G.w+'" height="'+G.h+'" role="img" aria-label="Évolution du solde">'+s+
+    '<line class="gr-cross" y1="'+G.m.t+'" y2="'+(G.m.t+G.ih)+'" style="display:none"/><g class="gr-dots"></g>'+
+    '<rect class="gr-hit" x="'+G.m.l+'" y="0" width="'+G.iw+'" height="'+G.h+'"/></svg>';
+  el._gr={G,y,series};
+}
+/* barres : revenus vers le haut / dépenses vers le bas ; virements à côté (reçus en haut, envoyés en bas) */
+function grSvgFlux(el,D,sh){
+  const G=grGeom(el,grH('flux',el)),n=D.tr.length,vir=sh.vir&&D.mode==='compte';
+  let mn=0,mx=0;
+  for(let i=0;i<n;i++){if(sh.rev)mx=Math.max(mx,D.rev[i]);if(sh.dep)mn=Math.min(mn,-D.dep[i]);
+    if(vir){mx=Math.max(mx,D.virIn[i]);mn=Math.min(mn,-D.virOut[i]);}}
+  const nice=grNice(mn,mx,Math.max(2,Math.round(G.ih/55))),y=v=>G.m.t+G.ih*(1-(v-nice.lo)/(nice.hi-nice.lo)),y0=y(0);
+  let s=grCadre(G,D,y,nice);
+  for(let i=0;i<n;i++){
+    const T=grXT(G,D,i),bw=T.x1-T.x0,gap=Math.min(2,bw*0.1),lc=Math.min(bw*(vir?0.4:0.7),vir?28:40);
+    const cx=T.cx,x1=vir?cx-lc-gap/2:cx-lc/2;
+    if(sh.rev)s+=grBarre(x1,lc,y0,y(D.rev[i]),GR_SERIES.rev.col);
+    if(sh.dep)s+=grBarre(x1,lc,y0,y(-D.dep[i]),GR_SERIES.dep.col);
+    if(vir){s+=grBarre(cx+gap/2,lc,y0,y(D.virIn[i]),GR_SERIES.vir.col);s+=grBarre(cx+gap/2,lc,y0,y(-D.virOut[i]),GR_SERIES.vir.col);}
+  }
+  s+='<line x1="'+G.m.l+'" x2="'+(G.w-G.m.r)+'" y1="'+y0.toFixed(1)+'" y2="'+y0.toFixed(1)+'" class="gr-zero"/>';
+  el.innerHTML='<svg width="'+G.w+'" height="'+G.h+'" role="img" aria-label="Revenus, dépenses et virements">'+s+
+    '<rect class="gr-band" y="'+G.m.t+'" width="0" height="'+G.ih+'" style="display:none"/>'+
+    '<rect class="gr-hit" x="'+G.m.l+'" y="0" width="'+G.iw+'" height="'+G.h+'"/></svg>';
+  el._gr={G};
+}
+/* ce qui est visible : courbes et infos de virements (le survol et le bilan n'affichent que cela) */
+function grVis(D,sh){const patri=D.mode==='patrimoine';
+  return {patri,sans:!patri&&!!sh.horsvir,avec:!patri&&!!sh.avecvir,patrimoine:patri&&!!sh.solde,parcompte:patri&&!!sh.parcompte,
+    vir:!patri&&!!(sh.avecvir||sh.vir),rev:!!sh.rev,dep:!!sh.dep};}
+/* bilan de la période, posé comme un calcul (une ligne = [signe, libellé, montant, classe, repère couleur]) :
+   solde de début + revenus − dépenses [= solde sans les virements] [+ reçus − envoyés = solde réel] */
+function grBilanLignes(D,V,R,Dp,VI,VO){
+  const L=[],sFin=D.solde[D.tr.length-1],hFin=D.horsvir[D.tr.length-1],deb=avancerJours(D.f,-1),fin=isoToFr(D.t);
+  const cleS='k-ld:'+GR_SERIES.horsvir.col,cleA='k-l:'+GR_SERIES.avecvir.col;
+  L.push(['',(V.patri?'Patrimoine':'Solde')+' au '+isoToFr(deb),eur(D.sDebut),'',null]);
+  L.push(['+','Revenus',eur(R),'credit','k-r:'+GR_SERIES.rev.col]);
+  L.push(['−','Dépenses',eur(Dp),'debit','k-r:'+GR_SERIES.dep.col]);
+  if(V.patri){L.push(['=','Patrimoine au '+fin,eur(sFin),'tot','k-l:'+GR_SERIES.solde.col]);return L;}
+  if(!V.vir){L.push(['=','Solde sans les virements au '+fin,eur(hFin),'tot',cleS]);return L;}
+  L.push(['+','Virements reçus de tes autres comptes',eur(VI),'','k-r:'+GR_SERIES.vir.col]);
+  L.push(['−','Virements envoyés vers tes autres comptes',eur(VO),'','k-r:'+GR_SERIES.vir.col]);
+  L.push(['=','Solde au '+fin,eur(sFin),'tot',cleA]);
+  if(V.sans)L.push(['','Sans les virements, il serait de',eur(hFin),'',cleS]);
+  return L;
+}
+function grLignesHTML(L){
+  return L.map(([sg,lib,val,cls,cle])=>{
+    const k=cle?cle.split(':'):null,rep=k?'<i class="'+(k[0]==='k-ld'?'k-l dash':k[0])+'" style="'+(k[0]==='k-r'?'background:':'border-color:')+k[1]+'"></i>':'<i class="k-vide"></i>';
+    return '<div class="eq'+(cls==='tot'?' tot':'')+'"><span class="sg">'+sg+'</span>'+rep+'<span class="lb">'+lib+'</span>'+
+      '<span class="vl num '+(cls==='tot'?'':cls)+'">'+val+'</span></div>';}).join('');
+}
+/* survol : réticule synchronisé sur les deux graphiques + info-bulle (le calcul de la tranche survolée) */
+function grSurvol(e){
+  const D=grData;if(!D||!D.tr)return;
+  const svg=e.currentTarget.ownerSVGElement,box=svg.parentNode,G=box._gr.G,r=svg.getBoundingClientRect();
+  const surCourbe=box.id==='gr-solde',sh=grShow(),V=grVis(D,sh),J=D.jours;
+  let k=grJourA(G,D,e.clientX-r.left);const i=grTrancheDuJour(D,k);
+  if(!surCourbe)k=D.tr[i].b; // depuis les barres : la courbe montre la fin de la tranche
+  const T=grXT(G,D,i),cx=grXJ(G,D,k);
+  ['gr-solde','gr-flux'].forEach(id=>{const b=document.getElementById(id);if(!b||!b._gr)return;
+    const c=b.querySelector('.gr-cross'),bd=b.querySelector('.gr-band'),dots=b.querySelector('.gr-dots');
+    if(c){c.setAttribute('x1',cx);c.setAttribute('x2',cx);c.style.display='';}
+    if(bd){bd.setAttribute('x',T.x0.toFixed(1));bd.setAttribute('width',(T.x1-T.x0).toFixed(1));bd.style.display='';}
+    if(dots)dots.innerHTML=b._gr.series.map(se=>'<circle cx="'+cx.toFixed(1)+'" cy="'+b._gr.y(se.v[k]).toFixed(1)+'" r="4" class="gr-dot" style="fill:'+se.col+'"/>').join('');
+  });
+  const courbe=V.sans||V.avec||V.patrimoine||V.parcompte,mv=[],so=[];
+  // mouvements (du jour pointé sur la courbe, de la tranche sur les barres) : seulement ce qui est affiché
+  const R=surCourbe?J.rev[k]:D.rev[i],Dp=surCourbe?J.dep[k]:D.dep[i],VI=surCourbe?J.virIn[k]:D.virIn[i],VO=surCourbe?J.virOut[k]:D.virOut[i];
+  if(V.rev||courbe)mv.push(['+','Revenus',eur(R),'credit','k-r:'+GR_SERIES.rev.col]);
+  if(V.dep||courbe)mv.push(['−','Dépenses',eur(Dp),'debit','k-r:'+GR_SERIES.dep.col]);
+  if(V.vir){mv.push(['+','Virements reçus',eur(VI),'','k-r:'+GR_SERIES.vir.col]);mv.push(['−','Virements envoyés',eur(VO),'','k-r:'+GR_SERIES.vir.col]);}
+  // soldes en fin de journée k, avec la variation depuis la veille (courbe) ou depuis le début de la tranche (barres)
+  const k0=surCourbe?k-1:D.tr[i].a-1,avant=(arr,s0)=>k0>=0?arr[k0]:s0;
+  if(V.avec)so.push(['','Solde du compte',eur(J.solde[k]),'','k-l:'+GR_SERIES.avecvir.col,avant(J.solde,D.sDebut),J.solde[k]]);
+  if(V.sans)so.push(['','Sans les virements',eur(J.horsvir[k]),'','k-ld:'+GR_SERIES.horsvir.col,avant(J.horsvir,D.sDebut),J.horsvir[k]]);
+  if(V.patrimoine)so.push(['','Patrimoine',eur(J.solde[k]),'','k-l:'+GR_SERIES.solde.col,avant(J.solde,D.sDebut),J.solde[k]]);
+  if(V.parcompte)J.parCompte.forEach((c,n)=>so.push(['',esc(c.nom),eur(c.v[k]),'','k-l:'+grColCompte(n),avant(c.v,c.s0),c.v[k]]));
+  const jour=avancerJours(D.f,k),depuis=isoToFr(avancerJours(D.f,k0));
+  let h='<div class="tt-h">'+(surCourbe?esc(new Date(jour+'T00:00:00').toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long',year:'numeric'}))
+    :esc(grLib(D.tr[i],D.pas,true)))+'</div>';
+  if(so.length)h+='<div class="tt-s">'+(V.patri?'Patrimoine':'Solde')+(surCourbe?' en fin de journée':' au '+isoToFr(D.tr[i].t))+'</div>'+
+    so.map(l=>grLignesHTML([l.slice(0,5)])+(l[6]!==l[5]?'<div class="tt-var">'+sgn(l[6]-l[5])+' depuis le '+depuis+'</div>':'')).join('');
+  const rien=!R&&!Dp&&!(V.vir&&(VI||VO));
+  if(mv.length)h+='<div class="tt-s">'+(surCourbe?'Mouvements du jour':'Mouvements')+'</div>'+
+    (surCourbe&&rien?'<div class="tt-x" style="border:0;margin:0;padding:2px 0">Aucune opération ce jour-là</div>'
+      :grLignesHTML(surCourbe?mv.filter(l=>l[2]!==eur(0)):mv)); // au jour près : seulement ce qui a bougé
+  const tip=document.getElementById('gr-tip');
+  tip.innerHTML=h;tip.style.display='block';
+  const tw=tip.offsetWidth,th=tip.offsetHeight,vw=document.documentElement.clientWidth,vh=window.innerHeight;
+  let x,yy;
+  if(e.pointerType==='touch'){ // au doigt : bien au-dessus (le doigt cache ~50 px), sinon sur le côté
+    x=Math.min(Math.max(8,e.clientX-tw/2),vw-tw-8);yy=e.clientY-th-56;
+    if(yy<8){yy=Math.min(Math.max(8,e.clientY-th/2),vh-th-8);
+      x=e.clientX-48-tw>=8?e.clientX-48-tw:Math.min(e.clientX+48,vw-tw-8);}
+  }else{
+    x=e.clientX+14;if(x+tw>vw-8)x=e.clientX-14-tw;if(x<8)x=8;
+    yy=e.clientY-th-12;if(yy<8)yy=e.clientY+16;
+  }
+  tip.style.left=x+'px';tip.style.top=yy+'px';
+}
+const sgn=c=>(c>0?'+':'')+eur(c);
+function grSortie(){
+  const tip=document.getElementById('gr-tip');if(tip)tip.style.display='none';
+  document.querySelectorAll('#v-graphiques .gr-cross,#v-graphiques .gr-band').forEach(c=>c.style.display='none');
+  document.querySelectorAll('#v-graphiques .gr-dots').forEach(g=>g.innerHTML='');
+}
+/* une phrase par série affichée : ce que représente chaque courbe / barre */
+function grAide(D,sh){
+  const patri=D.mode==='patrimoine',ch=GR_CHAQUE[D.pas],pd=GR_PENDANT[D.pas],A=[];
+  const cle=k=>{const s=GR_SERIES[k];return s.ligne?'<i class="k-l'+(s.tirets?' dash':'')+'" style="border-color:'+s.col+'"></i>':'<i class="k-r" style="background:'+s.col+'"></i>';};
+  if(sh.solde&&patri)A.push([cle('solde'),'<b>Patrimoine</b> : la somme de tous tes comptes, jour par jour. Un virement d’un compte à l’autre ne le change pas : ce qui sort de l’un entre dans l’autre.']);
+  if(sh.avecvir&&!patri)A.push([cle('avecvir'),'<b>Solde du compte</b> (courbe principale) : l’argent réellement présent sur le compte, jour par jour, virements compris — celui de ton relevé.']);
+  if(sh.horsvir&&!patri)A.push([cle('horsvir'),'<b>Solde sans les virements</b> (pointillés) : le solde qu’aurait le compte si tu n’avais fait aucun virement avec tes autres comptes depuis le début de la période (seulement tes revenus et tes dépenses). L’écart entre les deux courbes = le total des virements.']);
+  if(sh.parcompte&&patri)A.push(['<i class="k-l" style="border-color:var(--g1)"></i>','<b>Un trait par compte</b> : le solde de chaque compte (couleurs sous le graphique).']);
+  if(sh.rev)A.push([cle('rev'),'<b>Revenus</b> (barres vers le haut) : l’argent gagné '+pd+' (salaire, remboursements…), virements entre tes comptes exclus.']);
+  if(sh.dep)A.push([cle('dep'),'<b>Dépenses</b> (barres vers le bas) : l’argent dépensé '+pd+', virements entre tes comptes exclus.']);
+  if(sh.vir&&!patri)A.push([cle('vir'),'<b>Virements</b> (barres à droite) : l’argent reçu de tes autres comptes (vers le haut) ou envoyé vers eux (vers le bas) '+pd+'. Ce n’est ni un revenu ni une dépense : il change juste de compte.']);
+  return A.map(a=>'<div>'+a[0]+'<span>'+a[1]+'</span></div>').join('');
+}
+function renderGraphiques(){
+  const mode=state.grMode||'compte',sh=grShow(),patri=mode==='patrimoine';
+  document.getElementById('gr-m-compte').classList.toggle('on',!patri);
+  document.getElementById('gr-m-patri').classList.toggle('on',patri);
+  const chip=k=>{const s=GR_SERIES[k];if(s.mode&&s.mode!==mode)return '';
+    const cle=s.ligne?'<i class="k-l'+(s.tirets?' dash':'')+'" style="border-color:'+s.col+'"></i>':'<i class="k-r" style="background:'+s.col+'"></i>';
+    return '<button type="button" class="grchip'+(sh[k]?' on':'')+'" aria-pressed="'+!!sh[k]+'" title="Afficher / masquer" onclick="grToggle(\''+k+'\')">'+
+      cle+s.lib+'</button>';};
+  document.getElementById('gr-tog').innerHTML='<span class="grgrp">Courbes</span>'+['avecvir','horsvir','solde','parcompte'].map(chip).join('')+
+    '<span class="grgrp">Barres</span>'+['rev','dep','vir'].map(chip).join('');
+  grSortie();
+  const D=grData=grCalcul();
+  const meta=document.getElementById('gr-meta'),bil=document.getElementById('gr-total'),aide=document.getElementById('gr-aide');
+  const cS=document.getElementById('gr-solde-card'),cF=document.getElementById('gr-flux-card'),tab=document.getElementById('gr-tab-wrap');
+  const titre=patri?'Tous les comptes ('+(D?D.comptes.length:0)+')':(D?D.comptes[0].nom:'');
+  if(!D||D.vide){meta.textContent=titre;bil.innerHTML='<div style="color:var(--ink-3)">Aucune donnée sur cette période (le solde n’est tracé que jusqu’à aujourd’hui).</div>';
+    cS.style.display=cF.style.display=tab.style.display=aide.style.display='none';return;}
+  meta.textContent=titre+' · opérations réelles (hors prévisionnel et annulées)';
+  // bilan de la période : le même calcul que l'info-bulle, sur toute la période
+  const n=D.tr.length,sum=a=>a.reduce((x,v)=>x+v,0),R=sum(D.rev),Dp=sum(D.dep),VI=sum(D.virIn),VO=sum(D.virOut),sFin=D.solde[n-1];
+  const ev=sFin-D.sDebut;
+  const V=grVis(D,sh),hFin=D.horsvir[n-1];
+  bil.innerHTML='<div class="grtitle">Bilan du '+isoToFr(D.f)+' au '+isoToFr(D.t)+'</div>'+
+    grLignesHTML(grBilanLignes(D,V,R,Dp,VI,VO))+
+    '<div class="eqnote">En résumé : '+(V.patri?'le patrimoine a '+(ev>=0?'gagné':'perdu')+' <b class="num '+clsSigne(ev)+'">'+eur(Math.abs(ev))+'</b> sur la période.'
+      :(V.vir?'le compte a '+(ev>=0?'gagné':'perdu')+' <b class="num '+clsSigne(ev)+'">'+eur(Math.abs(ev))+'</b> sur la période.<br>Tes revenus moins tes dépenses : <b class="num '+clsSigne(R-Dp)+'">'+sgn(R-Dp)+'</b> · tes virements (reçus − envoyés) : <b class="num">'+sgn(VI-VO)+'</b>.'
+        :'tes revenus moins tes dépenses font <b class="num '+clsSigne(R-Dp)+'">'+sgn(R-Dp)+'</b> sur la période.'))+'</div>';
+  // graphiques
+  const voirS=V.sans||V.avec||V.patrimoine||V.parcompte,voirF=sh.rev||sh.dep||(sh.vir&&!patri);
+  const fs=document.body.classList.contains('gr-plein');
+  if(fs){document.getElementById('gr-fstit').textContent=(patri?'Patrimoine':D.comptes[0].nom)+' · du '+isoToFr(D.f)+' au '+isoToFr(D.t);
+    document.getElementById('gr-fs-courbe').classList.toggle('on',!sh.fsBarres);document.getElementById('gr-fs-barres').classList.toggle('on',!!sh.fsBarres);}
+  cS.style.display=voirS?'':'none';cF.style.display=voirF?'':'none';tab.style.display='';
+  aide.style.display='';aide.innerHTML='<details'+(sh.aide===1?' open':'')+' ontoggle="grAideOuverte(this.open)"><summary>Comment lire ces graphiques</summary>'+
+    grAide(D,sh)+'<div class="grastuce">Passe la souris (ou le doigt) sur la courbe pour voir le solde de chaque jour, sur les barres pour le détail de chaque '+GR_PAS[D.pas]+'.</div></details>';
+  document.getElementById('gr-solde-titre').textContent=(patri?'Patrimoine':'Solde')+' jour par jour';
+  document.getElementById('gr-flux-titre').textContent=[sh.rev&&'revenus',sh.dep&&'dépenses',sh.vir&&!patri&&'virements'].filter(Boolean).join(', ')
+    .replace(/^./,c=>c.toUpperCase()).replace(/, ([^,]*)$/,' et $1')+' par '+GR_PAS[D.pas];
+  const leg=document.getElementById('gr-leg');
+  leg.innerHTML=sh.parcompte&&patri?D.parCompte.map((c,i)=>'<span><i class="k-l" style="border-color:'+grColCompte(i)+'"></i>'+esc(c.nom)+'</span>').join(''):'';
+  if(voirS&&!(fs&&sh.fsBarres))grSvgSolde(document.getElementById('gr-solde'),D,sh);
+  if(voirF&&!(fs&&!sh.fsBarres))grSvgFlux(document.getElementById('gr-flux'),D,sh);
+  if(fs){const sec=document.getElementById('v-graphiques'),trop=sec.scrollHeight-sec.clientHeight; // marges mal estimées : on réduit d'autant
+    if(trop>0){state.grFsTrop=trop+2;if(sh.fsBarres){if(voirF)grSvgFlux(document.getElementById('gr-flux'),D,sh);}else if(voirS)grSvgSolde(document.getElementById('gr-solde'),D,sh);state.grFsTrop=0;}}
+  grBrancherSurvol(document.getElementById('v-graphiques'));
+  ['solde','flux'].forEach(k=>{const r=document.getElementById('gr-h-'+k),b=document.getElementById('gr-'+k);if(r&&b)r.value=grH(k,b);});
+  // tableau des valeurs : une ligne par tranche, colonnes dans l'ordre du calcul
+  const mot=patri?'Patrimoine':'Solde';
+  const reel=patri||V.vir;
+  const cols=[['Période',i=>esc(grLib(D.tr[i],D.pas,true)),''],[patri?'Patrimoine début':reel?'Solde début':'Sans vir. début',i=>eur(reel?D.debut[i]:(i?D.horsvir[i-1]:D.sDebut)),'r'],
+    ['+ Revenus',i=>'<span class="credit">'+eur(D.rev[i])+'</span>','r'],['− Dépenses',i=>'<span class="debit">'+eur(D.dep[i])+'</span>','r']];
+  if(patri)cols.push(['= Patrimoine fin',i=>'<b>'+eur(D.solde[i])+'</b>','r']);
+  else if(V.vir){cols.push(['+ Vir. reçus',i=>eur(D.virIn[i]),'r'],['− Vir. envoyés',i=>eur(D.virOut[i]),'r'],['= Solde fin',i=>'<b>'+eur(D.solde[i])+'</b>','r']);
+    if(V.sans)cols.push(['Sans les virements',i=>eur(D.horsvir[i]),'r']);}
+  else cols.push(['= Sans les virements',i=>'<b>'+eur(D.horsvir[i])+'</b>','r']);
+  if(patri&&sh.parcompte)D.parCompte.forEach(c=>cols.push([esc(c.nom),i=>eur(c.v[i]),'r']));
+  let h='<thead><tr>'+cols.map(c=>'<th'+(c[2]?' style="text-align:right"':'')+'>'+c[0]+'</th>').join('')+'</tr></thead><tbody>';
+  for(let i=n-1;i>=0;i--)h+='<tr>'+cols.map(c=>'<td class="num '+c[2]+'">'+c[1](i)+'</td>').join('')+'</tr>';
+  document.getElementById('gr-table').innerHTML=h+'</tbody>';
+}
+
+// bouton « retour » de la souris / du navigateur
+window.addEventListener('resize',()=>{if(state.view==='registre'){syncHeadWidth();appliquerHauteurRegistre();}
+  else if(state.view==='graphiques'){clearTimeout(window._grRsz);window._grRsz=setTimeout(renderGraphiques,120);}});
+window.addEventListener('popstate',e=>{
+  if(e.state&&e.state.__base){restoreNav(e.state);demanderQuitter();return;} // un « retour » de trop
+  if(e.state)restoreNav(e.state);
+  else{ _navSuppress=true;setView('registre',true);_navSuppress=false; } });
+
+/* ============================================================
+   Modale opération (CRUD)
+   ============================================================ */
+const destEl=()=>document.getElementById('i-dest');
+let acItems=[],acIndex=-1;
+let _tiIdx=null;
+function invalidateCaches(){_tiIdx=null;}
+function tiersIndex(){
+  if(_tiIdx)return _tiIdx;
+  const out={};qy(`SELECT t.nom nom,(SELECT o.cat_path FROM operation o WHERE o.tiers_id=t.id AND o.supprime=0 AND o.cat_path IS NOT NULL
+     GROUP BY o.cat_path ORDER BY COUNT(*) DESC, MAX(o.date_operation) DESC LIMIT 1) cat FROM tiers t ORDER BY t.nom`).forEach(r=>out[r.nom]=r.cat||'');
+  return _tiIdx=out;}
+function catLevels(){
+  const L=[[],[],[]];
+  const cats=qy('SELECT id,libelle,parent_id FROM categorie');
+  const by={};cats.forEach(c=>by[c.id]=c);
+  const depthOf=c=>{let d=0,g=c;while(g&&g.parent_id!=null){d++;g=by[g.parent_id];}return d;};
+  cats.forEach(c=>{const d=depthOf(c);if(d<3&&L[d].indexOf(c.libelle)<0)L[d].push(c.libelle);});
+  return L.map(a=>a.sort((x,y)=>x.localeCompare(y,'fr')));}
+function setCatFields(cat){const p=catParts(cat);['i-cat0','i-cat1','i-cat2'].forEach((id,i)=>document.getElementById(id).value=p[i]||'');}
+/* ---- éditeur de ventilation (répartition multi-catégories) ---- */
+function catCheminsComplets(){
+  const cats=qy('SELECT id,libelle,parent_id FROM categorie');
+  const by={};cats.forEach(c=>by[c.id]=c);
+  const pathOf=c=>{const p=[];let g=c;while(g){p.unshift(g.libelle);g=(g.parent_id!=null)?by[g.parent_id]:null;}return p.join(' : ');};
+  return cats.map(pathOf).filter((v,i,a)=>a.indexOf(v)===i).sort((a,b)=>a.localeCompare(b,'fr'));
+}
+function ventToggle(on){
+  document.getElementById('cat-simple').style.display=on?'none':'';
+  document.getElementById('vent-box').style.display=on?'':'none';
+  if(on){
+    document.getElementById('dlfull').innerHTML=catCheminsComplets().map(x=>'<option value="'+esc(x)+'">').join('');
+    if(!state.vent||!state.vent.length){
+      const c=getCat();const m=document.getElementById('i-montant').value.trim();
+      state.vent=[{cat:c&&c!=='Divers'?c:'',m:m||''},{cat:'',m:''}];
+    }
+    ventRender();
+  }
+}
+function ventAdd(apres){state.vent=state.vent||[];let idx;
+  if(typeof apres==='number'&&apres>=0){state.vent.splice(apres+1,0,{cat:'',m:''});idx=apres+1;}
+  else{state.vent.push({cat:'',m:''});idx=state.vent.length-1;}
+  ventRender();
+  const lignes=document.querySelectorAll('#vent-list .vent-l');
+  if(lignes[idx]){const inp=lignes[idx].querySelector('input');if(inp){inp.focus();}}
+}
+/* cascade des sous-catégories dans le dialogue des récurrences */
+function majSousCatsRec(){
+  const c0=document.getElementById('rc-c0'),c1=document.getElementById('rc-c1');
+  if(!c0)return;
+  const l0=document.getElementById('rc-l0'),l1=document.getElementById('rc-l1'),l2=document.getElementById('rc-l2');
+  if(l0)l0.innerHTML=catEnfants('').map(x=>'<option value="'+esc(x)+'">').join('');
+  if(l1)l1.innerHTML=catEnfants(c0.value.trim()).map(x=>'<option value="'+esc(x)+'">').join('');
+  if(l2)l2.innerHTML=catEnfants([c0.value.trim(),c1?c1.value.trim():''].filter(Boolean).join(' : ')).map(x=>'<option value="'+esc(x)+'">').join('');
+}
+function ventDel(i){state.vent.splice(i,1);if(!state.vent.length)state.vent.push({cat:'',m:''});ventRender();}
+function ventSet(i,k,v){if(state.vent&&state.vent[i]){state.vent[i][k]=v;ventTotal();}}
+function ventRender(){
+  const box=document.getElementById('vent-list');
+  box.innerHTML=(state.vent||[]).map((l,i)=>
+    '<div class="vent-l">'+
+      '<input list="dlfull" value="'+esc(l.cat)+'" placeholder="Alimentation : Supermarché" oninput="ventSet('+i+',&#39;cat&#39;,this.value)">'+
+      '<input inputmode="decimal" style="text-align:right" value="'+esc(l.m)+'" placeholder="0,00" oninput="ventSet('+i+',&#39;m&#39;,this.value)">'+
+      '<button type="button" class="ghost vx" onclick="ventDel('+i+')" title="Retirer cette ligne">&#10005;</button>'+
+    '</div>').join('');
+  ventTotal();
+}
+/* montant signé d'une ligne de ventilation, selon la convention comptable :
+   sans signe = même sens que l'opération ; « - » = sens inverse. */
+function ventCentimes(raw){
+  const c=parseMontantC(raw);if(c==null)return null;
+  const mag=Math.abs(c),moins=/^\s*-/.test(raw||'');
+  const opSign=(state.addType==='credit')?1:-1;
+  return (moins?-opSign:opSign)*mag;
+}
+function ventTotal(){
+  // montant signé de l'opération (le sens vient des boutons dépense/revenu)
+  const abs=Math.abs(parseMontantC(document.getElementById('i-montant').value)||0);
+  const cible=(state.addType==='credit')?abs:-abs;
+  let som=0;(state.vent||[]).forEach(l=>{som+=(ventCentimes(l.m)||0);});
+  const reste=cible-som;const el=document.getElementById('vent-tot');
+  el.className=(reste===0&&abs>0)?'ok':'bad';
+  el.textContent='Réparti '+eur(Math.abs(som))+' / '+eur(Math.abs(cible))+(reste===0?' — équilibré':' — reste '+eur(Math.abs(reste)));
+}
+function catEnfants(cheminParent){
+  const parts=catParts(cheminParent);
+  const cats=qy('SELECT id,libelle,parent_id FROM categorie');
+  const byId={};cats.forEach(c=>byId[c.id]=c);
+  const pathOf=c=>{const p=[];let g=c;while(g){p.unshift(g.libelle);g=(g.parent_id!=null)?byId[g.parent_id]:null;}return p;};
+  const res=[];
+  cats.forEach(c=>{const p=pathOf(c);
+    if(p.length===parts.length+1 && parts.every((x,i)=>x.toLowerCase()===p[i].toLowerCase())){
+      if(res.indexOf(c.libelle)<0)res.push(c.libelle);}});
+  return res.sort((a,b)=>a.localeCompare(b,'fr'));
+}
+/* sous-catégories proposées = uniquement celles de la catégorie saisie
+   (mais on peut toujours taper un nouveau nom, même s'il existe ailleurs) */
+function majSousCats(){
+  const c0=document.getElementById('i-cat0'),c1=document.getElementById('i-cat1');
+  if(!c0)return;
+  const dl0=document.getElementById('dl0'),dl1=document.getElementById('dl1'),dl2=document.getElementById('dl2');
+  if(dl0)dl0.innerHTML=catEnfants('').map(x=>'<option value="'+esc(x)+'">').join('');
+  if(dl1)dl1.innerHTML=catEnfants(c0.value.trim()).map(x=>'<option value="'+esc(x)+'">').join('');
+  if(dl2)dl2.innerHTML=catEnfants([c0.value.trim(),c1?c1.value.trim():''].filter(Boolean).join(' : ')).map(x=>'<option value="'+esc(x)+'">').join('');
+}
+function getCat(){return ['i-cat0','i-cat1','i-cat2'].map(id=>document.getElementById(id).value.trim()).filter(Boolean).join(' : ')||'Divers';}
+function setType(t){state.addType=t;document.querySelectorAll('#seg button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
+  const vir=(t==='virement');
+  const destField=document.getElementById('i-dest').closest('.field');
+  const vf=document.getElementById('vir-field');
+  if(destField)destField.style.display=vir?'none':'';
+  const vl=document.getElementById('vir-label');
+  if(vl)vl.textContent=state.virEntrant?'Compte expéditeur':'Compte de destination';
+  if(vf){vf.style.display=vir?'':'none';
+    if(vir){const sel=document.getElementById('i-vircompte');
+      const comptes=qy('SELECT id,nom FROM compte WHERE actif=1 AND id<>? ORDER BY ordre_affichage,id',[state.acc]);
+      const cur=sel.value;
+      sel.innerHTML=comptes.map(c=>'<option value="'+c.id+'">'+esc(c.nom)+'</option>').join('')||'<option value="">(aucun autre compte)</option>';
+      if(cur)sel.value=cur;}}
+  // en virement on garde la catégorie et la ventilation (à la demande de l'utilisatrice)
+}
+
+function openModal(id,focus){
+  const o=id?qy(`SELECT o.*,t.nom dest FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id WHERE o.id=?`,[id])[0]:null;
+  if(id&&!o)return;
+  state.editing=o?o.id:null;
+  state.virEntrant=!!(o&&o.montant>0); // virement reçu : le compte lié est l'expéditeur
+  document.getElementById('modal-title').textContent=o?'Modifier l’opération':'Nouvelle opération';
+  setType(o?(isVirCat(o.cat_path)?'virement':(o.montant>0?'credit':'debit')):'debit');
+  if(o&&isVirCat(o.cat_path)){const mid=scal('SELECT miroir_id FROM operation WHERE id=?',[o.id]);
+    const cible=mid?scal('SELECT compte_id FROM operation WHERE id=?',[mid]):null;
+    const sel=document.getElementById('i-vircompte');if(sel&&cible)sel.value=cible;}
+  document.getElementById('i-dest').value=o?(o.dest||''):'';
+  state.vent=null;document.getElementById('i-vent').checked=false;
+  document.getElementById('cat-simple').style.display='';document.getElementById('vent-box').style.display='none';
+  if(o){
+    const vs=qy(`SELECT v.montant,(SELECT GROUP_CONCAT(libelle,' : ') FROM (
+        WITH RECURSIVE up(id,libelle,parent_id,lvl) AS (
+          SELECT id,libelle,parent_id,0 FROM categorie WHERE id=v.categorie_id
+          UNION ALL SELECT c.id,c.libelle,c.parent_id,up.lvl+1 FROM categorie c JOIN up ON c.id=up.parent_id)
+        SELECT libelle FROM up ORDER BY lvl DESC)) cat
+      FROM ventilation v WHERE v.operation_id=?`,[o.id]);
+    if(vs.length>1){
+      state.vent=vs.map(r=>{const opSign=o.montant<0?-1:1;
+        const meme=(r.montant===0)||(Math.sign(r.montant)===opSign);
+        return {cat:r.cat||'',m:(meme?'':'-')+fmt.format(Math.abs(r.montant)/100)};});
+      document.getElementById('i-vent').checked=true;
+      document.getElementById('cat-simple').style.display='none';
+      document.getElementById('vent-box').style.display='';
+      document.getElementById('dlfull').innerHTML=catCheminsComplets().map(x=>'<option value="'+esc(x)+'">').join('');
+    }
+  }
+  document.getElementById('i-date').value=isoToShort(o?o.date_operation:todayISO());
+  document.getElementById('i-montant').value=o?fmt.format(Math.abs(o.montant)/100):'';
+  document.getElementById('i-num').value=o?(o.numero||''):'';
+  document.getElementById('i-comm').value=o?(o.commentaire||''):'';
+  document.getElementById('i-prev').checked=o?!!o.previsionnel:false;
+  setCatFields(o&&!(state.vent)?o.cat_path:'');
+  majSousCats();
+  if(state.vent)ventRender();   // après que i-montant soit renseigné, sinon le total cible est périmé
+  const del=document.getElementById('btn-del'),ann=document.getElementById('btn-ann');
+  del.style.display='none';ann.style.display='none';
+  const rapp=!!(o&&o.statut==='rapproche');
+  state.editingRapproche=rapp;
+  const mEl=document.getElementById('i-montant'),mHint=document.getElementById('i-montant-hint');
+  mEl.readOnly=rapp;mEl.classList.toggle('locked-field',rapp);mHint.style.display=rapp?'':'none';
+  document.querySelectorAll('#seg button').forEach(b=>b.disabled=rapp);
+  const prevEl=document.getElementById('i-prev');
+  prevEl.disabled=rapp;
+  prevEl.title=rapp?'Une opération déjà rapprochée ne peut pas être rendue prévisionnelle':'';
+  if(o){
+    if(o.statut==='rapproche'){/* verrouillée : tout reste modifiable sauf le montant, confirmation demandée à l'enregistrement */}
+    else if(o.statut==='annule'){ann.style.display='inline-flex';ann.textContent='Restaurer (dé-annuler)';}
+    else{del.style.display='inline-flex';ann.style.display='inline-flex';ann.textContent='Passer en annulé';}
+  }
+  closeAC();document.getElementById('overlay').classList.add('show');
+  setTimeout(()=>{
+    // sur écran tactile, pas de placement automatique dans un champ : le clavier ne s'ouvre que si on touche un champ
+    if(ecranTactile()){if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();return;}
+    const cible=focus==='montant'?document.getElementById('i-montant')
+      :focus==='date'?document.getElementById('i-date')
+      :focus==='num'?document.getElementById('i-num')
+      :focus==='cat'?document.getElementById('i-cat0')
+      :focus==='comm'?document.getElementById('i-comm')
+      :destEl();
+    if(cible){cible.focus();if(cible.select)cible.select();}
+  },30);
+}
+function closeModal(){document.getElementById('overlay').classList.remove('show');state.editing=null;closeAC();}
+function prefill(){const idx=tiersIndex(),v=destEl().value.trim();if(idx[v])setCatFields(idx[v]);}
+function acRender(){
+  const box=document.getElementById('ac');
+  if(!acItems.length){box.classList.remove('show');box.innerHTML='';return;}
+  const idx=tiersIndex();
+  box.innerHTML=acItems.map((n,i)=>'<div class="ac-item'+(i===acIndex?' hl':'')+'" data-i="'+i+'"><span>'+esc(n)+
+    '</span><span class="acat">'+esc(idx[n]||'')+'</span></div>').join('');
+  box.classList.add('show');
+  box.querySelectorAll('.ac-item').forEach(el=>el.addEventListener('mousedown',e=>{e.preventDefault();acAccept(+el.dataset.i);}));}
+function acUpdate(){prefill();const v=destEl().value.toLowerCase().trim();
+  let items=Object.keys(tiersIndex());if(v)items=items.filter(n=>n.toLowerCase().includes(v));
+  acItems=items.slice(0,8);acIndex=acItems.length?0:-1;acRender();}
+function acAccept(i){if(i<0||i>=acItems.length)return;destEl().value=acItems[i];prefill();closeAC();document.getElementById('i-cat0').focus();}
+function closeAC(){const box=document.getElementById('ac');if(box){box.classList.remove('show');box.innerHTML='';}acItems=[];acIndex=-1;}
+
+function upsertCategorie(chemin){
+  const parts=catParts(chemin||'Divers').slice(0,3);let parent=null;
+  for(const p of parts){
+    let id=scal('SELECT id FROM categorie WHERE libelle=? AND parent_id IS ?',[p,parent]);
+    if(!id){run('INSERT INTO categorie(libelle,parent_id) VALUES(?,?)',[p,parent]);id=lastId();}
+    parent=id;}
+  return parent;
+}
+function upsertTiers(nom){
+  if(!nom)return null;
+  let id=scal('SELECT id FROM tiers WHERE nom=?',[nom]);
+  if(!id){run('INSERT INTO tiers(nom,date_creation) VALUES(?,?)',[nom,nowTS()]);id=lastId();}
+  return id;
+}
+function libOp(id){const o=qy('SELECT o.montant m,o.date_operation d,t.nom dest FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id WHERE o.id=?',[id])[0];
+  return o?((o.dest||'(sans tiers)')+' · '+eur(o.m)+' · '+isoToFr(o.d)):'opération #'+id;}
+function makeHay(dest,cat,num,comm,mc,dateISO){
+  const a=Math.abs(mc)/100;
+  return [dest,cat,num,comm,isoToFr(dateISO),dateISO,
+          fmt.format(a),                     // 1 234,56
+          a.toFixed(2).replace('.',','),     // 1234,56
+          a.toFixed(2)]                      // 1234.56
+    .filter(Boolean).join(' ').toLowerCase();
+}
+function firstMissing(){
+  if(state.addType==='virement'){
+    const s=document.getElementById('i-vircompte');
+    if(!s||!s.value)return ['i-vircompte',state.virEntrant?'un compte expéditeur':'un compte de destination'];
+    if(!frToISO(document.getElementById('i-date').value))return ['i-date','une date valide (JJ/MM/AA)'];
+    if(parseMontantC(document.getElementById('i-montant').value)==null)return ['i-montant','le montant'];
+    return null;
+  }
+  if(!destEl().value.trim())return ['i-dest','le destinataire'];
+  const ventile=document.getElementById('i-vent')&&document.getElementById('i-vent').checked;
+  if(!ventile&&!document.getElementById('i-cat0').value.trim())return ['i-cat0','la catégorie'];
+  if(!frToISO(document.getElementById('i-date').value))return ['i-date','une date valide (JJ/MM/AA)'];
+  if(parseMontantC(document.getElementById('i-montant').value)==null)return ['i-montant','le montant'];
+  return null;
+}
+async function saveOp(){
+  const miss=firstMissing();
+  if(miss){toast('Il manque '+miss[1]);document.getElementById(miss[0]).focus();return;}
+  if(state.addType==='virement'){return saveVirement();}
+  let mc=Math.abs(parseMontantC(document.getElementById('i-montant').value));
+  if(state.addType!=='credit')mc=-mc;
+  const dest=destEl().value.trim(),dISO=frToISO(document.getElementById('i-date').value);
+  const num=document.getElementById('i-num').value.trim()||null,comm=document.getElementById('i-comm').value.trim()||null;
+  const ventile=document.getElementById('i-vent').checked;
+  let lignesV=null,cat;
+  if(ventile){
+    const brut=(state.vent||[]).map(l=>({cat:(l.cat||'').trim(),m:ventCentimes(l.m)||0}))
+      .filter(l=>l.cat&&l.m!==0);
+    if(brut.length<2){toast('Ajoute au moins deux catégories, ou décoche la répartition');return;}
+    const som=brut.reduce((t,l)=>t+l.m,0);
+    if(som!==mc){toast('La répartition ('+eur(som)+') doit égaler le montant ('+eur(mc)+')');return;}
+    lignesV=brut.map(l=>({cat:l.cat,cid:upsertCategorie(l.cat),montant:l.m}));
+    const tetes=[...new Set(brut.map(l=>l.cat.split(/\s*:\s*/)[0]))];
+    cat=tetes.slice(0,2).join(' + ')+(tetes.length>2?' + …':'');
+  }else{
+    cat=getCat();
+  }
+  const tid=upsertTiers(dest);
+  // en mode ventilé, la catégorie affichée « A + B » n'est qu'un libellé : on ne crée PAS de catégorie pour elle
+  const cid=ventile?null:upsertCategorie(cat);
+  const hay=makeHay(dest,ventile?((state.vent||[]).map(l=>l.cat).join(' ')+' '+cat):cat,num,comm,mc,dISO);
+  const typ=state.addType==='virement'?'virement':(mc>0?'credit':'debit');
+  let prev=document.getElementById('i-prev').checked?1:0;
+  let _jrn=null;
+  if(state.editing){
+    const cur=qy('SELECT statut,montant FROM operation WHERE id=?',[state.editing])[0];
+    if(cur&&cur.statut==='rapproche'){
+      if(mc!==cur.montant){toast('Le montant d’une opération rapprochée ne peut pas être modifié');return;}
+      prev=0; // une opération déjà rapprochée ne peut pas devenir prévisionnelle
+      const ok=await dlgConfirm('Cette opération a déjà été rapprochée avec ton relevé bancaire.\n\nConfirmer la modification de ses autres caractéristiques (catégorie, ventilation, destinataire, commentaire…) ?','Opération rapprochée','Confirmer la modification',true);
+      if(!ok)return;
+    }
+    run(`UPDATE operation SET type=?,date_operation=?,montant=?,tiers_id=?,numero=?,commentaire=?,previsionnel=?,cat_path=?,hay=?,date_modification=? WHERE id=?`,
+      [typ,dISO,mc,tid,num,comm,prev,cat,hay,nowTS(),state.editing]);
+    run('DELETE FROM ventilation WHERE operation_id=?',[state.editing]);
+    if(lignesV){lignesV.forEach(l=>run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)',[state.editing,l.cid,l.montant]));}
+    else run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)',[state.editing,cid,mc]);
+    _jrn=['Modification',dest+' · '+eur(mc)+' · '+isoToFr(dISO)];
+    toast('Opération modifiée');
+  }else{
+    run(`INSERT INTO operation(compte_id,type,date_operation,montant,tiers_id,numero,commentaire,statut,previsionnel,supprime,cat_path,hay,date_creation)
+      VALUES(?,?,?,?,?,?,?,'non_pointe',?,0,?,?,?)`,[state.acc,typ,dISO,mc,tid,num,comm,prev,cat,hay,nowTS()]);
+    const _oid=lastId();
+    if(lignesV){lignesV.forEach(l=>run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)',[_oid,l.cid,l.montant]));}
+    else run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)',[_oid,cid,mc]);
+    _jrn=['Ajout',dest+' · '+eur(mc)+' · '+isoToFr(dISO)];
+    toast('Opération ajoutée');
+  }
+  if(tid)run('UPDATE tiers SET date_dernier_paiement=MAX(COALESCE(date_dernier_paiement,\'\'),?),categorie_defaut_id=? WHERE id=?',[dISO,cid,tid]);
+  const majCompare=REL&&REL.res&&REL.relCompte&&REL.compteId!=null;
+  closeModal();touch(_jrn?_jrn[0]:null,_jrn?_jrn[1]:null);
+  if(majCompare){lancerComparaison(REL.relCompte,REL.compteId,true);toast('Comparaison mise à jour');}
+  else render();
+}
+async function saveVirement(){
+  const cible=+document.getElementById('i-vircompte').value;
+  if(!cible||cible===state.acc){toast('Choisis un autre compte');return;}
+  const abs=Math.abs(parseMontantC(document.getElementById('i-montant').value));
+  const dISO=frToISO(document.getElementById('i-date').value);
+  const comm=document.getElementById('i-comm').value.trim()||null;
+  let prev=document.getElementById('i-prev').checked?1:0;
+  let catV=getCat();if(!isVirCat(catV))catV='Virement interne'+(catV&&catV!=='Divers'?' : '+catV:'');
+  const cid=upsertCategorie(catV);
+  // sens : virement reçu (édité depuis le compte destinataire) ou émis depuis le compte courant
+  const entrant=!!(state.editing&&state.virEntrant);
+  const src=entrant?cible:state.acc,dst=entrant?state.acc:cible;
+  const nomSrc=scal('SELECT nom FROM compte WHERE id=?',[src]);
+  const nomDst=scal('SELECT nom FROM compte WHERE id=?',[dst]);
+  const libSrc=nomTiersVir(-1,nomDst),libDst=nomTiersVir(1,nomSrc);
+  const tSrc=upsertTiers(libSrc),tDst=upsertTiers(libDst);
+  const haySrc=makeHay(libSrc,catV,null,comm,-abs,dISO);
+  const hayDst=makeHay(libDst,catV,null,comm,abs,dISO);
+  // côté de l'opération éditée (moi) et côté miroir (lui)
+  const moi=entrant?{c:dst,m:abs,t:tDst,h:hayDst}:{c:src,m:-abs,t:tSrc,h:haySrc};
+  const lui=entrant?{c:src,m:-abs,t:tSrc,h:haySrc}:{c:dst,m:abs,t:tDst,h:hayDst};
+  if(state.editing){
+    const cur=qy('SELECT statut,miroir_id,montant FROM operation WHERE id=?',[state.editing])[0];
+    if(cur&&cur.statut==='rapproche'){
+      if(abs!==Math.abs(cur.montant)){toast('Le montant d\u2019une op\u00e9ration rapproch\u00e9e ne peut pas \u00eatre modifi\u00e9');return;}
+      prev=0; // une opération déjà rapprochée ne peut pas devenir prévisionnelle
+      const ok=await dlgConfirm('Ce virement a d\u00e9j\u00e0 \u00e9t\u00e9 rapproch\u00e9 avec ton relev\u00e9 bancaire.\n\nConfirmer la modification de ses autres caract\u00e9ristiques ?','Op\u00e9ration rapproch\u00e9e','Confirmer la modification',true);
+      if(!ok)return;
+    }
+    run(`UPDATE operation SET compte_id=?,type='virement',date_operation=?,montant=?,tiers_id=?,commentaire=?,previsionnel=?,cat_path=?,hay=?,date_modification=? WHERE id=?`,
+      [moi.c,dISO,moi.m,moi.t,comm,prev,catV,moi.h,nowTS(),state.editing]);
+    run('DELETE FROM ventilation WHERE operation_id=?',[state.editing]);
+    run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)',[state.editing,cid,moi.m]);
+    let mid=cur&&cur.miroir_id;
+    if(mid){
+      run(`UPDATE operation SET compte_id=?,type='virement',date_operation=?,montant=?,tiers_id=?,commentaire=?,previsionnel=?,cat_path=?,hay=?,date_modification=? WHERE id=?`,
+        [lui.c,dISO,lui.m,lui.t,comm,prev,catV,lui.h,nowTS(),mid]);
+      run('DELETE FROM ventilation WHERE operation_id=?',[mid]);
+      run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)',[mid,cid,lui.m]);
+    }else{
+      run(`INSERT INTO operation(compte_id,type,date_operation,montant,tiers_id,commentaire,statut,previsionnel,supprime,cat_path,hay,miroir_id,date_creation)
+        VALUES(?,'virement',?,?,?,?,'non_pointe',?,0,?,?,?,?)`,[lui.c,dISO,lui.m,lui.t,comm,prev,catV,lui.h,state.editing,nowTS()]);
+      mid=lastId();run('UPDATE operation SET miroir_id=? WHERE id=?',[mid,state.editing]);
+      run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)',[mid,cid,lui.m]);
+    }
+    toast('Virement modifi\u00e9');
+  }else{
+    run(`INSERT INTO operation(compte_id,type,date_operation,montant,tiers_id,commentaire,statut,previsionnel,supprime,cat_path,hay,date_creation)
+      VALUES(?,'virement',?,?,?,?,'non_pointe',?,0,?,?,?)`,[state.acc,dISO,-abs,tSrc,comm,prev,catV,haySrc,nowTS()]);
+    const oidSrc=lastId();
+    run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)',[oidSrc,cid,-abs]);
+    run(`INSERT INTO operation(compte_id,type,date_operation,montant,tiers_id,commentaire,statut,previsionnel,supprime,cat_path,hay,miroir_id,date_creation)
+      VALUES(?,'virement',?,?,?,?,'non_pointe',?,0,?,?,?,?)`,[cible,dISO,abs,tDst,comm,prev,catV,hayDst,oidSrc,nowTS()]);
+    const oidDst=lastId();
+    run('UPDATE operation SET miroir_id=? WHERE id=?',[oidDst,oidSrc]);
+    run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)',[oidDst,cid,abs]);
+    toast('Virement cr\u00e9\u00e9 (op\u00e9ration miroir ajout\u00e9e dans \u00ab '+nomDst+' \u00bb)');
+  }
+  closeModal();touch('Virement',eur(abs)+' de '+nomSrc+' vers '+nomDst);render();
+}
+async function deleteOp(){
+  const id=state.editing;if(!id)return;
+  const o=qy('SELECT statut FROM operation WHERE id=?',[id])[0];
+  if(!o||o.statut==='rapproche'){toast('Opération rapprochée : suppression impossible');return;}
+  const jum=qy(`SELECT m.id,m.statut,c.nom cpt FROM operation o JOIN operation m ON m.id=o.miroir_id
+    LEFT JOIN compte c ON c.id=m.compte_id WHERE o.id=? AND m.supprime=0`,[id])[0];
+  if(jum&&jum.statut==='rapproche'){
+    const go=await dlgOpen({title:'Opération jumelle déjà rapprochée',
+      msg:'Ce virement a une opération jumelle dans « '+(jum.cpt||'autre compte')+' » qui est déjà rapprochée.\n\n'+
+        'Il est préférable de ne pas supprimer cette opération.\n\n'+
+        'Si tu la supprimes quand même, seule l’opération de ce compte ira à la corbeille : '+
+        'l’opération rapprochée de « '+(jum.cpt||'autre compte')+' » ne sera PAS supprimée, '+
+        'ce qui peut créer une incohérence entre les deux comptes.',
+      buttons:[{t:'Ne pas supprimer',v:false,p:true},{t:'Supprimer uniquement celle-ci',v:true,d:true}]});
+    if(!go)return;
+    const l=libOp(id);
+    run('UPDATE operation SET supprime=1,date_suppression=?,date_modification=? WHERE id=?',[nowTS(),nowTS(),id]);
+    run('UPDATE operation SET miroir_id=NULL WHERE id=?',[jum.id]); // la jumelle rapprochée n'est plus liée
+    closeModal();touch('Mise à la corbeille (jumelle rapprochée conservée)',l);render();
+    toast('Opération mise à la corbeille — l’opération rapprochée de « '+(jum.cpt||'')+' » est conservée');
+    return;
+  }
+  const ok=await dlgConfirm('Mettre cette opération à la corbeille ?\n\nTu pourras la restaurer depuis l’écran Corbeille.','Suppression','Mettre à la corbeille',true);
+  if(!ok)return;
+  const l=libOp(id);
+  run('UPDATE operation SET supprime=1,date_suppression=?,date_modification=? WHERE id=?',[nowTS(),nowTS(),id]);
+  const mid=scal('SELECT miroir_id FROM operation WHERE id=?',[id]);
+  if(mid)run('UPDATE operation SET supprime=1,date_suppression=?,date_modification=? WHERE id=?',[nowTS(),nowTS(),mid]);
+  closeModal();touch('Mise à la corbeille',l);render();toast(mid?'Virement mis à la corbeille (les deux opérations)':'Opération mise à la corbeille');
+}
+function annulOp(){
+  const id=state.editing;if(!id)return;
+  const o=qy('SELECT statut FROM operation WHERE id=?',[id])[0];if(!o)return;
+  if(o.statut==='rapproche'){toast('Opération rapprochée : action impossible');return;}
+  const l=libOp(id);let act;
+  if(o.statut==='annule'){run('UPDATE operation SET statut=\'non_pointe\',date_annulation=NULL,date_modification=? WHERE id=?',[nowTS(),id]);act='Dé-annulation';toast('Opération restaurée');}
+  else{run('UPDATE operation SET statut=\'annule\',date_annulation=?,date_modification=? WHERE id=?',[nowTS(),nowTS(),id]);act='Annulation';toast('Opération passée en annulé');}
+  closeModal();touch(act,l);render();
+}
+
+/* ============================================================
+   Sauvegarde / chargement fichier
+   ============================================================ */
+function sauvegarder(){
+  try{
+    setMeta('updated',nowTS());
+    const data=db.export();
+    const d=new Date(),p2=x=>String(x).padStart(2,'0');
+    const stamp=d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate())+'_'+p2(d.getHours())+'h'+p2(d.getMinutes())+'m'+p2(d.getSeconds());
+    const nom='comptes_'+stamp+'.sqlite';
+    const blob=new Blob([data],{type:'application/octet-stream'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+    a.download=nom;document.body.appendChild(a);a.click();
+    setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1000);
+    setMeta('rev',(+getMeta('rev',0))+1);
+    run('UPDATE journal SET sauve=1 WHERE sauve=0');refreshDirty();flushIDB();
+    toast('Sauvegarde téléchargée : '+nom);
+  }catch(e){dlgAlert('Échec de la sauvegarde : '+e.message,'Erreur');}
+}
+async function chargerFichier(inp){
+  const f=inp.files&&inp.files[0];inp.value='';if(!f)return;
+  const buf=new Uint8Array(await f.arrayBuffer());
+  let inc=null;
+  try{const t=new SQL.Database(buf);
+    const g=k=>{try{const r=t.exec("SELECT valeur FROM meta WHERE cle='"+k+"'");return r.length?r[0].values[0][0]:null;}catch(e){return null;}};
+    inc={updated:g('updated'),rev:+(g('rev')||0),
+      nops:(()=>{try{return t.exec('SELECT COUNT(*) FROM operation WHERE supprime=0')[0].values[0][0];}catch(e){return '?';}})()};
+    t.close();
+  }catch(e){await dlgAlert('Ce fichier ne semble pas être une base « Mes comptes ».','Fichier invalide');return;}
+  const curUpd=getMeta('updated','—'),curRev=+getMeta('rev',0);
+  const curOps=scal('SELECT COUNT(*) FROM operation WHERE supprime=0');
+  const plusAncien=inc.updated&&curUpd!=='—'&&inc.updated<curUpd;
+  const note=plusAncien?'\n\nÀ noter : ce fichier est un peu plus ancien que les données déjà présentes dans ce navigateur — normal si tu reviens d’un autre appareil. Choisis simplement la version que tu veux garder.':'';
+  const ok=await dlgConfirm(
+    'Déjà dans ce navigateur : '+curOps+' opérations · '+curUpd+' (rév. '+curRev+')\n'+
+    'Fichier à charger : '+inc.nops+' opérations · '+(inc.updated||'date inconnue')+' (rév. '+inc.rev+')\n\n'+
+    'Charger ce fichier remplacera le contenu actuel de ce navigateur.'+note,
+    'Charger cette sauvegarde','Charger ce fichier',false);
+  if(!ok)return;
+  busy('Chargement…');await nextFrame();
+  try{
+    db.close();db=new SQL.Database(buf);db.run(SCHEMA);migrer();try{renommerVirements();}catch(_){}invalidateCaches();try{db.run('ANALYZE');}catch(_){}
+    state.acc=+scal('SELECT id FROM compte WHERE actif=1 ORDER BY ordre_affichage,id LIMIT 1');
+    state.page=1;try{run('UPDATE journal SET sauve=1 WHERE sauve=0');}catch(_){}
+    refreshDirty();undoReset();await flushIDB();unbusy();render();
+    toast('Sauvegarde chargée');
+  }catch(e){unbusy();await dlgAlert('Échec du chargement : '+e.message,'Erreur');}
+}
+
+/* ============================================================
+   Import QIF
+   ============================================================ */
+function qifParseDate(raw){
+  const s=(raw||'').trim().replace(/'/g,'/');const p=s.split('/');
+  if(p.length!==3)return null;
+  let d=+p[0],m=+p[1],y=+p[2];
+  if(isNaN(d)||isNaN(m)||isNaN(y))return null;
+  if(y<100)y=y<70?2000+y:1900+y;
+  if(m>12&&d<=12){const t=d;d=m;m=t;}
+  if(m<1||m>12||d<1||d>31)return null;
+  return y+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+}
+function qifParseAmount(raw){
+  let s=(raw||'').trim().replace(/\s/g,'');
+  if(s.indexOf(',')>=0&&s.indexOf('.')>=0)s=s.replace(/,/g,'');
+  else if(s.indexOf(',')>=0)s=s.replace(',','.');
+  const v=parseFloat(s);return isNaN(v)?null:Math.round(v*100);
+}
+function parseQIF(text){
+  const lines=text.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n');
+  const out=[];let cur=null,splits=[],section='transaction';
+  const flush=()=>{if(cur){cur.splits=splits;out.push(cur);}cur=null;splits=[];};
+  const blank=()=>({date:null,montant:null,statut:'non_pointe',tiers:'',categorie:'',memo:'',numero:''});
+  for(const ln of lines){
+    if(!ln)continue;
+    if(ln[0]==='!'){flush();section=/^!account/i.test(ln)?'account':'transaction';continue;}
+    if(ln[0]==='^'){if(section==='transaction')flush();else{cur=null;splits=[];}continue;}
+    if(section==='account')continue;
+    const code=ln[0],val=ln.slice(1);
+    if(!cur)cur=blank();
+    switch(code){
+      case 'D':cur.date=qifParseDate(val);break;
+      case 'T':case 'U':{const a=qifParseAmount(val);if(a!=null)cur.montant=a;break;}
+      case 'C':{const c=val.trim();cur.statut=(c==='X'||c==='R')?'rapproche':(c==='*'||c==='c')?'pointe':'non_pointe';break;}
+      case 'P':cur.tiers=val.trim();break;
+      case 'L':cur.categorie=val.trim();break;
+      case 'M':cur.memo=val.trim();break;
+      case 'N':cur.numero=val.trim();break;
+      case 'S':splits.push({categorie:val.trim(),memo:'',montant:null});break;
+      case 'E':if(splits.length)splits[splits.length-1].memo=val.trim();break;
+      case '$':if(splits.length)splits[splits.length-1].montant=qifParseAmount(val);break;
+    }
+  }
+  flush();
+  return out.filter(o=>o.montant!=null);
+}
+const isTransferCat=c=>/^\[.*\]$/.test((c||'').trim());
+function cleanCat(c){c=(c||'').trim();
+  if(isTransferCat(c))return 'Virement interne';
+  return c.replace(/:/g,' : ').replace(/\s+/g,' ').trim()||'Divers';}
+
+let qifPending=null;
+async function chargerQif(inp){
+  const f=inp.files&&inp.files[0];inp.value='';if(!f)return;
+  busy('Lecture du fichier…');await nextFrame();
+  let ops;
+  try{
+    const buf=await f.arrayBuffer();
+    const txt=new TextDecoder('windows-1252').decode(buf);
+    ops=parseQIF(txt);
+  }catch(e){unbusy();await dlgAlert('Lecture impossible : '+e.message,'Erreur');return;}
+  unbusy();
+  if(!ops.length){await dlgAlert('Aucune opération trouvée dans ce fichier.','Import QIF');return;}
+  qifPending=ops;
+  const comptes=qy('SELECT id,nom FROM compte WHERE actif=1 ORDER BY ordre_affichage,id');
+  const dates=ops.map(o=>o.date).filter(Boolean).sort();
+  const totC=ops.reduce((t,o)=>t+o.montant,0);
+  const html=
+    '<div style="font-size:.88rem;color:var(--ink-2);margin-bottom:14px">'+
+      ops.length.toLocaleString('fr-FR')+' opérations · du '+(dates.length?isoToFr(dates[0]):'?')+' au '+(dates.length?isoToFr(dates[dates.length-1]):'?')+
+      '<br>Somme des montants : <b class="num">'+eur(totC)+'</b></div>'+
+    '<div class="field"><label>Compte de destination</label><select id="qCompte" style="width:100%">'+
+      comptes.map(c=>'<option value="'+c.id+'">'+esc(c.nom)+'</option>').join('')+'</select></div>'+
+    '<div class="field"><label>Solde initial du compte (€)</label>'+
+      '<input id="qSolde" type="text" inputmode="decimal" value="0,00" style="width:100%"></div>'+
+    '<label class="radio on" id="rRemp"><input type="radio" name="qmode" value="remplacer" checked>'+
+      '<span><span class="rt">Remplacer</span><span class="rd">Efface toutes les opérations existantes de ce compte, puis importe. À utiliser pour la migration depuis Money.</span></span></label>'+
+    '<label class="radio" id="rAjout"><input type="radio" name="qmode" value="ajouter">'+
+      '<span><span class="rt">Ajouter</span><span class="rd">Conserve l’existant et ajoute ces opérations à la suite (risque de doublons).</span></span></label>';
+  let picked=null;
+  const ok=await dlgOpen({title:'Importer un fichier QIF',msg:'',html,
+    buttons:[{t:'Annuler',v:false},{t:'Importer',v:true,p:true,before:()=>{
+      const sel=document.getElementById('qCompte');
+      const sol=document.getElementById('qSolde');
+      const mod=document.querySelector('input[name=qmode]:checked');
+      if(!sel||!mod)return false;
+      picked={compteId:+sel.value,soldeC:parseMontantC(sol?sol.value:'0')||0,mode:mod.value};
+    }}],
+    onOpen:()=>{
+      const sync=()=>{
+        const m=document.querySelector('input[name=qmode]:checked');
+        const v=m?m.value:'remplacer';
+        document.getElementById('rRemp').classList.toggle('on',v==='remplacer');
+        document.getElementById('rAjout').classList.toggle('on',v==='ajouter');
+      };
+      document.querySelectorAll('input[name=qmode]').forEach(r=>r.addEventListener('change',sync));
+      sync();
+    }});
+  if(!ok||!picked){qifPending=null;return;}
+  await runImport(picked.compteId,picked.soldeC,picked.mode);
+}
+async function runImport(compteId,soldeC,mode){
+  const ops=qifPending;qifPending=null;if(!ops)return;
+  const t0=performance.now();
+  await dlgOpen({title:'Import en cours',msg:'Préparation…',buttons:[],onOpen:async()=>{
+    const bar=document.getElementById('dlgProgBar'),msg=document.getElementById('dlgMsg');
+    document.getElementById('dlgProg').style.display='block';
+    const setP=(p,t)=>{bar.style.width=p+'%';msg.textContent=t;};
+    await nextFrame();
+    try{
+      run('BEGIN');
+      if(mode==='remplacer'){
+        setP(2,'Suppression des opérations existantes…');await nextFrame();
+        run('DELETE FROM ventilation WHERE operation_id IN (SELECT id FROM operation WHERE compte_id=?)',[compteId]);
+        run('DELETE FROM operation WHERE compte_id=?',[compteId]);
+      }
+      run('UPDATE compte SET solde_initial=? WHERE id=?',[soldeC,compteId]);
+      const catCache=new Map(),tiCache=new Map();
+      const getCat2=p=>{if(catCache.has(p))return catCache.get(p);const id=upsertCategorie(p);catCache.set(p,id);return id;};
+      const getTi=n=>{if(!n)return null;if(tiCache.has(n))return tiCache.get(n);const id=upsertTiers(n);tiCache.set(n,id);return id;};
+      const stOp=db.prepare(`INSERT INTO operation(compte_id,type,date_operation,montant,tiers_id,numero,commentaire,statut,previsionnel,supprime,cat_path,hay,date_creation)
+        VALUES(?,?,?,?,?,?,?,?,0,0,?,?,?)`);
+      const stV=db.prepare('INSERT INTO ventilation(operation_id,categorie_id,montant,commentaire) VALUES(?,?,?,?)');
+      const ts=nowTS();let n=0,nv=0,desq=0,total=0;
+      const N=ops.length,STEP=Math.max(200,Math.ceil(N/60));
+      for(const o of ops){
+        const cat=cleanCat(o.categorie);
+        const dISO=o.date||todayISO();
+        const typ=isTransferCat(o.categorie)?'virement':(o.montant>0?'credit':'debit');
+        const tid=getTi(o.tiers);
+        const hay=makeHay(o.tiers,cat,o.numero,o.memo,o.montant,dISO);
+        stOp.run([compteId,typ,dISO,o.montant,tid,o.numero||null,o.memo||null,o.statut,cat,hay,ts]);
+        const oid=scal('SELECT last_insert_rowid()');
+        total+=o.montant;
+        if(o.splits.length){
+          let s=0;for(const sp of o.splits){const amt=sp.montant==null?0:sp.montant;
+            stV.run([oid,getCat2(cleanCat(sp.categorie)),amt,sp.memo||null]);s+=amt;nv++;}
+          if(s!==o.montant)desq++;
+        }else stV.run([oid,getCat2(cat),o.montant,null]);
+        if(tid)run('UPDATE tiers SET date_dernier_paiement=MAX(COALESCE(date_dernier_paiement,\'\'),?) WHERE id=?',[dISO,tid]);
+        n++;
+        if(n%STEP===0){setP(Math.round(n/N*96),'Insertion… '+n.toLocaleString('fr-FR')+' / '+N.toLocaleString('fr-FR'));await nextFrame();}
+      }
+      stOp.free();stV.free();
+      setP(98,'Finalisation…');await nextFrame();
+      run('COMMIT');
+      try{run('ANALYZE');}catch(_){}
+      const solde=soldeC+total;
+      dlgClose(true);
+      state.acc=compteId;state.page=1;
+      touch('Import QIF',n.toLocaleString('fr-FR')+' opérations · '+(scal('SELECT nom FROM compte WHERE id=?',[compteId])||'')+' · mode '+(mode==='remplacer'?'remplacement':'ajout'));
+      render();
+      await flushIDB();
+      await dlgAlert(
+        n.toLocaleString('fr-FR')+' opérations importées en '+((performance.now()-t0)/1000).toFixed(1)+' s.\n\n'+
+        'Ventilations créées : '+nv.toLocaleString('fr-FR')+
+        (desq?('\nVentilations déséquilibrées : '+desq):'')+'\n\n'+
+        'SOLDE CALCULÉ : '+eur(solde)+'\n\n'+
+        'Vérifie que ce solde correspond bien à celui de Microsoft Money.','Import terminé');
+    }catch(e){
+      try{run('ROLLBACK');}catch(_){}
+      dlgClose(false);
+      await dlgAlert('Import interrompu : '+e.message+'\n\nAucune modification n’a été enregistrée.','Erreur');
+    }
+  }});
+}
+
+/* ============================================================
+   Opérations récurrentes
+   ============================================================ */
+const FREQS={
+  quotidienne:{label:'Chaque jour',pas:'j',n:1,preset:true},
+  hebdomadaire:{label:'Chaque semaine',pas:'j',n:7,preset:true},
+  mensuelle:{label:'Chaque mois',pas:'m',n:1,preset:true},
+  bimestrielle:{label:'Tous les 2 mois',pas:'m',n:2,preset:true},
+  trimestrielle:{label:'Chaque trimestre',pas:'m',n:3,preset:true},
+  semestrielle:{label:'Chaque semestre',pas:'m',n:6,preset:true},
+  annuelle:{label:'Chaque année',pas:'m',n:12,preset:true},
+  // unités pour le mode personnalisé « tous les N … »
+  jours:{label:'jour(s)',pas:'j',n:1,unite:true},
+  semaines:{label:'semaine(s)',pas:'j',n:7,unite:true},
+  mois:{label:'mois',pas:'m',n:1,unite:true}
+};
+/* libellé lisible d'une récurrence (préréglage ou personnalisée) */
+function freqLabel(freq,intervalle){
+  const f=FREQS[freq];if(!f)return freq;
+  if(f.unite)return 'Tous les '+(intervalle||1)+' '+f.label;
+  return f.label;
+}
+function todayISO(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+/* avance une date ISO d'une occurrence, en calant le jour du mois demandé */
+function avancerDate(iso,freq,jour,intervalle){
+  const f=FREQS[freq]||FREQS.mensuelle;const iv=intervalle||1;
+  const d=new Date(iso+'T00:00:00');
+  if(f.pas==='j'){d.setDate(d.getDate()+f.n*iv);return isoDe(d);}
+  // pas mensuel : n*intervalle mois, puis on cale le jour (borné au dernier jour du mois)
+  const m=d.getMonth()+f.n*iv;
+  const y=d.getFullYear()+Math.floor(m/12),mm=((m%12)+12)%12;
+  const dim=new Date(y,mm+1,0).getDate();
+  const jr=Math.min(jour||d.getDate(),dim);
+  return y+'-'+String(mm+1).padStart(2,'0')+'-'+String(jr).padStart(2,'0');
+}
+function isoDe(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+
+function colonneExiste(table,col){
+  try{return qy('PRAGMA table_info('+table+')').some(r=>r.name===col);}catch(e){return false;}
+}
+/* libellé d'un virement vu depuis un compte : sortant (montant<0) ou entrant */
+function nomTiersVir(montant,nomAutre){return (montant<0?'Virement vers ':'Virement reçu de ')+nomAutre;}
+/* met à jour le libellé (tiers) des virements liés d'après le compte d'en face ;
+   retourne le nombre d'opérations modifiées */
+function renommerVirements(){
+  let n=0;
+  qy(`SELECT o.id,o.montant,o.date_operation d,o.numero,o.commentaire,o.cat_path,o.tiers_id,c.nom autre
+      FROM operation o JOIN operation m ON m.id=o.miroir_id JOIN compte c ON c.id=m.compte_id
+      WHERE o.type='virement'`).forEach(o=>{
+    const nom=nomTiersVir(o.montant,o.autre),tid=upsertTiers(nom);
+    if(tid===o.tiers_id)return;
+    run('UPDATE operation SET tiers_id=?,hay=? WHERE id=?',[tid,makeHay(nom,o.cat_path,o.numero,o.commentaire,o.montant,o.d),o.id]);n++;
+  });
+  // anciens tiers au nom d'un compte, devenus inutilisés
+  if(n)run(`DELETE FROM tiers WHERE nom IN (SELECT nom FROM compte)
+    AND id NOT IN (SELECT tiers_id FROM operation WHERE tiers_id IS NOT NULL)`);
+  return n;
+}
+function migrer(){
+  // opérations générées reliées à leur récurrence (permet la régénération propre)
+  if(!colonneExiste('operation','recurrence_id')){
+    try{run('ALTER TABLE operation ADD COLUMN recurrence_id INTEGER');}catch(e){}
+  }
+  if(!colonneExiste('compte','numero')){
+    try{run('ALTER TABLE compte ADD COLUMN numero TEXT');}catch(e){}
+  }
+  if(!colonneExiste('recurrence','ventil')){
+    try{run('ALTER TABLE recurrence ADD COLUMN ventil TEXT');}catch(e){}
+  }
+  if(!colonneExiste('operation','miroir_id')){try{run('ALTER TABLE operation ADD COLUMN miroir_id INTEGER');}catch(e){}}
+  if(!colonneExiste('recurrence','compte_cible')){try{run('ALTER TABLE recurrence ADD COLUMN compte_cible INTEGER');}catch(e){}}
+  // nettoyage : catégories parasites « A + B » créées par erreur à partir de libellés de ventilation
+  try{
+    run(`DELETE FROM categorie WHERE parent_id IS NULL AND libelle LIKE '% + %'
+         AND id NOT IN (SELECT categorie_id FROM ventilation WHERE categorie_id IS NOT NULL)
+         AND id NOT IN (SELECT parent_id FROM categorie WHERE parent_id IS NOT NULL)`);
+  }catch(e){}
+}
+function _occExiste(rid,date){return scal('SELECT id FROM operation WHERE recurrence_id=? AND date_operation=? AND supprime=0',[rid,date]);}
+function _creerOcc(r,date,prev){
+  if(r.compte_cible){return _creerOccVirement(r,date,prev);}
+  const tid=r.tiers?upsertTiers(r.tiers):null;
+  let lignesV=null;
+  if(r.ventil){try{const arr=JSON.parse(r.ventil);if(arr&&arr.length)lignesV=arr.map(l=>({cid:upsertCategorie(l.cat),montant:l.montant}));}catch(e){}}
+  const cid=(!lignesV&&r.cat_path)?upsertCategorie(r.cat_path):null;
+  const hay=makeHay(r.tiers||'',r.cat_path||'',null,r.commentaire||'',r.montant,date);
+  run(`INSERT INTO operation(compte_id,type,date_operation,montant,tiers_id,numero,commentaire,statut,previsionnel,supprime,cat_path,hay,recurrence_id,date_creation)
+    VALUES(?,?,?,?,?,NULL,?,'non_pointe',?,0,?,?,?,?)`,
+    [r.compte_id,r.type,date,r.montant,tid,r.commentaire||null,prev,r.cat_path||null,hay,r.id,nowTS()]);
+  const oid=lastId();
+  if(lignesV){lignesV.forEach(l=>run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)',[oid,l.cid,l.montant]));}
+  else if(cid)run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)',[oid,cid,r.montant]);
+}
+/* Génération des occurrences :
+   - toute échéance arrivée à terme (date <= aujourd'hui) devient RÉELLE non pointée ;
+     si un aperçu prévisionnel existait pour cette date et n'a pas été touché, il est promu ;
+   - la PROCHAINE échéance à venir est toujours pré-affichée en PRÉVISIONNEL (aperçu) ;
+   - au prochain lancement, dès que sa date est atteinte, elle passe en non pointée. */
+function _creerOccVirement(r,date,prev){
+  const cid=upsertCategorie(r.cat_path||'Virement interne');
+  const abs=Math.abs(r.montant);
+  const nomSrc=scal('SELECT nom FROM compte WHERE id=?',[r.compte_id]);
+  const nomDst=scal('SELECT nom FROM compte WHERE id=?',[r.compte_cible]);
+  const tSrc=upsertTiers(nomTiersVir(-1,nomDst)),tDst=upsertTiers(nomTiersVir(1,nomSrc));
+  const insere=(compte,montant,tid,hay)=>{
+    run(`INSERT INTO operation(compte_id,type,date_operation,montant,tiers_id,numero,commentaire,statut,previsionnel,supprime,cat_path,hay,recurrence_id,date_creation)
+      VALUES(?,'virement',?,?,?,NULL,?,'non_pointe',?,0,?,?,?,?)`,
+      [compte,date,montant,tid,r.commentaire||null,prev,r.cat_path||'Virement interne',hay,r.id,nowTS()]);
+    const oid=lastId();run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)',[oid,cid,montant]);return oid;
+  };
+  const oSrc=insere(r.compte_id,-abs,tSrc,makeHay(nomTiersVir(-1,nomDst),'Virement interne',null,r.commentaire||'',-abs,date));
+  const oDst=insere(r.compte_cible,abs,tDst,makeHay(nomTiersVir(1,nomSrc),'Virement interne',null,r.commentaire||'',abs,date));
+  run('UPDATE operation SET miroir_id=? WHERE id=?',[oDst,oSrc]);
+  run('UPDATE operation SET miroir_id=? WHERE id=?',[oSrc,oDst]);
+}
+function genererRecurrences(){
+  const auj=todayISO(),recs=qy('SELECT * FROM recurrence WHERE actif=1');
+  let cree=0;
+  for(const r of recs){
+    let p=r.prochaine, garde=0;
+    // 1) échéances dues -> réelles non pointées
+    while(p && p<=auj && (!r.date_fin || p<=r.date_fin) && garde<600){
+      const id=_occExiste(r.id,p);
+      if(!id){_creerOcc(r,p,0);cree++;}
+      else run("UPDATE operation SET previsionnel=0 WHERE id=? AND previsionnel=1 AND statut='non_pointe' AND date_modification IS NULL",[id]);
+      p=avancerDate(p,r.frequence,r.jour,r.intervalle);garde++;
+    }
+    // 2) prochaine échéance à venir -> aperçu prévisionnel
+    if(p && (!r.date_fin || p<=r.date_fin) && !_occExiste(r.id,p)){_creerOcc(r,p,1);cree++;}
+    if(p!==r.prochaine)run('UPDATE recurrence SET prochaine=? WHERE id=?',[p,r.id]);
+  }
+  return cree;
+}
+/* petit sélecteur de date réutilisable (dialogue) */
+async function demanderDate(titre,defISO){
+  const html='<input id="dq" class="datef" inputmode="numeric" maxlength="8" placeholder="JJ/MM/AA" value="'+(defISO?isoToShort(defISO):'')+'" style="width:170px;font-size:1.1rem" oninput="maskDate(this)" onblur="fixDate(this)">';
+  let v=null;
+  const ok=await dlgOpen({title:titre,msg:'',html,
+    buttons:[{t:'Annuler',v:false},{t:'Valider',v:true,p:true,before:()=>{const iso=frToISO(document.getElementById('dq').value);if(!iso){toast('Date invalide');return false;}v=iso;}}],
+    onOpen:()=>{const q=document.getElementById('dq');if(q){q.focus();q.select();}}});
+  return ok?v:null;
+}
+
+/* Régénère les occurrences d'une récurrence après modification de ses réglages :
+   on supprime les échéances encore intactes (non pointées, non modifiées, non rapprochées),
+   on repositionne la prochaine échéance sur la date de début, puis on régénère.
+   Les opérations déjà pointées/rapprochées/ventilées à la main sont conservées. */
+function regenererRecurrence(id){
+  run(`DELETE FROM ventilation WHERE operation_id IN
+       (SELECT id FROM operation WHERE recurrence_id=? AND statut='non_pointe' AND supprime=0 AND date_modification IS NULL)`,[id]);
+  run("DELETE FROM operation WHERE recurrence_id=? AND statut='non_pointe' AND supprime=0 AND date_modification IS NULL",[id]);
+  const r=qy('SELECT date_debut FROM recurrence WHERE id=?',[id])[0];
+  if(r)run('UPDATE recurrence SET prochaine=? WHERE id=?',[r.date_debut,id]);
+  return genererRecurrences();
+}
+function recSort(col){
+  if(state.recSort===col)state.recDir=-state.recDir;else{state.recSort=col;state.recDir=1;}
+  renderRecurrences();
+}
+function renderRecurrences(){
+  const map={tiers:'LOWER(COALESCE(r.tiers,\'\'))',compte:'LOWER(c.nom)',montant:'r.montant',
+    frequence:'r.frequence',debut:'r.date_debut',prochaine:'r.prochaine',commentaire:'LOWER(COALESCE(r.commentaire,\'\'))'};
+  const col=map[state.recSort]||'r.prochaine',dir=state.recDir<0?'DESC':'ASC';
+  const recs=qy(`SELECT r.*, c.nom cnom FROM recurrence r JOIN compte c ON c.id=r.compte_id
+    ORDER BY r.actif DESC, `+col+` `+dir+`, r.prochaine`);
+  // indicateur de tri dans l'en-tête
+  ['tiers','compte','montant','frequence','debut','prochaine','commentaire'].forEach(k=>{
+    const th=document.getElementById('rh-'+k);if(!th)return;
+    th.textContent=th.textContent.replace(/[ ↑↓]+$/,'');
+    if(state.recSort===k)th.textContent+=(state.recDir<0?' ↓':' ↑');
+  });
+  const body=document.getElementById('rec-rows');
+  document.getElementById('rec-meta').textContent=recs.length?
+    (recs.filter(r=>r.actif).length+' active(s) sur '+recs.length):'Aucune opération récurrente pour le moment.';
+  if(!recs.length){body.innerHTML='<tr><td colspan="8" style="color:var(--ink-3);padding:18px">'+
+    'Rien ici. Utilise « Nouvelle opération récurrente » pour créer un loyer, un abonnement, un salaire…</td></tr>';return;}
+  body.innerHTML=recs.map(r=>{
+    const signe=r.montant<0?'':'+';
+    // seules les cellules de contenu sont estompées ; les boutons restent bien visibles
+    const dim=r.actif?'':' style="opacity:.45"';
+    return '<tr ondblclick="editRec('+r.id+')" title="Double-clic pour modifier">'+
+      '<td'+dim+'><b>'+esc(r.tiers||'(sans destinataire)')+'</b><div class="sub">'+esc(r.cat_path||'À trier')+'</div>'+
+        (r.actif?'':'<div class="sub" style="color:var(--debit)">suspendue</div>')+'</td>'+
+      '<td'+dim+'>'+esc(r.cnom)+'</td>'+
+      '<td class="num"'+(r.actif?'':' style="opacity:.45"')+' style="text-align:right;color:'+(r.montant<0?'var(--debit)':'var(--credit)')+'">'+signe+eur(r.montant)+'</td>'+
+      '<td'+dim+'>'+freqLabel(r.frequence,r.intervalle)+'</td>'+
+      '<td class="num"'+dim+'>'+isoToFr(r.date_debut)+(r.date_fin?'<div class="sub">→ '+isoToFr(r.date_fin)+'</div>':'<div class="sub">sans fin</div>')+'</td>'+
+      '<td class="num"'+dim+'>'+(r.actif?isoToFr(r.prochaine):'—')+(r.actif?'<div class="sub" style="color:#7C3AED">aperçu prévisionnel</div>':'')+'</td>'+
+      '<td'+dim+'>'+(r.commentaire?esc(r.commentaire):'<span style="color:var(--ink-3)">—</span>')+'</td>'+
+      '<td style="white-space:nowrap">'+
+        '<button class="ghost" onclick="editRec('+r.id+')">Modifier</button> '+
+        '<button class="'+(r.actif?'ghost':'primary')+'" onclick="toggleRec('+r.id+','+(r.actif?0:1)+')">'+(r.actif?'Suspendre':'Réactiver')+'</button> '+
+        '<button class="ghost danger" onclick="supprRec('+r.id+')">Supprimer</button>'+
+      '</td></tr>';
+  }).join('');
+}
+
+function rcFreqMaj(){
+  const sel=document.getElementById('rc-f'),bloc=document.getElementById('rc-perso');
+  if(sel&&bloc)bloc.style.display=(sel.value==='__perso')?'':'none';
+}
+function rcSetType(t){const s=document.getElementById('rc-s');if(s)s.value=t;
+  document.querySelectorAll('#rc-seg button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
+  rcSensMaj();const vc=document.getElementById('rc-vent');if(vc&&vc.checked)rcVentTotal();}
+function rcSensMaj(){
+  const sel=document.getElementById('rc-s');if(!sel)return;const vir=(sel.value==='virement');
+  const set=(id,d)=>{const e=document.getElementById(id);if(e)e.style.display=d;};
+  set('rc-vir-field',vir?'':'none');set('rc-dest-field',vir?'none':'');
+  const lbl=document.getElementById('rc-cpt-lbl');if(lbl)lbl.textContent=vir?'Compte source':'Compte';
+}
+function rcVentSensSign(){const s=document.getElementById('rc-s');return (s&&s.value==='credit')?1:-1;}
+function rcVentCentimes(raw){const c=parseMontantC(raw);if(c==null)return null;const mag=Math.abs(c),moins=/^\s*-/.test(raw||'');const op=rcVentSensSign();return (moins?-op:op)*mag;}
+function rcVentToggle(on){
+  document.getElementById('rc-cat-simple').style.display=on?'none':'';
+  document.getElementById('rc-vent-box').style.display=on?'':'none';
+  if(on){
+    document.getElementById('rc-dlfull').innerHTML=catCheminsComplets().map(x=>'<option value="'+esc(x)+'">').join('');
+    if(!state.rcVent||!state.rcVent.length){
+      const g=x=>(document.getElementById(x)||{}).value||'';
+      const c=[g('rc-c0').trim(),g('rc-c1').trim(),g('rc-c2').trim()].filter(Boolean).join(' : ');
+      state.rcVent=[{cat:c||'',m:g('rc-m').trim()||''},{cat:'',m:''}];
+    }
+    rcVentRender();
+  }
+}
+function rcVentAdd(apres){state.rcVent=state.rcVent||[];let idx;
+  if(typeof apres==='number'&&apres>=0){state.rcVent.splice(apres+1,0,{cat:'',m:''});idx=apres+1;}
+  else{state.rcVent.push({cat:'',m:''});idx=state.rcVent.length-1;}
+  rcVentRender();
+  const l=document.querySelectorAll('#rc-vent-list .vent-l');if(l[idx]){const inp=l[idx].querySelector('input');if(inp)inp.focus();}
+}
+function rcVentDel(i){state.rcVent.splice(i,1);if(!state.rcVent.length)state.rcVent.push({cat:'',m:''});rcVentRender();}
+function rcVentSet(i,k,v){if(state.rcVent&&state.rcVent[i]){state.rcVent[i][k]=v;rcVentTotal();}}
+function rcVentRender(){
+  const box=document.getElementById('rc-vent-list');
+  box.innerHTML=(state.rcVent||[]).map((l,i)=>
+    '<div class="vent-l">'+
+      '<input list="rc-dlfull" value="'+esc(l.cat)+'" placeholder="Alimentation : Supermarché" oninput="rcVentSet('+i+',&#39;cat&#39;,this.value)">'+
+      '<input inputmode="decimal" style="text-align:right" value="'+esc(l.m)+'" placeholder="0,00" oninput="rcVentSet('+i+',&#39;m&#39;,this.value)">'+
+      '<button type="button" class="ghost vx" onclick="rcVentDel('+i+')" title="Retirer cette ligne">&#10005;</button>'+
+    '</div>').join('');
+  rcVentTotal();
+}
+function rcVentTotal(){
+  const abs=Math.abs(parseMontantC(document.getElementById('rc-m').value)||0);
+  const cible=rcVentSensSign()>0?abs:-abs;
+  let som=0;(state.rcVent||[]).forEach(l=>{som+=(rcVentCentimes(l.m)||0);});
+  const reste=cible-som;const el=document.getElementById('rc-vent-tot');
+  el.className=(reste===0&&abs>0)?'ok':'bad';
+  el.textContent='Réparti '+eur(Math.abs(som))+' / '+eur(Math.abs(cible))+(reste===0?' — équilibré':' — reste '+eur(Math.abs(reste)));
+}
+async function editRec(id){
+  const r=id?qy('SELECT * FROM recurrence WHERE id=?',[id])[0]:null;
+  const comptes=qy('SELECT id,nom FROM compte WHERE actif=1 ORDER BY ordre_affichage,id');
+  const lv=catLevels(),dl=k=>lv[k].map(v=>'<option value="'+esc(v)+'">').join('');
+  const pc=catParts(r?r.cat_path:'');
+  const estPerso=r&&FREQS[r.frequence]&&FREQS[r.frequence].unite;
+  const optF=Object.keys(FREQS).filter(k=>FREQS[k].preset).map(k=>'<option value="'+k+'"'+(!estPerso&&r&&r.frequence===k?' selected':(!r&&k==='mensuelle'?' selected':''))+'>'+FREQS[k].label+'</option>').join('')
+    +'<option value="__perso"'+(estPerso?' selected':'')+'>Personnalisée…</option>';
+  const optU=Object.keys(FREQS).filter(k=>FREQS[k].unite).map(k=>'<option value="'+k+'"'+(estPerso&&r.frequence===k?' selected':'')+'>'+FREQS[k].label+'</option>').join('');
+  const optC=comptes.map(c=>'<option value="'+c.id+'"'+(r&&r.compte_id===c.id?' selected':(!r&&c.id===state.acc?' selected':''))+'>'+esc(c.nom)+'</option>').join('');
+  const mt=r?fmt.format(Math.abs(r.montant)/100):'';
+  const sens=r?(r.compte_cible?'virement':(r.montant<0?'debit':'credit')):'debit';
+  const optVir=comptes.map(c=>'<option value="'+c.id+'"'+((r&&r.compte_cible===c.id)?' selected':'')+'>'+esc(c.nom)+'</option>').join('');
+  const html=
+    '<div class="seg" id="rc-seg" style="margin-bottom:12px">'+
+      '<button type="button" data-t="debit" class="'+(sens==='debit'?'on':'')+'" onclick="rcSetType(&#39;debit&#39;)">Dépense</button>'+
+      '<button type="button" data-t="credit" class="'+(sens==='credit'?'on':'')+'" onclick="rcSetType(&#39;credit&#39;)">Revenu</button>'+
+      '<button type="button" data-t="virement" class="'+(sens==='virement'?'on':'')+'" onclick="rcSetType(&#39;virement&#39;)">Virement</button>'+
+    '</div>'+
+    '<input type="hidden" id="rc-s" value="'+sens+'">'+
+    '<div class="field" id="rc-dest-field"><label>Destinataire</label><input id="rc-t" list="rc-tl" autocomplete="off" value="'+esc(r&&!r.compte_cible?(r.tiers||''):'')+'"></div>'+
+    '<datalist id="rc-tl">'+Object.keys(tiersIndex()).map(t=>'<option value="'+esc(t)+'">').join('')+'</datalist>'+
+    '<label class="ventchk" id="rc-ventchk"><input type="checkbox" id="rc-vent" onchange="rcVentToggle(this.checked)"> Répartir sur plusieurs catégories</label>'+
+    '<div id="rc-cat-simple"><div class="row3">'+
+      '<div class="field"><label>Catégorie</label><input id="rc-c0" list="rc-l0" value="'+esc(pc[0]||'')+'" oninput="majSousCatsRec()"></div>'+
+      '<div class="field"><label>Sous-catégorie</label><input id="rc-c1" list="rc-l1" value="'+esc(pc[1]||'')+'" oninput="majSousCatsRec()"></div>'+
+      '<div class="field"><label>Sous-sous-catégorie</label><input id="rc-c2" list="rc-l2" value="'+esc(pc[2]||'')+'"></div>'+
+    '</div></div>'+
+    '<div id="rc-vent-box" style="display:none">'+
+      '<div class="venthead"><span>Catégorie</span><span style="text-align:right">Montant</span><span></span></div>'+
+      '<div id="rc-vent-list"></div>'+
+      '<div class="ventfoot"><button type="button" class="ghost" onclick="rcVentAdd()" title="Raccourci : touche +">+ Ajouter une ligne</button><span id="rc-vent-tot"></span></div>'+
+      '<datalist id="rc-dlfull"></datalist>'+
+    '</div>'+
+    '<datalist id="rc-l0">'+dl(0)+'</datalist><datalist id="rc-l1">'+dl(1)+'</datalist><datalist id="rc-l2">'+dl(2)+'</datalist>'+
+    '<div class="row3">'+
+      '<div class="field"><label>Montant (\u20ac)</label><input id="rc-m" inputmode="decimal" value="'+esc(mt)+'" oninput="if(document.getElementById(&#39;rc-vent&#39;).checked)rcVentTotal()"></div>'+
+      '<div class="field"><label id="rc-cpt-lbl">Compte</label><select id="rc-cpt">'+optC+'</select></div>'+
+      '<div class="field" id="rc-vir-field" style="display:none"><label>Compte de destination</label><select id="rc-vircompte">'+optVir+'</select></div>'+
+    '</div>'+
+    '<div class="row2">'+
+      '<div class="field"><label>Fr\u00e9quence</label><select id="rc-f" onchange="rcFreqMaj()">'+optF+'</select></div>'+
+      '<div class="field" id="rc-perso" style="'+(estPerso?'':'display:none')+'"><label>Tous les\u2026</label>'+
+        '<div style="display:flex;gap:6px"><input id="rc-iv" inputmode="numeric" style="width:70px" value="'+(estPerso?(r.intervalle||1):'1')+'">'+
+        '<select id="rc-u" style="flex:1">'+optU+'</select></div></div>'+
+    '</div>'+
+    '<div class="row3">'+
+      '<div class="field"><label>Premi\u00e8re \u00e9ch\u00e9ance</label><input id="rc-d" class="date datef" inputmode="numeric" maxlength="8" placeholder="JJ/MM/AA" value="'+(r?isoToShort(r.date_debut):isoToShort(todayISO()))+'" oninput="maskDate(this)" onblur="fixDate(this)"></div>'+
+      '<div class="field"><label>Fin (facultatif)</label><input id="rc-fin" class="date datef" inputmode="numeric" maxlength="8" placeholder="JJ/MM/AA" value="'+(r&&r.date_fin?isoToShort(r.date_fin):'')+'" oninput="maskDate(this)" onblur="fixDate(this)"></div>'+
+      '<div class="field"><label>Commentaire</label><input id="rc-com" value="'+esc(r&&r.commentaire?r.commentaire:'')+'"></div>'+
+    '</div>'+
+    '<div style="font-size:.8rem;color:var(--ink-3)">Les \u00e9ch\u00e9ances pass\u00e9es sont g\u00e9n\u00e9r\u00e9es automatiquement jusqu\u2019\u00e0 aujourd\u2019hui (en non point\u00e9). La prochaine \u00e9ch\u00e9ance \u00e0 venir est affich\u00e9e d\u2019avance en <b>pr\u00e9visionnel</b>.</div>';
+  let data=null;
+  const ok=await dlgOpen({title:id?'Modifier l’opération récurrente':'Nouvelle opération récurrente',msg:'',html,wide:true,
+    buttons:[{t:'Annuler',v:false},{t:'Enregistrer',v:true,p:true,before:()=>{
+      const g=x=>document.getElementById(x),val=x=>g(x)?g(x).value.trim():'';
+      const dISO=frToISO(val('rc-d'));
+      if(!dISO){toast('Première échéance invalide');return false;}
+      let mc=Math.abs(parseMontantC(val('rc-m')));
+      if(!mc){toast('Montant manquant');return false;}
+      const estVir=g('rc-s').value==='virement';
+      if(g('rc-s').value==='debit'||estVir)mc=-mc;
+      if(estVir){
+        const cible=+g('rc-vircompte').value;
+        if(!cible||cible===+g('rc-cpt').value){toast('Choisis un autre compte de destination');return false;}
+        const finISOv=val('rc-fin')?frToISO(val('rc-fin')):null;
+        let freqv=g('rc-f').value,ivv=1;if(freqv==='__perso'){freqv=g('rc-u').value;ivv=Math.max(1,parseInt(val('rc-iv'),10)||1);}
+        let catVr=[val('rc-c0'),val('rc-c1'),val('rc-c2')].filter(Boolean).join(' : ');
+        if(!isVirCat(catVr))catVr='Virement interne'+(catVr?' : '+catVr:'');
+        data={compte_id:+g('rc-cpt').value,type:'virement',montant:mc,compte_cible:cible,
+          tiers:scal('SELECT nom FROM compte WHERE id=?',[cible]),cat_path:catVr,commentaire:val('rc-com')||null,
+          frequence:freqv,intervalle:ivv,jour:+dISO.slice(8,10),date_debut:dISO,date_fin:finISOv,creer_en:'previsionnel',ventil:null};
+        return;
+      }
+      const ventile=g('rc-vent')&&g('rc-vent').checked;
+      let cats,ventil=null;
+      if(ventile){
+        const brut=(state.rcVent||[]).map(l=>({cat:(l.cat||'').trim(),m:rcVentCentimes(l.m)||0})).filter(l=>l.cat&&l.m!==0);
+        if(brut.length<2){toast('Ajoute au moins deux catégories, ou décoche la répartition');return false;}
+        const som=brut.reduce((t,l)=>t+l.m,0);
+        if(som!==mc){toast('La répartition ('+eur(som)+') doit égaler le montant ('+eur(mc)+')');return false;}
+        ventil=brut.map(l=>({cat:l.cat,montant:l.m}));
+        const tetes=[...new Set(brut.map(l=>l.cat.split(/\s*:\s*/)[0]))];
+        cats=tetes.slice(0,2).join(' + ')+(tetes.length>2?' + …':'');
+      }else{
+        cats=[val('rc-c0'),val('rc-c1'),val('rc-c2')].filter(Boolean).join(' : ');
+        if(!cats){toast('Indique au moins une catégorie');return false;}
+      }
+      const finISO=val('rc-fin')?frToISO(val('rc-fin')):null;
+      let freq=g('rc-f').value,iv=1;
+      if(freq==='__perso'){freq=g('rc-u').value;iv=Math.max(1,parseInt(val('rc-iv'),10)||1);}
+      data={compte_id:+g('rc-cpt').value,type:mc<0?'debit':'credit',montant:mc,
+        tiers:val('rc-t')||null,cat_path:cats,commentaire:val('rc-com')||null,
+        frequence:freq,intervalle:iv,jour:+dISO.slice(8,10),date_debut:dISO,date_fin:finISO,
+        creer_en:'previsionnel',ventil:ventil?JSON.stringify(ventil):null,compte_cible:null};
+    }}],
+    onOpen:()=>{majSousCatsRec();rcFreqMaj();rcSensMaj();
+      state.rcVent=null;const vv=document.getElementById('rc-vent');if(vv)vv.checked=false;
+      const cs=document.getElementById('rc-cat-simple'),vb=document.getElementById('rc-vent-box');
+      if(cs)cs.style.display='';if(vb)vb.style.display='none';
+      if(r&&r.ventil){try{const arr=JSON.parse(r.ventil);if(arr&&arr.length>1){
+        const opSign=r.montant<0?-1:1;
+        state.rcVent=arr.map(l=>{const meme=(l.montant===0)||(Math.sign(l.montant)===opSign);return {cat:l.cat||'',m:(meme?'':'-')+fmt.format(Math.abs(l.montant)/100)};});
+        if(vv)vv.checked=true;rcVentToggle(true);
+      }}catch(e){}}
+      const vir=document.getElementById('rc-s').value==='virement';const foc=document.getElementById(vir?'rc-m':'rc-t');if(foc)foc.focus();}});
+  if(!ok||!data)return;
+  if(id){
+    run(`UPDATE recurrence SET compte_id=?,type=?,montant=?,tiers=?,cat_path=?,commentaire=?,
+        frequence=?,intervalle=?,jour=?,date_debut=?,date_fin=?,creer_en=?,ventil=?,compte_cible=? WHERE id=?`,
+      [data.compte_id,data.type,data.montant,data.tiers,data.cat_path,data.commentaire,
+       data.frequence,data.intervalle,data.jour,data.date_debut,data.date_fin,data.creer_en,data.ventil,data.compte_cible||null,id]);
+    regenererRecurrence(id);   // recale la prochaine échéance et régénère les occurrences intactes
+    touch('Récurrence modifiée',(data.tiers||'')+' · '+eur(data.montant));
+  }else{
+    run(`INSERT INTO recurrence(compte_id,type,montant,tiers,cat_path,commentaire,frequence,intervalle,jour,date_debut,date_fin,prochaine,creer_en,ventil,compte_cible,actif,date_creation)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)`,
+      [data.compte_id,data.type,data.montant,data.tiers,data.cat_path,data.commentaire,
+       data.frequence,data.intervalle,data.jour,data.date_debut,data.date_fin,data.date_debut,data.creer_en,data.ventil,data.compte_cible||null,nowTS()]);
+    touch('Récurrence créée',(data.tiers||'')+' · '+eur(data.montant));
+  }
+  const nb=genererRecurrences();
+  render();
+  if(nb)toast(nb+' échéance(s) générée(s)');
+}
+async function toggleRec(id,on){
+  if(!on){run('UPDATE recurrence SET actif=0 WHERE id=?',[id]);touch('Récurrence suspendue','');render();return;}
+  // réactivation : compter les échéances manquées pendant la suspension
+  const r=qy('SELECT * FROM recurrence WHERE id=?',[id])[0];const auj=todayISO();
+  let p=r.prochaine,manques=0,g=0;
+  while(p&&p<=auj&&(!r.date_fin||p<=r.date_fin)&&g<600){if(!_occExiste(id,p))manques++;p=avancerDate(p,r.frequence,r.jour,r.intervalle);g++;}
+  run('UPDATE recurrence SET actif=1 WHERE id=?',[id]);
+  if(manques>0){
+    const choix=await dlgOpen({title:'Réactiver la récurrence',
+      msg:manques+' échéance(s) sont arrivées à terme pendant la suspension. Comment reprendre ?',
+      buttons:[{t:'Tout rattraper',v:'all',p:true},{t:'Reprendre à une date…',v:'date'},{t:'Seulement à partir de la prochaine à venir',v:'next'}]});
+    if(choix==='next'){
+      let q=r.prochaine,gg=0;while(q&&q<=auj&&gg<600){q=avancerDate(q,r.frequence,r.jour,r.intervalle);gg++;}
+      run('UPDATE recurrence SET prochaine=? WHERE id=?',[q,id]);
+    }else if(choix==='date'){
+      const d=await demanderDate('Reprendre à partir du',auj);
+      if(d)run('UPDATE recurrence SET prochaine=?,jour=? WHERE id=?',[d,+d.slice(8,10),id]);
+    }
+    // 'all' ou annulé : on laisse prochaine tel quel -> tout rattraper
+  }
+  const nb=genererRecurrences();touch('Récurrence réactivée','');render();
+  if(nb)toast(nb+' échéance(s) générée(s)');
+}
+async function supprRec(id){
+  const r=qy('SELECT tiers,montant FROM recurrence WHERE id=?',[id])[0];
+  if(!await dlgConfirm('Supprimer cette opération récurrente ?\n\nLes opérations déjà générées ne sont pas touchées.',
+    'Supprimer la récurrence','Supprimer',true))return;
+  run('DELETE FROM recurrence WHERE id=?',[id]);
+  touch('Récurrence supprimée',(r&&r.tiers||'')+'');render();
+}
+
+/* ============================================================
+   Comparaison avec un relevé PDF
+   ============================================================ */
+function relDateISO(s){const m=(s||'').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);return m?(m[3]+'-'+m[2]+'-'+m[1]):null;}
+function relMontant(s){let t=(s||'').replace(/\s/g,'').replace(/\./g,'').replace(',','.');
+  const v=parseFloat(t);return isNaN(v)?null:Math.round(v*100);}
+function addDays(iso,n){const d=new Date(iso+'T00:00:00');d.setDate(d.getDate()+n);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function normLib(s){return (s||'').toUpperCase().replace(/[^A-Z0-9 ]/g,' ').replace(/\s+/g,' ').trim();}
+const BRUIT=/^(PAIEMENT|CB|PSC|PRLV|SEPA|VIR|VIREMENT|CARTE|REF|FACTURE|ECHEANCE|DU|DE|LE|CHEQUE|N|RETRAIT|DAB)$/;
+function motsUtiles(lib){return normLib(lib).split(' ').filter(m=>m.length>2&&!BRUIT.test(m)&&!/^\d+$/.test(m));}
+
+/* Rapprochement UNIQUEMENT sur les nombres : montant strictement égal,
+   date de l'opération (jamais la date de valeur) à +/- TOL_J jours.
+   Les opérations DÉJÀ RAPPROCHÉES participent à la recherche exacte,
+   pour ne jamais proposer de recréer un doublon de ce qui est soldé. */
+const TOL_J=5;
+function comparer(relOps,appOps){
+  const pris=new Set(),res={rapproches:[],deja:[],proches:[],aCreer:[],ignores:[]};
+  const dates=relOps.map(o=>o.date).filter(Boolean).sort();
+  const dMin=dates[0],dMax=dates[dates.length-1];
+  const ecart=(a,b)=>Math.round((new Date(a)-new Date(b))/86400000);
+  const fen=(r,a)=>Math.abs(ecart(r.date,a.date))<=TOL_J;
+  const valides=relOps.filter(r=>r.date&&r.montant!=null);
+
+  // PASSE 1 — montants STRICTEMENT égaux : ils sont prioritaires sur tout le reste
+  const reste=[];
+  for(const r of valides){
+    let c=appOps.filter(a=>!pris.has(a.id)&&a.montant===r.montant&&fen(r,a));
+    if(!c.length){reste.push(r);continue;}
+    c.sort((x,y)=>Math.abs(ecart(r.date,x.date))-Math.abs(ecart(r.date,y.date)));
+    const a=c[0];pris.add(a.id);
+    const item={rel:r,app:a,ecartJours:ecart(r.date,a.date),ambigu:c.length>1,on:true,
+      cands:c.slice(0,8).map(z=>({id:z.id,date:z.date,montant:z.montant,dest:z.dest,cat:z.cat,statut:z.statut}))};
+    if(a.statut==='rapproche'){item.on=false;res.deja.push(item);}else res.rapproches.push(item);
+  }
+  // PASSE 2 — montants proches, uniquement sur ce qui n'a pas trouvé son jumeau exact
+  for(const r of reste){
+    const seuil=Math.max(100,Math.round(Math.abs(r.montant)*0.02));
+    let pr=appOps.filter(a=>!pris.has(a.id)&&a.statut!=='rapproche'&&fen(r,a)&&
+      Math.sign(a.montant)===Math.sign(r.montant)&&Math.abs(a.montant-r.montant)<=seuil);
+    if(pr.length){
+      pr.sort((x,y)=>Math.abs(x.montant-r.montant)-Math.abs(y.montant-r.montant));
+      pris.add(pr[0].id);   // réservée : ne pas la proposer à une autre ligne du relevé
+      res.proches.push({rel:r,app:pr[0],ecartMontant:pr[0].montant-r.montant,
+        ecartJours:ecart(r.date,pr[0].date),on:false,cands:pr.slice(0,8).map(z=>({id:z.id,date:z.date,montant:z.montant,dest:z.dest,cat:z.cat,statut:z.statut}))});
+    }else res.aCreer.push({rel:r,on:true});
+  }
+  // PASSE 3 — dans les comptes, absentes du relevé (hors déjà rapprochées)
+  for(const a of appOps){
+    if(pris.has(a.id)||a.statut==='rapproche')continue;
+    if(dMin&&a.date<addDays(dMin,-TOL_J))continue;
+    if(dMax&&a.date>addDays(dMax,TOL_J))continue;
+    if(res.proches.some(x=>x.app.id===a.id))continue;
+    res.ignores.push({app:a});
+  }
+  return res;
+}
+function proposer(libelle,tiersList){
+  const mots=motsUtiles(libelle);let best=null,bs=0;
+  for(const t of tiersList){const nt=normLib(t.nom);if(nt.length<3)continue;let sc=0;
+    if(normLib(libelle).includes(nt))sc=nt.length*2;
+    else{const mt=motsUtiles(t.nom),inter=mt.filter(m=>mots.includes(m));if(inter.length)sc=inter.join('').length;}
+    if(sc>bs){bs=sc;best=t;}}
+  if(best)return {tiers:best.nom,cat:best.cat||'À trier',trouve:true};
+  return {tiers:(mots.slice(0,3).join(' ')||normLib(libelle).slice(0,40)||'Inconnu'),cat:'À trier',trouve:false};
+}
+
+/* --- lecture du PDF : reconstitution des lignes puis des opérations --- */
+function lignesDePage(items){
+  const L={};
+  items.forEach(i=>{const s=(i.str||'').trim();if(!s)return;
+    const k=Math.round(i.transform[5]/3);
+    (L[k]=L[k]||[]).push({s,x:Math.round(i.transform[4])});});
+  return Object.keys(L).sort((a,b)=>b-a).map(k=>{
+    const ln=L[k].sort((a,b)=>a.x-b.x);ln.y=k*3;return ln;});
+}
+/* bas de page : mentions légales, adresses, pagination — jamais un libellé d'opération */
+const PIED=/(protection des comptes|garantie des d.p.ts|sous r.serve des extournes|caisse de cr.dit mutuel|soci.t. coop.rative|tva intracommunautaire|m.diateur|orias|rcs |r.gie par les art|www\.|page \d|suite au verso|appel non surtax)/i;
+const RE_MONTANT=/^\d{1,3}(?:\.?\d{3})*,\d{2}$/;
+function parseReleve(pagesItems){
+  const comptes=[];let cur=null,lastOp=null,lastOpY=0,seuil=475;
+  for(const items of pagesItems){
+    for(const ln of lignesDePage(items)){
+      const txt=ln.map(i=>i.s).join(' ');
+      const dbt=ln.find(i=>/^D.bit/i.test(i.s)),cdt=ln.find(i=>/^Cr.dit/i.test(i.s));
+      if(dbt&&cdt){seuil=Math.round((dbt.x+cdt.x)/2);continue;}
+      if(/^(C\/C|LIVRET|PEL|CSL|CEL|LDD|COMPTE)\b/i.test(txt)&&/en euros/i.test(txt)){
+        cur={titre:txt.trim(),cle:cleReleveCompte(txt),ops:[],soldes:[]};comptes.push(cur);lastOp=null;continue;}
+      if(!cur)continue;
+      if(PIED.test(txt)){lastOp=null;continue;}
+      const mt=ln.find(i=>i.x>350&&RE_MONTANT.test(i.s));
+      if(/SOLDE\s+(CR.DITEUR|D.BITEUR)/i.test(txt)){
+        if(mt){const v=relMontant(mt.s);const neg=/D.BITEUR/i.test(txt);
+          const d=(txt.match(/(\d{2}\/\d{2}\/\d{4})/)||[])[1];
+          cur.soldes.push({date:relDateISO(d||''),montant:neg?-v:v});}
+        lastOp=null;continue;}
+      // les dates sont repérées partout et retirées du libellé ;
+      // la 1re est la date d'opération, la 2e la date de valeur (non utilisée)
+      const RE_D=/^\d{2}\/\d{2}\/\d{4}$/;
+      const datesLn=ln.filter(i=>RE_D.test(i.s)&&i.x<260);
+      const estDate=datesLn.length>0&&datesLn[0].x<160;
+      const lib=ln.filter(i=>i.x>=100&&i.x<380&&!RE_D.test(i.s)&&i!==mt).map(i=>i.s).join(' ').trim();
+      if(estDate&&mt){
+        const v=relMontant(mt.s);
+        lastOp={date:relDateISO(datesLn[0].s),dateValeur:datesLn[1]?relDateISO(datesLn[1].s):null,
+                montant:mt.x<seuil?-v:v,libelle:lib,colonne:mt.x<seuil?'débit':'crédit',xm:mt.x};
+        cur.ops.push(lastOp);
+        lastOpY=ln.y;
+      }else if(lib&&lastOp&&!estDate){
+        // une ligne de continuation doit être JUSTE en dessous de son opération
+        // et ne pas ressembler au pied de page
+        if(PIED.test(txt)||Math.abs(lastOpY-ln.y)>26){lastOp=null;continue;}
+        lastOp.libelle=(lastOp.libelle+' '+lib).trim();
+        lastOpY=ln.y;
+      }
+    }
+  }
+  return fusionnerComptes(comptes.filter(c=>c.ops.length));
+}
+/* clé d'un compte : son numéro si présent, sinon le type + le titre nettoyé.
+   Sert à réunir un même compte réparti sur plusieurs pages. */
+function cleReleveCompte(titre){
+  const num=(titre.match(/N[°o]\s*([0-9 ]{6,})/i)||[])[1];
+  if(num)return 'n:'+num.replace(/\s/g,'');
+  return 't:'+normLib(titre).replace(/EN EUROS.*$/,'').trim();
+}
+/* réunit les blocs de même clé : opérations concaténées (doublons éludés),
+   soldes fusionnés en gardant le plus ancien et le plus récent. */
+function fusionnerComptes(list){
+  const par={},ordre=[];
+  for(const c of list){
+    if(!par[c.cle]){par[c.cle]={titre:c.titre,cle:c.cle,ops:[],soldes:[]};ordre.push(c.cle);}
+    const d=par[c.cle];
+    for(const o of c.ops){
+      if(d.ops.some(z=>z.date===o.date&&z.montant===o.montant&&z.libelle===o.libelle))continue;
+      d.ops.push(o);
+    }
+    for(const s of c.soldes){
+      if(d.soldes.some(z=>z.date===s.date&&z.montant===s.montant))continue;
+      d.soldes.push(s);
+    }
+  }
+  const out=ordre.map(k=>par[k]);
+  out.forEach(c=>{
+    c.ops.sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+    c.soldes.sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+    // ne conserver que le solde le plus ancien et le plus récent (début / fin de période)
+    if(c.soldes.length>2)c.soldes=[c.soldes[0],c.soldes[c.soldes.length-1]];
+  });
+  return out;
+}
+async function lirePdf(buf){
+  pdfjsLib.GlobalWorkerOptions.workerSrc='vendor/pdf.worker.min.js';
+  const doc=await pdfjsLib.getDocument({data:buf,isEvalSupported:false,disableFontFace:true}).promise;
+  const pages=[];
+  for(let i=1;i<=doc.numPages;i++){const pg=await doc.getPage(i);pages.push((await pg.getTextContent()).items);}
+  return pages;
+}
+
+/* --- état de la comparaison en cours (en mémoire, pas en base) --- */
+let REL=null;   // {comptes:[...], idx, compteId, relCompte, res}
+
+async function chargerReleve(inp){
+  const f=inp.files&&inp.files[0];inp.value='';if(!f)return;
+  if(REL&&REL.res){
+    const ok=await dlgConfirm('Une comparaison est déjà en cours sur ce relevé.\n\n'+
+      'La reprendre par « Relevé en cours » dans la barre de gauche, ou l’abandonner pour démarrer celle-ci ?',
+      'Comparaison en cours','Abandonner et recommencer',true);
+    if(!ok){setView('releve');return;}
+    REL=null;majNavReleve();
+  }
+  busy('Lecture du relevé…');await nextFrame();
+  let comptes;
+  try{comptes=parseReleve(await lirePdf(new Uint8Array(await f.arrayBuffer())));}
+  catch(e){unbusy();await dlgAlert('Lecture du PDF impossible : '+e.message,'Erreur');return;}
+  unbusy();
+  if(!comptes.length){await dlgAlert("Aucune opération reconnue dans ce PDF.\n\nL'analyse attend un relevé avec les colonnes Date / Opération / Débit / Crédit.",'Relevé illisible');return;}
+  REL={comptes,idx:0,compteId:null,relCompte:null,res:null,filtre:null,amexTraite:false,amexManquants:null,amexTrace:null};
+  demarrerCompte(0);
+}
+
+async function demarrerCompte(i){
+  if(!REL)return;
+  REL.amexTraite=false;REL.amexManquants=null;REL.amexACreer=null;REL.amexTrace=null;
+  if(i>=REL.comptes.length){
+    const n=REL.comptes.length;REL=null;majNavReleve();
+    if(state.view==='releve')setView('registre');else render();
+    await dlgAlert('Tous les comptes du relevé ont été traités ('+n+').','Comparaison terminée');
+    return;}
+  REL.idx=i;
+  const rc=REL.comptes[i],d=rc.ops.map(o=>o.date).filter(Boolean).sort();
+  const cptApp=qy('SELECT id,nom FROM compte WHERE actif=1 ORDER BY ordre_affichage,id');
+  const numRel=numeroDuTitre(rc);
+  const auto=compteCorrespondant(numRel)||state.acc;
+  const html='<div style="font-size:.9rem;margin-bottom:12px"><b>Compte '+(i+1)+' sur '+REL.comptes.length+'</b><br>'+
+    '<span style="color:var(--ink-2)">'+esc(rc.titre.slice(0,70))+'</span><br>'+
+    '<span style="color:var(--ink-3);font-size:.84rem">'+rc.ops.length+' opérations'+
+    (d.length?' du '+isoToFr(d[0])+' au '+isoToFr(d[d.length-1]):'')+'</span></div>'+
+    '<div class="field"><label>Rapprocher avec le compte</label><select id="rDst" style="width:100%">'+
+    cptApp.map(c=>'<option value="'+c.id+'"'+(c.id===auto?' selected':'')+'>'+esc(c.nom)+'</option>').join('')+
+    '</select></div>'+
+    (compteCorrespondant(numRel)?'<div class="hint" style="color:var(--credit);margin-top:6px">✓ Compte reconnu par son numéro'+(numRel?' ('+numRel.slice(-5)+')':'')+'</div>':
+      (numRel?'<div class="hint" style="margin-top:6px">Numéro du relevé : …'+numRel.slice(-5)+'. Astuce : renseigne ce numéro sur ton compte (double-clic sur le compte à gauche) pour la reconnaissance automatique.</div>':''));
+  let dst=null;
+  const ok=await dlgOpen({title:'Comparer un relevé',msg:'',html,focusBtn:true,
+    buttons:[{t:'Ignorer ce compte',v:'skip'},{t:'Comparer',v:true,p:true,before:()=>{
+      const e=document.getElementById('rDst');if(!e)return false;dst=+e.value;}}]});
+  if(ok==='skip'){demarrerCompte(i+1);return;}
+  if(!ok||dst==null){REL=null;majNavReleve();render();return;}
+  lancerComparaison(rc,dst);
+}
+
+function lancerComparaison(relCompte,compteId,garderVue){
+  const appOps=qy(`SELECT o.id,o.date_operation date,o.montant,o.statut,t.nom dest,o.cat_path cat
+    FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id
+    WHERE o.compte_id=? AND o.supprime=0 AND o.statut<>'annule' AND o.previsionnel=0`,[compteId]);
+  const res=comparer(relCompte.ops,appOps);
+  // catégorie la plus FRÉQUENTE du tiers (à égalité, la plus récente)
+  const tiersList=qy(`SELECT t.nom nom,(SELECT o.cat_path FROM operation o
+      WHERE o.tiers_id=t.id AND o.supprime=0 AND o.cat_path IS NOT NULL
+      GROUP BY o.cat_path ORDER BY COUNT(*) DESC, MAX(o.date_operation) DESC LIMIT 1) cat
+    FROM tiers t`);
+  res.aCreer.forEach(x=>{x.prop=proposer(x.rel.libelle,tiersList);});
+  REL.compteId=compteId;REL.relCompte=relCompte;REL.res=res;REL.filtre=null;
+  if(REL.amexTraite){['aCreer','proches','rapproches','deja','ignores'].forEach(sec=>{
+    if(REL.res[sec])REL.res[sec]=REL.res[sec].filter(x=>!(x.rel&&RE_AMEX.test(x.rel.libelle||'')));});}
+  if(REL.amexACreer&&REL.amexACreer.length)REL.res.aCreer=(REL.res.aCreer||[]).concat(REL.amexACreer);
+  majNavReleve();
+  if(garderVue)render(); else setView('releve');
+}
+function majNavReleve(){const a=document.getElementById('nav-releve');if(a)a.style.display=REL&&REL.res?'flex':'none';}
+function relTog(sec,i,on){if(REL&&REL.res&&REL.res[sec]&&REL.res[sec][i])REL.res[sec][i].on=on;}
+function relCoche(sec,on){if(!REL||!REL.res)return;REL.res[sec].forEach(x=>x.on=on);renderReleve();}
+
+/* ===== relevé American Express (CSV séparé) ===== */
+const RE_AMEX=/AMERICAN\s*EXPRESS|AMEX/i;
+function csvSplit(line){const out=[];let cur='',q=false;
+  for(let i=0;i<line.length;i++){const c=line[i];
+    if(q){if(c==='"'){if(line[i+1]==='"'){cur+='"';i++;}else q=false;}else cur+=c;}
+    else{if(c==='"')q=true;else if(c===','){out.push(cur);cur='';}else cur+=c;}}
+  out.push(cur);return out;}
+function usDateToISO(s){const m=(s||'').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);if(!m)return null;
+  const mo=+m[1],d=+m[2],y=+m[3];if(mo<1||mo>12||d<1||d>31)return null;
+  return y+'-'+String(mo).padStart(2,'0')+'-'+String(d).padStart(2,'0');}
+function parseAmexCSV(text){
+  const rows=text.split(/\r?\n/).filter(l=>l.trim());if(!rows.length)return [];
+  let start=(/date/i.test(rows[0])&&/montant/i.test(rows[0]))?1:0;
+  const lignes=[];
+  for(let i=start;i<rows.length;i++){
+    const c=csvSplit(rows[i]);if(c.length<5)continue;
+    const d=usDateToISO(c[0]);const desc=(c[1]||'').replace(/\s+/g,' ').trim();
+    const m=parseMontantC((c[c.length-1]||'').replace(/"/g,''));
+    if(d&&m!=null)lignes.push({date:d,desc,montant:m});
+  }
+  return lignes;
+}
+/* repère les lignes Amex dans le relevé en cours */
+function amexLignesReleve(){
+  if(!REL||!REL.res)return [];
+  const out=[];
+  ['rapproches','deja','proches','aCreer'].forEach(sec=>{
+    (REL.res[sec]||[]).forEach((x,i)=>{if(x.rel&&RE_AMEX.test(x.rel.libelle||''))out.push({sec,i,x});});
+  });
+  return out;
+}
+function detaillerAmex(){document.getElementById('fileAmex').click();}
+async function chargerAmexCSV(inp){
+  const file=inp.files&&inp.files[0];inp.value='';if(!file)return;
+  let lignes=[];
+  try{lignes=parseAmexCSV(await file.text());}catch(e){await dlgAlert('Fichier CSV illisible : '+e.message,'Erreur');return;}
+  if(!lignes.length){await dlgAlert('Aucune transaction lue dans ce CSV.','CSV vide');return;}
+  amexDialog(lignes);
+}
+async function amexDialog(lignes){
+  const amex=amexLignesReleve();
+  // les lignes de prélèvement (paiement à Amex) sont le prélèvement bancaire lui-même : à ignorer
+  const estPaiement=l=>/PRELEV|MERCI|REGLEMENT|REMBOURSEMENT\s+CB/i.test(l.desc||'');
+  const aPointer=lignes.filter(l=>!estPaiement(l));
+  const ignorees=lignes.filter(estPaiement);
+  const pris=new Set();
+  const res=aPointer.map(l=>{
+    const cands=qy(`SELECT id,date_operation d,montant m,statut s,(SELECT nom FROM tiers WHERE id=tiers_id) t
+      FROM operation o WHERE compte_id=? AND supprime=0 AND previsionnel=0 AND statut<>'rapproche' AND ABS(montant)=?
+      ORDER BY ABS(julianday(date_operation)-julianday(?)) ASC`,[REL.compteId,Math.abs(l.montant),l.date]);
+    const op=cands.find(c=>!pris.has(c.id)&&Math.abs(Math.round((new Date(c.d)-new Date(l.date))/86400000))<=62);
+    if(op)pris.add(op.id);
+    return {csv:l,op:op||null};
+  });
+  const nbTrouve=res.filter(r=>r.op).length;
+  const nbAPointer=res.filter(r=>r.op&&r.op.s!=='pointe').length;
+  const nbManque=res.filter(r=>!r.op).length;
+  // vérification des montants
+  const sommeAchats=aPointer.reduce((t,l)=>t+Math.abs(l.montant),0);        // total des achats du CSV
+  const sommeTrouvees=res.filter(r=>r.op).reduce((t,r)=>t+Math.abs(r.op.m),0); // total des opérations retrouvées
+  const ligneRel=amex.length?amex[0].x.rel:null;
+  const cible=ligneRel?Math.abs(ligneRel.montant):null;                     // montant de la ligne du relevé
+  const coherent=(cible!=null)&&cible===sommeAchats;                         // égalité exacte (aucune tolérance)
+  const verif='<div class="card" style="padding:9px 12px;margin-bottom:10px;'+(cible!=null&&!coherent?'border-color:var(--debit)':'')+'">'+
+    '<div>Total des achats (CSV) : <b class="num">'+eur(sommeAchats)+'</b></div>'+
+    '<div>Total des opérations retrouvées dans tes comptes : <b class="num">'+eur(sommeTrouvees)+'</b></div>'+
+    (cible!=null?'<div>Ligne du relevé bancaire : <b class="num">'+eur(cible)+'</b></div>'+
+      '<div style="margin-top:4px">'+(coherent?'<span style="color:var(--credit)">✓ Les achats correspondent au montant prélevé.</span>':
+        '<span style="color:var(--debit)">Écart de '+eur(Math.abs(cible-sommeAchats))+' entre les achats et le prélèvement</span> — le CSV couvre peut-être une autre période.')+'</div>':'')+
+    '</div>';
+  const rows=[];
+  res.forEach(r=>{const l=r.csv;
+    const etat=r.op
+      ? '<span style="color:'+(r.op.s==='pointe'?'#2563EB':'var(--credit)')+'">'+(r.op.s==='pointe'?'déjà pointée':'✓ trouvée')+'</span>'
+        +' <span class="sub">('+isoToFr(r.op.d)+(r.op.t?' · '+esc(r.op.t):'')+')</span>'
+      : '<span style="color:var(--debit)">à saisir dans tes comptes</span>';
+    rows.push('<tr><td class="num">'+isoToFr(l.date)+'</td><td>'+esc(l.desc)+'</td><td class="num r">'+eur(l.montant)+'</td><td>'+etat+'</td></tr>');});
+  ignorees.forEach(l=>rows.push('<tr style="opacity:.55"><td class="num">'+isoToFr(l.date)+'</td><td>'+esc(l.desc)+'</td><td class="num r">'+eur(l.montant)+'</td><td><span class="sub">ignorée (c’est le prélèvement Amex)</span></td></tr>'));
+  const html=
+    '<div style="margin-bottom:10px">'+aPointer.length+' achat(s) Amex à rapprocher'+(ignorees.length?' ('+ignorees.length+' ligne(s) de prélèvement ignorée(s))':'')+'. '+
+      '<b>'+nbTrouve+'</b> retrouvé(s) dans tes comptes'+(nbManque?', <b style="color:var(--debit)">'+nbManque+' à saisir</b>':'')+'.</div>'+
+    verif+
+    '<div class="rlues" style="max-height:300px;overflow:auto;border:1px solid var(--line);border-radius:8px">'+
+      '<table class="auto" style="width:100%"><thead><tr><th>Date</th><th>Descriptif</th><th class="r">Montant</th><th>Dans tes comptes</th></tr></thead>'+
+      '<tbody>'+rows.join('')+'</tbody></table></div>'+
+    '<div style="font-size:.82rem;color:var(--ink-3);margin-top:8px">En validant : les opérations <b>retrouvées</b> seront <b>pointées</b>, et la ligne « American Express » du relevé sera retirée (traitée). '+
+      'Les lignes non retrouvées seront <b>proposées à la création</b> dans « À créer » (avec le destinataire et sa catégorie la plus fréquente si connu), à valider comme le reste.</div>';
+  const boutons=[{t:'Fermer',v:false},{t:(nbAPointer>0?('Pointer '+nbAPointer+' et traiter la ligne Amex'):'Traiter la ligne Amex'),v:true,p:true}];
+  const ok=await dlgOpen({title:'Rapprochement American Express',msg:'',html,wide:true,buttons:boutons});
+  if(!ok)return;
+  pointerAmex(res);
+}
+function pointerAmex(res){
+  let n=0;
+  res.forEach(r=>{
+    if(r.op){
+      // marquer l'opération comme Amex (numéro) + pointer si pas déjà pointée/rapprochée
+      const pointe=(r.op.s!=='pointe'&&r.op.s!=='rapproche');
+      if(pointe){run("UPDATE operation SET statut='pointe',numero='AMEX',date_modification=? WHERE id=?",[nowTS(),r.op.id]);n++;}
+      else{run("UPDATE operation SET numero='AMEX',date_modification=? WHERE id=?",[nowTS(),r.op.id]);}
+    }
+  });
+  // la ligne Amex du relevé est retirée des sections de rapprochement (traitée via le CSV)
+  REL.amexTraite=true;
+  ['aCreer','proches','rapproches','deja','ignores'].forEach(sec=>{
+    if(REL.res[sec])REL.res[sec]=REL.res[sec].filter(x=>!(x.rel&&RE_AMEX.test(x.rel.libelle||'')));
+  });
+  // les achats non retrouvés sont PROPOSÉS à la création (comme le reste), montant en débit
+  const tiersList=qy(`SELECT t.nom nom,(SELECT o.cat_path FROM operation o
+      WHERE o.tiers_id=t.id AND o.supprime=0 AND o.cat_path IS NOT NULL
+      GROUP BY o.cat_path ORDER BY COUNT(*) DESC, MAX(o.date_operation) DESC LIMIT 1) cat FROM tiers t`);
+  REL.amexACreer=res.filter(r=>!r.op).map(r=>{
+    const rel={date:r.csv.date,montant:-Math.abs(r.csv.montant),libelle:r.csv.desc};
+    return {rel,on:true,prop:proposer(r.csv.desc,tiersList),amex:true};
+  });
+  REL.res.aCreer=(REL.res.aCreer||[]).concat(REL.amexACreer);
+  touch('Rapprochement Amex',n+' opération(s) marquée(s) AMEX');
+  render();
+  toast(n+' opération(s) pointée(s) — ligne Amex traitée'+(REL.amexACreer.length?' ('+REL.amexACreer.length+' proposée(s) à créer)':''));
+}
+
+
+function renderReleve(){
+  if(!REL||!REL.res){document.getElementById('rl-corps').innerHTML=
+    '<div class="card" style="color:var(--ink-3)">Aucune comparaison en cours. Utilise « Comparer un relevé PDF » en haut.</div>';
+    document.getElementById('rl-ctrl').innerHTML='';document.getElementById('rl-chips').innerHTML='';
+    document.getElementById('rl-meta').textContent='';return;}
+  const r=REL.res,rc=REL.relCompte;
+  const nomC=scal('SELECT nom FROM compte WHERE id=?',[REL.compteId])||'';
+  document.getElementById('rl-titre').textContent='Relevé — compte '+(REL.idx+1)+' sur '+REL.comptes.length;
+  document.getElementById('rl-meta').innerHTML=esc(rc.titre.slice(0,80))+' &nbsp;→&nbsp; <b>'+esc(nomC)+'</b>'+
+    ' · rapprochement sur le montant exact et la date, à ±'+TOL_J+' jours';
+
+  // contrôle de lecture
+  let ctrl='';
+  if(rc.soldes&&rc.soldes.length>=2){
+    const som=rc.ops.reduce((t,o)=>t+o.montant,0),s0=rc.soldes[0],s1=rc.soldes[rc.soldes.length-1];
+    const att=s1.montant-s0.montant,ec=som-att;
+    const rapAct=scal(`SELECT (SELECT solde_initial FROM compte WHERE id=$a)+COALESCE(SUM(montant),0)
+      FROM operation WHERE compte_id=$a AND supprime=0 AND statut='rapproche'`,{$a:REL.compteId});
+    ctrl='<div class="card" style="padding:11px 14px;'+(ec?'border-color:var(--debit)':'')+'">'+
+      '<b>Objectif :</b> le relevé se termine sur un solde de <b class="num">'+eur(s1.montant)+'</b> au '+
+      isoToFr(s1.date||'')+'. Une fois toutes ces opérations rapprochées, ton <b>solde rapproché</b> devrait '+
+      'être exactement égal à ce montant (il est aujourd’hui de <span class="num">'+eur(rapAct)+'</span>).<br>'+
+      '<b>Contrôle de lecture :</b> '+rc.ops.length+' opérations lues, total '+eur(som)+
+      ' — variation des soldes du relevé '+eur(att)+'. '+
+      (ec===0?'<b style="color:var(--credit)">Cohérent.</b>':
+       '<b style="color:var(--debit)">Écart de '+eur(ec)+' : une ligne a peut-être été mal lue, vérifie avec « Voir les lignes lues ».</b>')+'</div>';
+  }
+  if(REL.amexTraite){
+    ctrl+='<div class="card" style="padding:10px 14px;margin-top:8px;border-color:#7C3AED">'+
+      '<b style="color:#7C3AED">American Express traité</b> — les opérations concernées portent le numéro « AMEX » (filtre/recherche « AMEX » pour les retrouver).</div>';
+  }
+  const _amex=amexLignesReleve();
+  if(_amex.length&&!REL.amexTraite){ctrl+='<div class="card" style="padding:11px 14px;margin-top:8px;border-color:#7C3AED">'+
+    '<b>American Express détectée</b> — une ligne du relevé correspond à un prélèvement Amex ('+eur(_amex[0].x.rel.montant)+'). '+
+    'Charge le relevé CSV Amex : les opérations de tes comptes qui y figurent seront pointées, et une fois toutes pointées la ligne Amex sera traitée.<br>'+
+    '<button class="primary" style="margin-top:8px" onclick="detaillerAmex()">Charger le relevé Amex (CSV) et pointer</button></div>';}
+  document.getElementById('rl-ctrl').innerHTML=ctrl;
+
+  const secs=[['rapproches','Rapprochements proposés'],['deja','Déjà rapprochées'],
+              ['proches','Montants proches — à trancher'],['aCreer','À créer'],['ignores','Absentes du relevé']];
+  document.getElementById('rl-chips').innerHTML=
+    '<span class="rchip'+(REL.filtre?'':' sel')+'" onclick="relFiltre(null)">Tout afficher</span>'+
+    secs.map(([k,l])=>'<span class="rchip'+(REL.filtre===k?' sel':'')+(r[k].length?'':' vide')+
+      '" onclick="relFiltre(\''+k+'\')" title="Cliquer pour n’afficher que cette section">'+
+      l+' <span class="n">'+r[k].length+'</span></span>').join('');
+  const vis=k=>!REL.filtre||REL.filtre===k;
+
+  const cb=(sec,i,on)=>'<input type="checkbox" '+(on?'checked ':'')+'onchange="relTog(\''+sec+'\','+i+',this.checked)">';
+  const H=(t,sec)=>'<div style="display:flex;align-items:center;gap:12px;margin:22px 0 8px">'+
+    '<h3 style="margin:0;font-size:.95rem">'+t+'</h3>'+
+    (sec?'<button class="ghost" onclick="relCoche(\''+sec+'\',true)">tout cocher</button>'+
+         '<button class="ghost" onclick="relCoche(\''+sec+'\',false)">tout décocher</button>':'')+'</div>';
+  const TH=(extra)=>'<thead><tr><th style="width:34px"></th><th style="width:96px">Date relevé</th>'+
+    '<th class="r" style="width:110px">Montant</th><th>Libellé du relevé</th><th>Opération de tes comptes</th>'+
+    (extra?'<th style="width:150px">'+extra+'</th>':'')+'</tr></thead>';
+  const card=x=>'<div class="tablecard" style="overflow:auto">'+x+'</div>';
+  let h='';
+
+  if(vis('rapproches')){h+=H('Rapprochements proposés — '+r.rapproches.length,'rapproches');
+  h+=r.rapproches.length?card('<table class="rtab">'+TH('Écart')+'<tbody>'+r.rapproches.map((x,i)=>
+    '<tr><td>'+cb('rapproches',i,x.on)+'</td><td class="num">'+isoToFr(x.rel.date)+'</td>'+
+    '<td class="r num">'+eur(x.rel.montant)+'</td><td>'+esc(x.rel.libelle)+'</td>'+
+    '<td><b>'+esc(x.app.dest||'(sans tiers)')+'</b><div class="sub">'+isoToFr(x.app.date)+' · '+esc(x.app.cat||'')+
+      ' · '+(META[x.app.statut]||{}).label+(x.manuel?' · <span style="color:var(--credit)">lié manuellement</span>':'')+'</div>'+
+      '<button class="ghost rbtn" onclick="relLier(&#39;rapproches&#39;,'+i+')">Lier à une autre…</button> '+
+      '<button class="ghost rbtn" onclick="relVersCreer(&#39;rapproches&#39;,'+i+')">Plutôt la créer</button></td>'+
+    '<td class="num">'+(x.ecartJours>0?'+':'')+x.ecartJours+' j'+
+      (x.ambigu?'<select class="rcand" onchange="relChoix('+i+',this.value)">'+
+        x.cands.map(z=>'<option value="'+z.id+'"'+(z.id===x.app.id?' selected':'')+'>'+
+          isoToFr(z.date)+' · '+esc((z.dest||'?').slice(0,18))+'</option>').join('')+'</select>':'')+
+      '</td></tr>').join('')+
+    '</tbody></table>'):'<div class="card" style="color:var(--ink-3)">Aucun.</div>';
+
+  }
+  if(vis('deja')){h+=H('Déjà rapprochées — '+r.deja.length+' (aucune action)');
+  h+=r.deja.length?card('<table class="rtab">'+TH('Écart')+'<tbody>'+r.deja.map(x=>
+    '<tr><td></td><td class="num">'+isoToFr(x.rel.date)+'</td><td class="r num">'+eur(x.rel.montant)+'</td>'+
+    '<td>'+esc(x.rel.libelle)+'</td><td><b>'+esc(x.app.dest||'')+'</b><div class="sub">'+isoToFr(x.app.date)+
+    ' · déjà rapprochée</div></td><td class="num">'+(x.ecartJours>0?'+':'')+x.ecartJours+' j</td></tr>').join('')+
+    '</tbody></table>'):'<div class="card" style="color:var(--ink-3)">Aucune.</div>';
+
+  }
+  if(vis('proches')){h+=H('Montants proches — à trancher — '+r.proches.length,'proches');
+  h+=r.proches.length?card('<table class="rtab">'+TH('Écart')+'<tbody>'+r.proches.map((x,i)=>
+    '<tr class="warn"><td>'+cb('proches',i,x.on)+'</td><td class="num">'+isoToFr(x.rel.date)+'</td>'+
+    '<td class="r num">'+eur(x.rel.montant)+'</td><td>'+esc(x.rel.libelle)+'</td>'+
+    '<td><b>'+esc(x.app.dest||'')+'</b><div class="sub">'+isoToFr(x.app.date)+' · <b>'+eur(x.app.montant)+'</b>'+(x.app.cat?' · '+esc(x.app.cat):'')+'</div>'+
+      '<button class="ghost rbtn" onclick="openModal('+x.app.id+',&#39;montant&#39;)">Modifier l’opération</button> '+
+      '<button class="ghost rbtn" onclick="relLier(&#39;proches&#39;,'+i+')">Lier à une autre…</button> '+
+      '<button class="ghost rbtn" onclick="relVersCreer(&#39;proches&#39;,'+i+')">Plutôt la créer</button></td>'+
+    '<td class="num" style="color:var(--debit)">'+eur(x.ecartMontant)+'<div class="sub">'+(x.ecartJours>0?'+':'')+x.ecartJours+' j</div></td></tr>').join('')+
+    '</tbody></table>'):'<div class="card" style="color:var(--ink-3)">Aucun.</div>';
+
+  }
+  if(vis('aCreer')){h+=H('À créer — sur le relevé, absentes des comptes — '+r.aCreer.length,'aCreer');
+  h+=r.aCreer.length?card('<table class="rtab">'+TH('')+'<tbody>'+r.aCreer.map((x,i)=>
+    '<tr><td>'+cb('aCreer',i,x.on)+'</td><td class="num">'+isoToFr(x.rel.date)+'</td>'+
+    '<td class="r num">'+eur(x.rel.montant)+'</td><td>'+esc(x.rel.libelle)+'</td>'+
+    '<td ondblclick="relEditProp('+i+')" title="Double-clic pour modifier"><b>'+esc(x.prop.tiers)+'</b>'+
+      '<div class="sub">'+esc(x.prop.cat)+(x.prop.trouve?' · tiers connu':' · nouveau tiers')+'</div>'+
+      '<button class="ghost rbtn" onclick="relEditProp('+i+')">Modifier</button> '+
+      '<button class="ghost rbtn" onclick="relLier(&#39;aCreer&#39;,'+i+')">Lier à une opération existante…</button>'+
+      '</td></tr>').join('')+
+    '</tbody></table>'):'<div class="card" style="color:var(--ink-3)">Aucune.</div>';
+
+  }
+  if(vis('ignores')){h+=H('Dans tes comptes, absentes du relevé — '+r.ignores.length+' (aucune action)');
+  h+=r.ignores.length?card('<table class="rtab"><thead><tr><th style="width:34px"></th><th style="width:96px">Date</th>'+
+    '<th class="r" style="width:110px">Montant</th><th>Opération de tes comptes</th><th></th></tr></thead><tbody>'+
+    r.ignores.map(x=>'<tr><td></td><td class="num">'+isoToFr(x.app.date)+'</td><td class="r num">'+eur(x.app.montant)+
+    '</td><td><b>'+esc(x.app.dest||'')+'</b><div class="sub">'+esc(x.app.cat||'')+' · '+(META[x.app.statut]||{}).label+'</div></td><td></td></tr>').join('')+
+    '</tbody></table>'):'<div class="card" style="color:var(--ink-3)">Aucune.</div>';
+
+  }
+  h+='<div style="font-size:.84rem;color:var(--ink-3);margin:18px 0 4px">Les lignes cochées passeront en <b>pointé</b> (bleu). '+
+     'Rien n’est rapproché définitivement : tu valideras toi-même avec le bouton « Rapprocher » du registre. '+
+     'Tu peux quitter cet écran et y revenir par « Relevé en cours » dans la barre de gauche.</div>';
+  document.getElementById('rl-corps').innerHTML=h;
+}
+
+function relFiltre(k){if(!REL)return;REL.filtre=(REL.filtre===k)?null:k;renderReleve();}
+function relChoix(i,id){
+  if(!REL||!REL.res)return;
+  const it=REL.res.rapproches[i];if(!it)return;
+  id=+id;
+  const pris=REL.res.rapproches.concat(REL.res.deja).some((z,j)=>j!==i&&z.app&&z.app.id===id);
+  if(pris){toast('Cette opération est déjà associée à une autre ligne du relevé');renderReleve();return;}
+  const c=it.cands.find(z=>z.id===id);if(!c)return;
+  it.app=c;it.ecartJours=Math.round((new Date(it.rel.date)-new Date(c.date))/86400000);
+  renderReleve();
+}
+/* ---- rattachement manuel d'une ligne du relevé à une opération du registre ---- */
+function relIdsLies(){
+  const s=new Set();
+  ['rapproches','deja','proches'].forEach(k=>REL.res[k].forEach(x=>{if(x.app)s.add(x.app.id);}));
+  return s;
+}
+function relRechFiltrer(){
+  const q=(document.getElementById('rq').value||'').toLowerCase().trim();
+  const mots=q.split(/\s+/).filter(Boolean);
+  let sql="SELECT o.id,o.date_operation d,o.montant m,o.statut s,(SELECT nom FROM tiers WHERE id=o.tiers_id) t FROM operation o WHERE o.compte_id=? AND o.supprime=0 AND o.statut<>'rapproche' AND o.statut<>'annule'";
+  const p=[REL.compteId];
+  mots.forEach(w=>{sql+=" AND o.hay LIKE ?";p.push('%'+w+'%');});
+  sql+=" ORDER BY o.date_operation DESC LIMIT 80";
+  const rows=qy(sql,p);
+  const lies=relIdsLies();
+  const box=document.getElementById('rlist');
+  box.innerHTML=rows.map(o=>{
+    const lie=lies.has(o.id),sel=REL._pick===o.id;
+    return '<div onclick="relPick('+o.id+')" style="cursor:'+(lie?'not-allowed':'pointer')+';padding:7px 9px;border-bottom:1px solid var(--line);'+
+      (sel?'background:var(--sel,rgba(80,120,255,.14));':'')+(lie?'opacity:.4;':'')+'">'+
+      '<span class="num">'+isoToFr(o.d)+'</span> &nbsp; <span class="num" style="color:'+(o.m<0?'var(--debit)':'var(--credit)')+'">'+eur(o.m)+'</span> &nbsp; '+esc(o.t||'(sans tiers)')+
+      (o.s==='pointe'?' <span class="sub">· pointé</span>':'')+(lie?' <span class="sub">· déjà liée</span>':'')+
+      '</div>';
+  }).join('')||'<div class="sub" style="padding:10px">Aucune opération trouvée. Affine ta recherche.</div>';
+}
+function relPick(id){
+  const lies=relIdsLies();if(lies.has(+id)){toast('Cette opération est déjà liée à une autre ligne');return;}
+  REL._pick=+id;relRechFiltrer();
+}
+async function relChercherOp(rel){
+  REL._pick=null;
+  const rappel=rel?('<div style="background:var(--card-alt);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:.86rem">'+
+    '<b>Ligne du relevé à lier :</b><br><span class="num">'+isoToFr(rel.date)+'</span> · <b class="num" style="color:'+(rel.montant<0?'var(--debit)':'var(--credit)')+'">'+eur(rel.montant)+'</b> · '+esc(rel.libelle||'')+'</div>'):'';
+  const html=rappel+'<div style="font-size:.82rem;color:var(--ink-3);margin-bottom:8px">Choisis dans tes comptes l’opération qui correspond à cette ligne du relevé. '+
+      'Elle passera en <b>pointé</b>, quel que soit le rapprochement proposé automatiquement.</div>'+
+    '<input id="rq" placeholder="Rechercher : nom, montant (12,34), date (JJ/MM), catégorie, n°…" style="width:100%;margin-bottom:8px" oninput="relRechFiltrer()">'+
+    '<div id="rlist" class="rlues" style="max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:8px"></div>';
+  const ok=await dlgOpen({title:'Lier à une opération du registre',msg:'',html,wide:true,
+    buttons:[{t:'Annuler',v:false},{t:'Lier',v:true,p:true,before:()=>{if(!REL._pick){toast('Choisis une opération dans la liste');return false;}}}],
+    onOpen:()=>{const q=document.getElementById('rq');if(q){q.value='';relRechFiltrer();q.focus();}}});
+  return ok?REL._pick:null;
+}
+async function relLier(section,i){
+  if(!REL||!REL.res)return;
+  const it=REL.res[section][i];if(!it||!it.rel)return;
+  const id=await relChercherOp(it.rel);
+  if(!id)return;
+  const op=qy("SELECT o.id,o.date_operation date,o.montant,(SELECT nom FROM tiers WHERE id=o.tiers_id) dest,o.cat_path cat,o.statut FROM operation o WHERE o.id=?",[id])[0];
+  if(!op)return;
+  REL.res[section].splice(i,1);
+  REL.res.rapproches.push({rel:it.rel,app:{id:op.id,date:op.date,montant:op.montant,dest:op.dest,cat:op.cat,statut:op.statut},
+    ecartJours:Math.round((new Date(it.rel.date)-new Date(op.date))/86400000),ambigu:false,on:true,manuel:true,
+    cands:[{id:op.id,date:op.date,montant:op.montant,dest:op.dest,cat:op.cat,statut:op.statut}]});
+  toast('Ligne liée manuellement');renderReleve();
+}
+function relVersCreer(section,i){
+  if(!REL||!REL.res)return;
+  const it=REL.res[section][i];if(!it||!it.rel)return;
+  const tiersList=qy(`SELECT t.nom nom,(SELECT o.cat_path FROM operation o
+      WHERE o.tiers_id=t.id AND o.supprime=0 AND o.cat_path IS NOT NULL
+      GROUP BY o.cat_path ORDER BY COUNT(*) DESC, MAX(o.date_operation) DESC LIMIT 1) cat
+    FROM tiers t`);
+  REL.res[section].splice(i,1);
+  REL.res.aCreer.push({rel:it.rel,on:true,prop:proposer(it.rel.libelle,tiersList)});
+  toast('Déplacée vers « À créer »');renderReleve();
+}
+async function relEditProp(i){
+  if(!REL||!REL.res)return;
+  const x=REL.res.aCreer[i];if(!x)return;
+  const lv=catLevels(),dl=k=>lv[k].map(v=>'<option value="'+esc(v)+'">').join('');
+  const pc=catParts(x.prop.cat);
+  const html='<div style="font-size:.82rem;color:var(--ink-3);margin-bottom:10px">Ligne du relevé : '+
+      isoToFr(x.rel.date)+' · '+eur(x.rel.montant)+'<br>'+esc(x.rel.libelle)+'</div>'+
+    '<div class="field"><label>Destinataire</label><input id="epT" list="epLT" style="width:100%" value="'+esc(x.prop.tiers)+'"></div>'+
+    '<datalist id="epLT">'+Object.keys(tiersIndex()).map(t=>'<option value="'+esc(t)+'">').join('')+'</datalist>'+
+    '<div class="row3">'+
+    '<div class="field"><label>Catégorie</label><input id="epC0" list="epL0" value="'+esc(pc[0]||'')+'"></div>'+
+    '<div class="field"><label>Sous-catégorie</label><input id="epC1" list="epL1" value="'+esc(pc[1]||'')+'"></div>'+
+    '<div class="field"><label>Sous-sous-catégorie</label><input id="epC2" list="epL2" value="'+esc(pc[2]||'')+'"></div></div>'+
+    '<datalist id="epL0">'+dl(0)+'</datalist><datalist id="epL1">'+dl(1)+'</datalist><datalist id="epL2">'+dl(2)+'</datalist>';
+  let v=null;
+  const ok=await dlgOpen({title:'Modifier l’opération à créer',msg:'',html,
+    buttons:[{t:'Annuler',v:false},{t:'Valider',v:true,p:true,before:()=>{
+      const t=document.getElementById('epT');if(!t)return false;
+      const c=[0,1,2].map(k=>{const e=document.getElementById('epC'+k);return e?e.value.trim():'';}).filter(Boolean);
+      v={tiers:t.value.trim()||'Inconnu',cat:c.join(' : ')||'À trier'};}}],
+    onOpen:()=>{const t=document.getElementById('epT');if(t){t.focus();t.select();}}});
+  if(ok&&v){x.prop.tiers=v.tiers;x.prop.cat=v.cat;x.prop.trouve=true;renderReleve();}
+}
+async function relDiag(){
+  if(!REL||!REL.relCompte){await dlgAlert('Aucune comparaison en cours.');return;}
+  const ops=REL.relCompte.ops;
+  const html='<div style="font-size:.8rem;color:var(--ink-3);margin-bottom:8px">Ce que l’application a lu dans le PDF. '+
+    'Compare avec ton relevé : si une date, un montant ou une colonne est faux, dis-le moi.</div>'+
+    '<div class="rlues"><table class="rtab"><thead><tr><th>Date</th><th>Date valeur</th><th class="r">Montant</th>'+
+    '<th>Colonne</th><th>Libellé</th></tr></thead><tbody>'+
+    ops.map(o=>'<tr><td class="num">'+isoToFr(o.date||'')+'</td><td class="num" style="color:var(--ink-3)">'+
+      isoToFr(o.dateValeur||'')+'</td><td class="r num">'+eur(o.montant)+'</td><td>'+esc(o.colonne||'')+
+      '</td><td>'+esc(o.libelle)+'</td></tr>').join('')+'</tbody></table></div>';
+  await dlgOpen({title:ops.length+' lignes lues dans le relevé',msg:'',html,wide:true,focusBtn:true,
+    buttons:[{t:'Fermer',v:true,p:true}]});
+}
+async function relAbandonner(){
+  if(!await dlgConfirm('Es-tu sûre de vouloir abandonner cette comparaison ?\n\nLes rapprochements non appliqués seront perdus (aucune opération n\'est modifiée).','Abandonner la comparaison','Abandonner',true))return;
+  REL=null;majNavReleve();setView('registre');toast('Comparaison abandonnée');
+}
+function relSuivant(demander){
+  if(!REL)return;
+  const i=REL.idx+1;
+  REL.res=null;REL.relCompte=null;majNavReleve();
+  demarrerCompte(i);
+}
+async function relAppliquer(){
+  if(!REL||!REL.res)return;
+  const r=REL.res,compteId=REL.compteId;
+  const aP=r.rapproches.filter(x=>x.on).concat(r.proches.filter(x=>x.on));
+  const aC=r.aCreer.filter(x=>x.on);
+  if(!aP.length&&!aC.length){await dlgAlert('Rien n’est coché : aucune modification à faire.');return;}
+  const ok=await dlgConfirm(aP.length+' opération(s) passeront en pointé et '+aC.length+' seront créées.\n\nOn applique ?',
+    'Appliquer la comparaison','Appliquer');
+  if(!ok)return;
+  let nP=0,nC=0;
+  run('BEGIN');
+  try{
+    const ts=nowTS();
+    aP.forEach(x=>{run("UPDATE operation SET statut='pointe',date_modification=? WHERE id=? AND statut<>'rapproche'",[ts,x.app.id]);nP++;});
+    aC.forEach(x=>{
+      const tid=upsertTiers(x.prop.tiers),cid=upsertCategorie(x.prop.cat);
+      const hay=makeHay(x.prop.tiers,x.prop.cat,null,x.rel.libelle,x.rel.montant,x.rel.date);
+      run(`INSERT INTO operation(compte_id,type,date_operation,montant,tiers_id,numero,commentaire,statut,previsionnel,supprime,cat_path,hay,date_creation)
+        VALUES(?,?,?,?,?,?,?,'pointe',0,0,?,?,?)`,
+        [compteId,x.rel.montant>0?'credit':'debit',x.rel.date,x.rel.montant,tid,(x.amex?'AMEX':null),x.rel.libelle,x.prop.cat,hay,ts]);
+      run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)',[lastId(),cid,x.rel.montant]);nC++;});
+    run('COMMIT');
+  }catch(e){try{run('ROLLBACK');}catch(_){}await dlgAlert('Échec : '+e.message,'Erreur');return;}
+  state.acc=compteId;
+  touch('Comparaison relevé PDF',nP+' pointée(s), '+nC+' créée(s)');
+  toast(nP+' pointée(s), '+nC+' créée(s)');
+  relSuivant();
+}
+
+/* ============================================================
+   Divers
+   ============================================================ */
+let toastT;
+function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
+  clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),2400);}
+
+function syncClear(){const v=document.getElementById('f-search').value;
+  document.getElementById('f-clear').style.display=v?'block':'none';}
+function clearSearch(){const e=document.getElementById('f-search');e.value='';syncClear();goPage(1);if(!ecranTactile())e.focus();}
+bindDate('f-from',()=>goPage(1));bindDate('f-to',()=>goPage(1));
+bindDate('an-from',()=>renderAnalyse());bindDate('an-to',()=>renderAnalyse());
+bindDate('gr-from',()=>renderGraphiques());bindDate('gr-to',()=>renderGraphiques());
+let searchT;
+document.getElementById('f-search').addEventListener('input',()=>{syncClear();clearTimeout(searchT);searchT=setTimeout(()=>goPage(1),250);});
+document.getElementById('f-search').addEventListener('keydown',e=>{
+  if(e.key==='Escape'){e.preventDefault();e.stopPropagation();clearSearch();}
+  else if(e.key==='Enter'){e.preventDefault();clearTimeout(searchT);goPage(1);}});
+destEl().addEventListener('input',acUpdate);
+destEl().addEventListener('keydown',e=>{
+  const open=document.getElementById('ac').classList.contains('show');
+  if(open){
+    if(e.key==='ArrowDown'){e.preventDefault();acIndex=Math.min(acIndex+1,acItems.length-1);acRender();}
+    else if(e.key==='ArrowUp'){e.preventDefault();acIndex=Math.max(acIndex-1,0);acRender();}
+    else if(e.key==='Enter'||e.key==='Tab'){e.preventDefault();acAccept(acIndex<0?0:acIndex);}
+    else if(e.key==='Escape'){e.preventDefault();e.stopPropagation();closeAC();}
+  }else if(e.key==='Enter'){e.preventDefault();saveOp();}
+});
+// handler délégué unique du modal : marche aussi pour les champs créés dynamiquement (ventilation)
+document.getElementById('overlay').addEventListener('keydown',e=>{
+  const t=e.target;if(!t||t.id==='i-dest')return;         // i-dest géré par l'autocomplétion
+  if(e.key==='Enter'){
+    if(t.type==='checkbox'){e.preventDefault();t.checked=!t.checked;t.dispatchEvent(new Event('change',{bubbles:true}));return;}
+    if(t.tagName==='TEXTAREA')return;
+    e.preventDefault();saveOp();return;
+  }
+  if(e.key==='+'){const v=document.getElementById('i-vent');
+    if(v&&v.checked&&t.tagName!=='SELECT'){e.preventDefault();ventAdd();}}
+});
+document.getElementById('overlay').addEventListener('click',e=>{if(e.target.id==='overlay')closeModal();});
+document.addEventListener('keydown',e=>{
+  const dlgOuvert=document.getElementById('dlgBack').classList.contains('show');
+  // Ctrl/Cmd+S : sauvegarder (partout, même dans un champ)
+  if((e.key==='s'||e.key==='S')&&(e.ctrlKey||e.metaKey)&&!e.altKey){e.preventDefault();if(!dlgOuvert)sauvegarder();return;}
+  // Alt+flèches : se déplacer entre les sections (s'adapte aux sections ajoutées, ex. relevé)
+  if(e.altKey&&(e.key==='ArrowLeft'||e.key==='ArrowRight'||e.key==='ArrowUp'||e.key==='ArrowDown')){e.preventDefault();if(!dlgOuvert)changerSection((e.key==='ArrowLeft'||e.key==='ArrowUp')?-1:1);return;}
+  if(dlgOuvert)return;
+  const modal=document.getElementById('overlay').classList.contains('show');
+  if(e.key==='Escape'&&modal){closeModal();return;}
+  if(modal)return;
+  const tag=(document.activeElement&&document.activeElement.tagName)||'';
+  const dansChamp=(tag==='INPUT'||tag==='SELECT'||tag==='TEXTAREA');
+  // Échap dans la recherche : 1re fois -> vider ; 2e fois (déjà vide) -> sortir du champ
+  if(e.key==='Escape'&&dansChamp)return;
+  if(dansChamp)return;
+  if((e.key==='z'||e.key==='Z')&&(e.ctrlKey||e.metaKey)&&!e.shiftKey&&!e.altKey){e.preventDefault();annulerDerniere();return;}
+  // « ? » : afficher l'aide des raccourcis
+  if(e.key==='?'){e.preventDefault();aideRaccourcis();return;}
+  // « / » : aller à la recherche du registre
+  if(e.key==='/'){e.preventDefault();
+    const map={registre:'f-search',categories:'cat-search',tiers:'ti-search'};
+    let id=map[state.view];if(!id){setView('registre');id='f-search';}
+    const s=document.getElementById(id);if(s){s.focus();s.select&&s.select();}return;}
+  if(e.key==='Enter'&&state.view==='releve'&&REL&&REL.res){e.preventDefault();relAppliquer();return;}
+  if((e.key==='a'||e.key==='A'||e.key==='+')&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault();
+    if(state.view==='recurrences')editRec(0);else openModal(null);return;}
+  // « r » : rapprocher un relevé PDF
+  if((e.key==='r'||e.key==='R')&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault();if(typeof ouvrirRapprochement==='function')ouvrirRapprochement();return;}
+});
+/* liste ordonnée des sections actuellement visibles dans la barre de gauche */
+function sectionsVisibles(){
+  return [].slice.call(document.querySelectorAll('.nav a[data-v]'))
+    .filter(a=>a.offsetParent!==null)   // exclut les liens masqués (ex. relevé si pas de comparaison)
+    .map(a=>a.dataset.v);
+}
+function changerSection(dir){
+  const vues=sectionsVisibles();if(!vues.length)return;
+  let i=vues.indexOf(state.view);if(i<0)i=0;
+  let j=i+dir;if(j<0)j=0;if(j>vues.length-1)j=vues.length-1;   // s'arrête aux extrémités
+  if(vues[j]!==state.view)setView(vues[j]);
+}
+/* ---- aide des raccourcis clavier (découvrable via « ? » ou le bouton en haut) ---- */
+function aideRaccourcis(){
+  const cats=[
+    ['Navigation',[['Alt+↑','Section suivante'],['Alt+↓','Section précédente'],['Alt+→','Section suivante'],['Alt+←','Section précédente']]],
+    ['Actions',[['A','Nouvelle opération (ou récurrence)'],['R','Rapprocher un relevé PDF'],['Ctrl+S','Sauvegarder'],['Ctrl+Z','Annuler la dernière modification (10 max, depuis l’ouverture)'],['/','Rechercher dans le registre'],['Échap','Vider la recherche, puis en sortir'],['Entrée','Appliquer le rapprochement (dans un relevé)']]],
+    ['Astuce',[['?','Afficher cette aide']]]
+  ];
+  const keyCell=l=>l[0].split('+').map(k=>'<kbd>'+k+'</kbd>').join(' + ');
+  let rows='';
+  cats.forEach(([titre,lignes])=>{
+    rows+='<tr><td colspan="2" style="font-weight:600;padding:12px 0 4px">'+titre+'</td></tr>';
+    lignes.forEach(l=>{rows+='<tr><td style="padding:4px 20px 4px 0;white-space:nowrap;vertical-align:top;min-width:118px">'+keyCell(l)+'</td>'+
+      '<td style="color:var(--ink-2);padding:4px 0;white-space:normal;overflow-wrap:anywhere">'+l[1]+'</td></tr>';});
+  });
+  const html='<table style="border-collapse:collapse;width:100%;table-layout:auto">'+rows+'</table>';
+  dlgOpen({title:'Raccourcis clavier',msg:'',html,wide:true,fermeDehors:true,buttons:[{t:'Fermer',v:true,p:true}]});
+}
+window.addEventListener('beforeunload',e=>{if(dirty>0&&!majEnCours){e.preventDefault();e.returnValue='';}});
+
+/* ---------- application installable, hors ligne (sw.js) ----------
+   Une nouvelle version publiée s'installe en arrière-plan puis attend :
+   le bandeau « Nouvelle version » la propose, rien ne se recharge pendant une saisie.
+   Sans clic, elle est utilisée au prochain lancement de l'application. */
+let swEnAttente=null,majEnCours=false;
+function proposerMaj(sw){swEnAttente=sw;document.getElementById('maj').hidden=false;}
+async function installerMaj(){
+  if(!swEnAttente)return;
+  majEnCours=true;clearTimeout(saveTimer);await flushIDB();   // rien ne se perd au rechargement
+  swEnAttente.postMessage('installer');
+}
+if('serviceWorker' in navigator&&location.protocol!=='file:'){
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{if(majEnCours)location.reload();});
+  navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).then(reg=>{
+    const guetter=sw=>{if(!sw)return;
+      const pret=()=>{if(sw.state==='installed'&&navigator.serviceWorker.controller)proposerMaj(sw);};
+      pret();sw.addEventListener('statechange',pret);};
+    guetter(reg.waiting);guetter(reg.installing);
+    reg.addEventListener('updatefound',()=>guetter(reg.installing));
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden)reg.update().catch(()=>{});});
+  }).catch(e=>console.warn('SW',e));
+}
+
+boot();
