@@ -9,6 +9,46 @@ nulle part, et le dépôt ne contient que le code.
 Sur téléphone ou tablette : ouvrir l'adresse dans Chrome, puis menu ⋮ → « Ajouter à l'écran d'accueil »
 (ou « Installer l'application »). Elle s'ouvre ensuite comme une appli, même sans réseau.
 
+## Appli Android
+
+Sur Android, « Mes comptes » existe aussi en vraie appli (dossier `mobile/`, faite avec Capacitor) :
+le même code que le site, mais rangé dans l'APK. Elle s'ouvre et marche sans réseau dès le premier
+lancement, sans barre de navigateur.
+
+- **Installer** : ouvrir https://marynedey.github.io/Comptabilite/android/mes-comptes.apk dans Chrome sur le
+  téléphone, puis l'ouvrir (Android demande d'autoriser Chrome à installer des applis, une fois).
+- **Reprendre ses comptes** (une fois) : l'appli a son propre stockage. Dans Chrome, **Sauvegarder** ;
+  dans l'appli, **Charger une sauvegarde**. L'appli le propose à sa première ouverture.
+- **Sauvegarder** dans l'appli : le fichier `comptes_….sqlite` va dans **Téléchargements**.
+- **Mises à jour** : à chaque version publiée, l'appli affiche « Nouvelle version · Mettre à jour /
+  Plus tard ». « Mettre à jour » télécharge la nouvelle version et Android demande confirmation ;
+  les données sont gardées. « Plus tard » : elle sera reproposée au prochain lancement. La première fois,
+  Android demande d'autoriser « Mes comptes » à installer ses mises à jour.
+- **Données** : elles restent sur le téléphone (pas de sauvegarde Google automatique de l'appli).
+
+Le site (PC, Chrome/Edge) ne change pas.
+
+### Comment c'est construit
+
+- `mobile/preparer.mjs` copie l'app web dans `mobile/www/` (sans `sw.js` : dans l'appli, c'est elle qui
+  propose les mises à jour), puis `cap sync` la range dans le projet Android `mobile/android/`.
+- Module natif `MesComptesPlugin.java`, volontairement limité : écrire une sauvegarde (nom
+  `comptes_….sqlite` uniquement) dans Téléchargements, installer une mise à jour venue de
+  `https://marynedey.github.io/Comptabilite/android/` uniquement.
+- La version de l'APK est celle de `js/app.js` (`versionCode` = X·10000 + Y·100 + Z) : une seule commande
+  `npm run nouvelle-version` pour les deux. Un changement dans `mobile/` demande aussi une nouvelle version.
+- Le contrôle « Appli Android » construit l'APK sur chaque PR (téléchargeable dans l'onglet *Actions*,
+  *Artifacts*) ; après fusion, l'APK et `android/version.json` sont publiés avec le site.
+
+### Clé de signature
+
+Android n'accepte une mise à jour que si elle est signée par la **même clé** que l'appli installée.
+La clé n'est jamais dans le dépôt : *Settings → Secrets and variables → Actions* :
+`ANDROID_CLE` (fichier `.jks` en base64) et `ANDROID_CLE_MOT_DE_PASSE` (alias `mes-comptes`).
+Sans ces secrets, l'APK est construit sans signature et n'est pas publié.
+Si la clé est perdue ou changée : dans l'appli, Sauvegarder, désinstaller, installer la nouvelle appli,
+Charger la sauvegarde.
+
 ## Passer de l'ancien fichier `comptes_vXX.html` à l'adresse
 
 Chaque adresse a son propre stockage : les données de l'ancien fichier ne sont pas visibles
@@ -48,6 +88,7 @@ Les numéros de version sont dans le code, plus dans le nom du fichier ; l'histo
 | `manifest.webmanifest`, `icons/` | installation sur l'écran d'accueil (`icons/icone.svg` = dessin d'origine) |
 | `vendor/` | bibliothèques tierces, non modifiées : sql.js 1.10.3 (MIT) et pdf.js 3.11.174 (Apache 2.0) |
 | `tests/` | tests (voir ci-dessous) |
+| `mobile/` | appli Android (Capacitor) : `preparer.mjs`, `capacitor.config.json`, projet `android/`, module natif `MesComptesPlugin.java` |
 | `outils/` | `version.mjs` (changer de version), `verifier-version.mjs` (contrôle des PR), `verifier-syntaxe.cjs` (syntaxe des scripts) |
 
 Pas d'étape de build : les fichiers sont publiés tels quels.
@@ -80,4 +121,4 @@ Sur chaque PR, trois contrôles : **Tests unitaires**, **Parcours navigateur**, 
 2. **Protéger `main`** : *Settings → Rules → Rulesets → New branch ruleset* :
    cible `main` (*Include default branch*), cocher *Restrict deletions*, *Block force pushes*,
    *Require a pull request before merging* et *Require status checks to pass* avec
-   « Tests unitaires », « Parcours navigateur », « Version augmentée ».
+   « Tests unitaires », « Parcours navigateur », « Version augmentée » (et « Appli Android »).

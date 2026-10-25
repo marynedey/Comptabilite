@@ -141,3 +141,27 @@ test('migration : une ancienne base reçoit les colonnes ajoutées depuis', () =
     assert.ok(app.colonneExiste(table, col), `${table}.${col}`);
   app.migrer(); // relancer ne casse rien
 });
+
+test('appli Android : comparaison des versions', () => {
+  assert.equal(app.versionPlusRecente('2.1.0', '2.0.9'), true);
+  assert.equal(app.versionPlusRecente('2.10.0', '2.9.0'), true); // nombres, pas texte
+  assert.equal(app.versionPlusRecente('3.0.0', '2.99.99'), true);
+  assert.equal(app.versionPlusRecente('2.1.0', '2.1.0'), false);
+  assert.equal(app.versionPlusRecente('2.0.9', '2.1.0'), false);
+});
+
+test('appli Android : mise à jour proposée seulement si version.json est valide et plus récent', () => {
+  const apk = 'https://marynedey.github.io/Comptabilite/android/mes-comptes-2.2.0.apk';
+  assert.deepEqual(js(app.majAppliDisponible({ version: '2.2.0', apk }, '2.1.0')), { version: '2.2.0', apk });
+  assert.equal(app.majAppliDisponible({ version: '2.1.0', apk }, '2.1.0'), null);     // déjà à jour
+  assert.equal(app.majAppliDisponible({ version: '2.0.0', apk }, '2.1.0'), null);     // plus ancienne
+  assert.equal(app.majAppliDisponible({ version: '2.2.0', apk: 'https://exemple.fr/x.apk' }, '2.1.0'), null); // autre site
+  assert.equal(app.majAppliDisponible({ version: 'demain', apk }, '2.1.0'), null);
+  assert.equal(app.majAppliDisponible(null, '2.1.0'), null);
+});
+
+test('appli Android : base64 de la sauvegarde, même pour une grosse base', () => {
+  const octets = new Uint8Array(200000).map((_, i) => (i * 7) % 256);
+  assert.deepEqual(new Uint8Array(Buffer.from(app.enBase64(octets), 'base64')), octets);
+  assert.equal(app.enBase64(new Uint8Array([83, 81, 76])), 'U1FM');
+});

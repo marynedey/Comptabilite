@@ -35,10 +35,11 @@ before(async () => {
 after(() => serveur.close());
 
 /* ---------- outils ---------- */
-async function ouvrir(options = {}) {
+async function ouvrir({ preparer, ...options } = {}) {
   // CHROMIUM : chemin d'un Chromium déjà installé (sinon celui de Playwright, cf. tests.yml).
   const navigateur = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : { channel: 'chromium' });
   const contexte = await navigateur.newContext({ locale: 'fr-FR', acceptDownloads: true, ...options });
+  if (preparer) await preparer(contexte);
   const page = await contexte.newPage();
   page.erreurs = [];
   page.on('pageerror', e => page.erreurs.push(e.message));
@@ -168,6 +169,80 @@ test('téléphone : rien ne dépasse en largeur', async () => {
       assert.ok(deborde <= 0, `${vue} : ${deborde}px de trop en largeur`);
     }
     assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
+/* ---------- appli Android : le pont Capacitor et le module natif sont simulés ---------- */
+const SITE_APPLI = 'https://marynedey.github.io/Comptabilite/android/';
+function fauxCapacitor() {
+  window.__appels = [];
+  window.__natif = { peutInstaller: { ok: false } }; // réponses du faux module natif
+  window.Capacitor = {
+    isNativePlatform: () => true,
+    nativePromise: (plugin, methode, options) => { window.__appels.push([plugin, methode, options]); return Promise.resolve(window.__natif[methode] || {}); },
+    nativeCallback: (plugin, methode, options, rappel) => { window.__appels.push([plugin, methode, options]); window.__retourAndroid = rappel; },
+  };
+}
+const appels = (page, methode) => page.evaluate(m => window.__appels.filter(a => a[1] === m).map(a => a[2]), methode);
+const ouvrirAppli = () => ouvrir({
+  viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true,
+  preparer: async contexte => {
+    await contexte.addInitScript(fauxCapacitor);
+    await contexte.route(SITE_APPLI + 'version.json', r => r.fulfill({
+      headers: { 'access-control-allow-origin': '*' },
+      json: { version: '9.9.9', apk: SITE_APPLI + 'mes-comptes-9.9.9.apk' } }));
+  },
+});
+
+test('appli Android : bienvenue, pas de service worker, sauvegarde native, mise à jour proposée, Retour', async () => {
+  const { navigateur, page } = await ouvrirAppli();
+  try {
+    // Première ouverture (aucune opération) : on explique comment reprendre ses comptes de Chrome.
+    await page.locator('#dlgBack.show #dlgTitle:has-text("Bienvenue")').waitFor();
+    await page.click('#dlgFoot button:has-text("Plus tard")');
+    assert.equal(await page.evaluate(() => navigator.serviceWorker.getRegistrations().then(r => r.length)), 0);
+    assert.equal(await page.getAttribute('#fileDb', 'accept'), null); // sinon Android n'ouvre pas le choix de fichier
+    assert.equal(await page.isVisible('#btn-fs'), false);
+
+    // Nouvelle version publiée : bandeau ; d'abord l'autorisation d'Android, puis l'installation.
+    await page.locator('#maj-appli:has-text("9.9.9")').waitFor();
+    await page.click('#maj-appli button:has-text("Mettre à jour")');
+    await page.click('#dlgFoot button:has-text("Ouvrir le réglage")');
+    assert.equal((await appels(page, 'autoriserInstallation')).length, 1);
+    assert.deepEqual(await appels(page, 'installer'), []);
+    await page.evaluate(() => { window.__natif.peutInstaller = { ok: true }; });
+    await page.click('#maj-appli button:has-text("Mettre à jour")');
+    await page.waitForFunction(() => window.__appels.some(a => a[1] === 'installer'));
+    assert.deepEqual(await appels(page, 'installer'), [{ url: SITE_APPLI + 'mes-comptes-9.9.9.apk' }]);
+    await page.click('#maj-appli button:has-text("Plus tard")');
+    assert.equal(await page.isVisible('#maj-appli'), false);
+
+    // Sauvegarde : le fichier part au module natif (Téléchargements), pas en téléchargement.
+    await ajouterOperation(page, { dest: 'Boulangerie du coin', montant: '4,50', date: '05/01/26', cat: 'Alimentation' });
+    await page.click('button[onclick="sauvegarder()"]');
+    await page.locator('#status-txt:has-text("À jour")').waitFor();
+    const [sauvegarde] = await appels(page, 'enregistrer');
+    assert.match(sauvegarde.nom, /^comptes_\d{4}-\d{2}-\d{2}_\d{2}h\d{2}m\d{2}s?\.sqlite$/);
+    assert.equal(Buffer.from(sauvegarde.donnees, 'base64').subarray(0, 15).toString(), 'SQLite format 3');
+
+    // Retour d'Android : ferme une fenêtre ouverte ; sinon, demande avant de quitter.
+    await page.evaluate(() => window.__retourAndroid({ canGoBack: false }));
+    await page.locator('#dlgBack.show #dlgTitle:has-text("Quitter")').waitFor();
+    await page.evaluate(() => window.__retourAndroid({ canGoBack: false }));
+    await page.locator('#dlgBack.show').waitFor({ state: 'hidden' });
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
+test('appli Android : sauvegarde refusée par Android → pas comptée comme faite', async () => {
+  const { navigateur, page } = await ouvrirAppli();
+  try {
+    await page.click('#dlgFoot button:has-text("Plus tard")');
+    await page.evaluate(() => { window.Capacitor.nativePromise = (p, m) => m === 'enregistrer' ? Promise.reject(new Error('disque plein')) : Promise.resolve({}); });
+    await ajouterOperation(page, { dest: 'Pharmacie', montant: '12', date: '06/01/26', cat: 'Santé' });
+    await page.click('button[onclick="sauvegarder()"]');
+    await page.locator('#dlgBack.show #dlgMsg:has-text("disque plein")').waitFor();
+    assert.match(await page.textContent('#status-txt'), /1 modification non sauvegardée/);
   } finally { await navigateur.close(); }
 });
 

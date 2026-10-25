@@ -7,8 +7,9 @@ const base = process.argv[2] || 'origin/main';
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8' });
 const lireVersion = texte => (texte.match(/VERSION = '(\d+)\.(\d+)\.(\d+)'/) || []).slice(1).map(Number);
 
-// Fichiers qui composent l'app publiée (les tests et la doc ne comptent pas).
-const APP = /^(index\.html|manifest\.webmanifest|sw\.js|css\/|js\/|vendor\/|icons\/)/;
+// Fichiers qui composent l'app publiée et l'appli Android (les tests et la doc ne comptent pas).
+// Android n'installe une mise à jour que si son numéro (versionCode, tiré de VERSION) augmente.
+const APP = /^(index\.html|manifest\.webmanifest|sw\.js|css\/|js\/|vendor\/|icons\/|mobile\/)/;
 const modifies = git('diff', '--name-only', `${base}...HEAD`).split('\n').filter(f => APP.test(f));
 if (!modifies.length) {
   console.log('Aucun fichier de l\'app modifié : pas besoin de changer de version.');

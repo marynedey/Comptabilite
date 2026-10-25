@@ -12,6 +12,12 @@ App web de comptes personnels, en français, hors ligne. Publiée sur https://ma
 - `sw.js` : cache de l'app pour le hors-ligne. Pas de `skipWaiting` automatique : l'app affiche le bandeau
   `#maj` et n'active la nouvelle version qu'au clic (après `flushIDB()`), pour ne jamais recharger en pleine saisie.
   Compléter `FICHIERS` quand on ajoute/renomme un fichier (un test le vérifie).
+- Appli Android : `mobile/` (Capacitor 8). L'APK contient l'app web (copiée par `mobile/preparer.mjs`, sans
+  `sw.js`) ; `js/app.js` détecte l'appli (`enAppli()`) : pas de service worker, sauvegarde par le module natif
+  `MesComptes` (Téléchargements), mise à jour proposée d'après `android/version.json` publié avec le site.
+  Module natif limité (nom de sauvegarde et adresse de mise à jour vérifiés) : ne pas l'élargir sans en parler.
+  APK construit par le job « Appli Android » ; signé avec les secrets `ANDROID_CLE`, `ANDROID_CLE_MOT_DE_PASSE`.
+  Le SDK Android n'est pas téléchargeable dans une session cloud (dl.google.com bloqué) : construire via Actions.
 - `vendor/` : sql.js 1.10.3 et pdf.js 3.11.174, tels quels (ne pas modifier).
 
 ## Versions

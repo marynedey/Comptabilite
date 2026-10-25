@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.0.1'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.1.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -82,6 +82,71 @@ function idbPutKey(k,v){return idbOpen().then(d=>new Promise((res,rej)=>{const t
   t.objectStore(STORE).put(v,k);t.oncomplete=()=>res();t.onerror=()=>rej(t.error);}));}
 function idbGetKey(k){return idbOpen().then(d=>new Promise((res,rej)=>{const t=d.transaction(STORE,'readonly');
   const g=t.objectStore(STORE).get(k);g.onsuccess=()=>res(g.result||null);g.onerror=()=>rej(g.error);}));}
+/* ---------- appli Android (Capacitor, dossier mobile/) ----------
+   Le même code tourne dans l'appli. Il est alors dans l'APK : pas de service worker. La sauvegarde
+   passe par le module natif « MesComptes » (dossier Téléchargements) et l'appli propose elle-même
+   ses nouvelles versions : version.json et l'APK sont publiés avec le site (dossier android/). */
+const SITE_APPLI='https://marynedey.github.io/Comptabilite/android/';
+const enAppli=()=>typeof Capacitor!=='undefined'&&!!(Capacitor.isNativePlatform&&Capacitor.isNativePlatform());
+const natif=(methode,options)=>Capacitor.nativePromise('MesComptes',methode,options||{});
+/* 'X.Y.Z' : a est-elle plus récente que b ? */
+function versionPlusRecente(a,b){
+  const pa=String(a).split('.').map(Number),pb=String(b).split('.').map(Number);
+  for(let i=0;i<3;i++)if((pa[i]||0)!==(pb[i]||0))return (pa[i]||0)>(pb[i]||0);
+  return false;}
+/* contenu de version.json → la mise à jour à proposer, ou null (rien de neuf, ou fichier douteux) */
+function majAppliDisponible(info,actuelle){
+  if(!info||!/^\d+\.\d+\.\d+$/.test(info.version||'')||typeof info.apk!=='string'||!info.apk.startsWith(SITE_APPLI))return null;
+  return versionPlusRecente(info.version,actuelle)?{version:info.version,apk:info.apk}:null;}
+/* octets → base64, par morceaux (une base de plusieurs Mo dépasserait la pile en un seul appel) */
+function enBase64(u8){let s='';for(let i=0;i<u8.length;i+=0x8000)s+=String.fromCharCode.apply(null,u8.subarray(i,i+0x8000));return btoa(s);}
+let majAppli=null,majAppliPlusTard=null,majAppliVue=0;
+async function verifierMajAppli(){
+  if(Date.now()-majAppliVue<3600e3)return; // au plus une fois par heure
+  majAppliVue=Date.now();
+  let info;
+  try{const r=await fetch(SITE_APPLI+'version.json',{cache:'no-store'});if(!r.ok)return;info=await r.json();}
+  catch(e){majAppliVue=0;return;} // hors ligne : on réessaiera au prochain retour dans l'appli
+  majAppli=majAppliDisponible(info,VERSION);
+  const b=document.getElementById('maj-appli');
+  if(!majAppli||majAppliPlusTard===majAppli.version){b.hidden=true;return;}
+  document.getElementById('maj-appli-v').textContent=majAppli.version;b.hidden=false;
+}
+function plusTardMajAppli(){ // reproposée au prochain lancement de l'appli
+  if(majAppli)majAppliPlusTard=majAppli.version;document.getElementById('maj-appli').hidden=true;}
+async function installerMajAppli(){
+  if(!majAppli)return;
+  try{
+    if(!(await natif('peutInstaller')).ok){
+      const ok=await dlgConfirm('Pour installer ses mises à jour, l’appli a besoin d’une autorisation d’Android (une seule fois).\n\n'+
+        'Dans l’écran qui va s’ouvrir, active « Autoriser cette source », puis reviens ici et touche à nouveau « Mettre à jour ».',
+        'Autoriser les mises à jour','Ouvrir le réglage');
+      if(ok)await natif('autoriserInstallation');
+      return;}
+    clearTimeout(saveTimer);await flushIDB(); // les données sont gardées par la mise à jour : on n'en perd aucune
+    busy('Téléchargement de la mise à jour…');
+    await natif('installer',{url:majAppli.apk}); // Android affiche ensuite sa propre confirmation
+  }catch(e){dlgAlert('La mise à jour n’a pas pu être téléchargée.\n\n'+(e.message||e)+
+    '\n\nTu peux continuer à utiliser l’appli et réessayer plus tard.','Mise à jour');}
+  finally{unbusy();}
+}
+async function demarrerAppli(){
+  // Android ne reconnaît pas les extensions .sqlite, .db, .qif : sans ce tri, le choix de fichier
+  // ne s'ouvrirait pas. Chaque import vérifie de toute façon le contenu du fichier.
+  ['fileDb','fileQif','fileAmex'].forEach(id=>{const i=document.getElementById(id);if(i)i.removeAttribute('accept');});
+  Capacitor.nativeCallback('App','addListener',{eventName:'backButton'},d=>{
+    if(dlgResolve){dlgClose(false);return;}         // une fenêtre ouverte : Retour la ferme
+    if(d&&d.canGoBack)history.back();else demanderQuitter();});
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)verifierMajAppli();});
+  verifierMajAppli();
+  if(!scal('SELECT COUNT(*) FROM operation WHERE supprime=0')){
+    const v=await dlgOpen({title:'Bienvenue dans l’appli',msg:'L’appli a son propre stockage : tes comptes enregistrés dans Chrome n’y sont pas encore.\n\n'+
+      '1. Dans Chrome, ouvre Mes comptes et touche « Sauvegarder » : le fichier va dans Téléchargements.\n'+
+      '2. Ici, touche « Charger une sauvegarde » et choisis ce fichier.\n\nC’est à faire une seule fois.',
+      buttons:[{t:'Plus tard',v:false},{t:'Charger une sauvegarde',v:true,p:true}]});
+    if(v)document.getElementById('fileDb').click();
+  }
+}
 /* ---------- plein écran (tablette / téléphone : masque les barres du navigateur) ---------- */
 function pleinEcranActif(){return !!(document.fullscreenElement||document.webkitFullscreenElement);}
 async function basculerPleinEcran(){
@@ -93,7 +158,7 @@ async function basculerPleinEcran(){
 }
 function majBoutonPleinEcran(){
   const b=document.getElementById('btn-fs'),ico=document.getElementById('fs-ico');if(!b)return;
-  const dispo=!!(document.fullscreenEnabled||document.webkitFullscreenEnabled);
+  const dispo=!!(document.fullscreenEnabled||document.webkitFullscreenEnabled)&&!enAppli();
   b.style.display=dispo?'':'none';
   const on=pleinEcranActif();
   b.title=on?'Quitter le plein écran':'Plein écran';
@@ -366,6 +431,7 @@ async function boot(){
   if(restored){const n=scal('SELECT COUNT(*) FROM operation WHERE supprime=0');
     if(n)toast(n.toLocaleString('fr-FR')+' opérations chargées depuis ce navigateur');}
   if(!idbOK)dlgAlert("Le stockage local de ce navigateur n'est pas disponible ici.\nL'application fonctionne, mais pense à Sauvegarder avant de fermer.",'Attention');
+  if(enAppli())demarrerAppli();
 }
 
 /* ============================================================
@@ -411,9 +477,11 @@ function installerGardeRetour(){
 }
 async function demanderQuitter(){
   const msg='Tu as appuyé sur Retour : veux-tu vraiment quitter l’application ?'+
-    (dirty>0?'\n\nAttention : '+dirty+' modification'+(dirty>1?'s':'')+' pas encore sauvegardée'+(dirty>1?'s':'')+' dans un fichier (elles restent dans ce navigateur).':'');
+    (dirty>0?'\n\nAttention : '+dirty+' modification'+(dirty>1?'s':'')+' pas encore sauvegardée'+(dirty>1?'s':'')+' dans un fichier (elles restent dans '+(enAppli()?'l’appli':'ce navigateur')+').':'');
   const v=await dlgOpen({title:'Quitter ?',msg,buttons:[{t:'Quitter',v:'q',d:true},{t:'Rester',v:false,p:true}]});
-  if(v==='q'){toast('Appuie encore sur Retour pour quitter');try{history.back();}catch(e){}return;}
+  if(v==='q'){
+    if(enAppli()){clearTimeout(saveTimer);await flushIDB();Capacitor.nativePromise('App','exitApp');return;}
+    toast('Appuie encore sur Retour pour quitter');try{history.back();}catch(e){}return;}
   armerGardeRetour(); // on reste : le tampon est de nouveau protégé
 }
 function restoreNav(s){
@@ -2016,14 +2084,23 @@ function sauvegarder(){
     const d=new Date(),p2=x=>String(x).padStart(2,'0');
     const stamp=d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate())+'_'+p2(d.getHours())+'h'+p2(d.getMinutes())+'m'+p2(d.getSeconds());
     const nom='comptes_'+stamp+'.sqlite';
+    if(enAppli()){ // module natif : fichier écrit dans Téléchargements ; compté sauvegardé seulement s'il y est
+      natif('enregistrer',{nom,donnees:enBase64(data)})
+        .then(()=>{sauvegardeFaite();toast('Sauvegarde enregistrée dans Téléchargements : '+nom);})
+        .catch(e=>dlgAlert('Échec de la sauvegarde : '+(e.message||e),'Erreur'));
+      return;
+    }
     const blob=new Blob([data],{type:'application/octet-stream'});
     const a=document.createElement('a');a.href=URL.createObjectURL(blob);
     a.download=nom;document.body.appendChild(a);a.click();
     setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1000);
-    setMeta('rev',(+getMeta('rev',0))+1);
-    run('UPDATE journal SET sauve=1 WHERE sauve=0');refreshDirty();flushIDB();
+    sauvegardeFaite();
     toast('Sauvegarde téléchargée : '+nom);
   }catch(e){dlgAlert('Échec de la sauvegarde : '+e.message,'Erreur');}
+}
+function sauvegardeFaite(){
+  setMeta('rev',(+getMeta('rev',0))+1);
+  run('UPDATE journal SET sauve=1 WHERE sauve=0');refreshDirty();flushIDB();
 }
 async function chargerFichier(inp){
   const f=inp.files&&inp.files[0];inp.value='';if(!f)return;
@@ -3370,7 +3447,7 @@ async function installerMaj(){
   majEnCours=true;clearTimeout(saveTimer);await flushIDB();   // rien ne se perd au rechargement
   swEnAttente.postMessage('installer');
 }
-if('serviceWorker' in navigator&&location.protocol!=='file:'){
+if('serviceWorker' in navigator&&location.protocol!=='file:'&&!enAppli()){ // dans l'appli : code dans l'APK, voir verifierMajAppli()
   navigator.serviceWorker.addEventListener('controllerchange',()=>{if(majEnCours)location.reload();});
   navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).then(reg=>{
     const guetter=sw=>{if(!sw)return;

@@ -1,0 +1,14 @@
+{
+  "name": "mes-comptes-android",
+  "private": true,
+  "description": "Appli Android « Mes comptes » (Capacitor) : contient l'app web du dépôt, construite par GitHub Actions.",
+  "scripts": {
+    "preparer": "node preparer.mjs && cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.5.2",
+    "@capacitor/app": "8.1.2",
+    "@capacitor/cli": "8.5.2",
+    "@capacitor/core": "8.5.2"
+  }
+}

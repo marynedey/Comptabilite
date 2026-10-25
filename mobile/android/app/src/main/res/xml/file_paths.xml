@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Seul fichier partagé par l'appli : la mise à jour téléchargée, ouverte par l'installeur d'Android -->
+<paths>
+    <cache-path name="maj" path="maj/" />
+</paths>
