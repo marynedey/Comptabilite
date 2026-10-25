@@ -1,0 +1,9 @@
+{
+  "appId": "io.github.marynedey.comptes",
+  "appName": "Mes comptes",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": false
+  }
+}

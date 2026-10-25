@@ -48,6 +48,56 @@ jobs:
       - name: Parcours complets dans Chromium
         run: npm run test:navigateur
 
+  appli:
+    name: Appli Android
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: App web copiée dans le projet Android
+        working-directory: mobile
+        run: npm ci && npm run preparer
+      - name: Construction de l'APK (signé si la clé est dans les secrets)
+        working-directory: mobile/android
+        env:
+          CLE: ${{ secrets.ANDROID_CLE }}
+          CLE_MOT_DE_PASSE: ${{ secrets.ANDROID_CLE_MOT_DE_PASSE }}
+          CLE_ALIAS: mes-comptes
+        run: |
+          if [ -n "$CLE" ]; then
+            echo "$CLE" | base64 -d > "$RUNNER_TEMP/cle.jks"
+            export CLE_FICHIER="$RUNNER_TEMP/cle.jks"
+          else
+            echo "::warning::Secrets ANDROID_CLE / ANDROID_CLE_MOT_DE_PASSE absents : APK non signé, ni installable ni publié."
+          fi
+          ./gradlew --no-daemon assembleRelease
+          rm -f "$RUNNER_TEMP/cle.jks"
+      - name: APK, version.json et page d'installation (publiés avec le site, dossier android/)
+        run: |
+          v="$(grep -oP "VERSION = '\K[\d.]+" js/app.js)"
+          mkdir -p _appli
+          if [ -f mobile/android/app/build/outputs/apk/release/app-release.apk ]; then
+            cp mobile/android/app/build/outputs/apk/release/app-release.apk "_appli/mes-comptes-$v.apk"
+            sed "s/__VERSION__/$v/g" mobile/installer.html > _appli/index.html   # lien fixe : …/android/
+            printf '{ "version": "%s", "apk": "https://marynedey.github.io/Comptabilite/android/mes-comptes-%s.apk" }\n' "$v" "$v" > _appli/version.json
+          fi
+          ls -l _appli
+      - uses: actions/upload-artifact@v4
+        if: hashFiles('_appli/version.json') != ''
+        with:
+          name: appli-android
+          path: _appli/
+          retention-days: 30
+
   version:
     name: Version augmentée
     if: github.event_name == 'pull_request'
@@ -65,7 +115,7 @@ jobs:
   publier:
     name: Publication
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    needs: [unitaires, navigateur]
+    needs: [unitaires, navigateur, appli]
     runs-on: ubuntu-24.04
     permissions:
       contents: write   # étiquette de version (v2.0.0…)
@@ -83,6 +133,12 @@ jobs:
         run: |
           mkdir _site
           cp -r index.html manifest.webmanifest sw.js css js vendor icons _site/
+      - name: Appli Android (si l'APK a été signé)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: appli-android
+          path: _site/android/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

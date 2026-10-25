@@ -45,3 +45,49 @@ test('aucune base de données ni sauvegarde dans le dépôt', () => {
     .flatMap(e => e.isDirectory() ? parcourir(d + e.name + '/') : [d + e.name]);
   assert.deepEqual(parcourir('').filter(f => interdits.test(f)), []);
 });
+
+/* ---------- appli Android (mobile/) ---------- */
+const plugin = () => lire('mobile/android/app/src/main/java/io/github/marynedey/comptes/MesComptesPlugin.java');
+const motifJava = nom => new RegExp('^(?:' + plugin().match(new RegExp(nom + ' = Pattern\\.compile\\("([^"]+)"\\)'))[1].replaceAll('\\\\', '\\') + ')$');
+
+test('appli Android : sa version vient de js/app.js et tient dans le versionCode d\'Android', () => {
+  const [x, y, z] = lire('js/app.js').match(/VERSION = '(\d+)\.(\d+)\.(\d+)'/).slice(1).map(Number);
+  assert.ok(y < 100 && z < 100, 'versionCode = X*10000 + Y*100 + Z : Y et Z doivent rester sous 100');
+  assert.match(lire('mobile/android/app/build.gradle'), /file\('\.\.\/\.\.\/\.\.\/js\/app\.js'\)/);
+});
+
+test('appli Android : le module natif accepte le nom de sauvegarde de l\'app, et rien d\'autre', () => {
+  const nom = motifJava('NOM_SAUVEGARDE');
+  assert.match('comptes_2026-10-25_18h05m09.sqlite', nom); // nom fabriqué par sauvegarder()
+  assert.match('comptes_2026-10-25_18h05m09s.sqlite', nom); // anciennes versions
+  assert.match(lire('js/app.js'), /const nom='comptes_'\+stamp\+'\.sqlite';/);
+  for (const autre of ['comptes_2026-10-25_18h05m09.sqlite.apk', '../comptes_2026-10-25_18h05m09s.sqlite', 'notes.txt'])
+    assert.doesNotMatch(autre, nom);
+});
+
+test('appli Android : les mises à jour ne viennent que du site de l\'app', () => {
+  const adresse = motifJava('ADRESSE_MAJ');
+  const site = lire('js/app.js').match(/const SITE_APPLI='([^']+)'/)[1];
+  assert.match(site + 'mes-comptes-2.1.0.apk', adresse);
+  for (const autre of ['https://marynedey.github.io/Comptabilite/android/../x.apk', 'http://marynedey.github.io/Comptabilite/android/a.apk',
+    'https://marynedey.github.io.exemple.fr/Comptabilite/android/a.apk'])
+    assert.doesNotMatch(autre, adresse);
+});
+
+test('appli Android : l\'APK contient les mêmes fichiers que le site', () => {
+  const publies = lire('.github/workflows/tests.yml').match(/cp -r (index\.html[^\n]*) _site\//)[1].split(/\s+/);
+  const copies = JSON.parse(lire('mobile/preparer.mjs').match(/for \(const f of (\[[^\]]+\])/)[1].replaceAll("'", '"'));
+  assert.deepEqual(copies.sort(), publies.filter(f => f !== 'sw.js').sort());
+});
+
+test('appli Android : la page d\'installation propose l\'APK publié par le workflow', () => {
+  const page = lire('mobile/installer.html');
+  const workflow = lire('.github/workflows/tests.yml');
+  assert.match(page, /href="mes-comptes-__VERSION__\.apk"/);
+  assert.match(workflow, /cp [^\n]*app-release\.apk "_appli\/mes-comptes-\$v\.apk"/);
+  assert.match(workflow, /sed "s\/__VERSION__\/\$v\/g" mobile\/installer\.html > _appli\/index\.html/);
+  assert.match(workflow, /mes-comptes-%s\.apk/); // version.json : même nom que l'APK publié
+  assert.match(lire('js/app.js').match(/const SITE_APPLI='([^']+)'/)[1] + 'mes-comptes-2.1.0.apk', motifJava('ADRESSE_MAJ'));
+  for (const r of [...page.matchAll(/(?:src|href)="([^"#:]+)"/g)].map(m => m[1]).filter(r => r.startsWith('../')))
+    assert.ok(existsSync(new URL('../' + r.slice(3), import.meta.url)), `${r} introuvable`);
+});

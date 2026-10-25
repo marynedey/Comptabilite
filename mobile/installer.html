@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Installer Mes comptes</title>
+<!-- Page publiée dans android/ avec l'APK : le workflow remplace __VERSION__ par la version publiée. -->
+<style>
+  :root{--paper:#F6F7F4;--card:#FFFFFF;--ink:#1A1C1B;--ink-2:#5C625E;--line:#E6E9E3;--brand:#0F6E56;--sur-brand:#FFFFFF}
+  @media (prefers-color-scheme: dark){
+    :root{--paper:#14171A;--card:#1B1F22;--ink:#E8EAE6;--ink-2:#A6ACA7;--line:#2A2F2D;--brand:#3FB892;--sur-brand:#0F1714}
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  main{max-width:520px;margin:0 auto;padding:32px 16px 48px}
+  h1{display:flex;align-items:center;gap:14px;font-size:1.5rem;margin:0 0 4px}
+  h1 img{width:52px;height:52px;border-radius:12px}
+  .version{color:var(--ink-2);margin:0 0 24px}
+  .bouton{display:block;text-align:center;background:var(--brand);color:var(--sur-brand);text-decoration:none;font-weight:600;
+    padding:14px 18px;border-radius:10px;font-size:1.05rem}
+  section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:4px 18px;margin-top:24px}
+  h2{font-size:1.05rem;margin:14px 0 4px}
+  ol{padding-left:22px}
+  li{margin:6px 0}
+  p.note{color:var(--ink-2);font-size:.92rem}
+</style>
+</head>
+<body>
+<main>
+  <h1><img src="../icons/icon-192.png" alt="">Mes comptes</h1>
+  <p class="version">Appli Android · version __VERSION__</p>
+  <a class="bouton" href="mes-comptes-__VERSION__.apk" download>Télécharger l’appli</a>
+
+  <section>
+    <h2>Installer</h2>
+    <ol>
+      <li>Touche « Télécharger l’appli » : le fichier <b>mes-comptes-__VERSION__.apk</b> se télécharge.</li>
+      <li>Ouvre-le (depuis la notification de Chrome, ou le dossier Téléchargements).</li>
+      <li>Android demande d’autoriser Chrome à installer des applis : active l’autorisation, puis reviens en arrière.</li>
+      <li>Touche « Installer ». Si Android prévient que l’appli est inconnue, choisis d’installer quand même.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Retrouver ses comptes (une seule fois)</h2>
+    <ol>
+      <li>Dans Chrome, ouvre Mes comptes et touche « Sauvegarder ».</li>
+      <li>Dans l’appli, touche « Charger une sauvegarde » et choisis ce fichier.</li>
+    </ol>
+  </section>
+
+  <p class="note">Déjà installée ? Rien à faire ici : l’appli propose elle-même ses nouvelles versions
+    (« Mettre à jour » ou « Plus tard »).</p>
+</main>
+</body>
+</html>
