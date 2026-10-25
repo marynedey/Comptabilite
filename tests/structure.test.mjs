@@ -79,3 +79,15 @@ test('appli Android : l\'APK contient les mêmes fichiers que le site', () => {
   const copies = JSON.parse(lire('mobile/preparer.mjs').match(/for \(const f of (\[[^\]]+\])/)[1].replaceAll("'", '"'));
   assert.deepEqual(copies.sort(), publies.filter(f => f !== 'sw.js').sort());
 });
+
+test('appli Android : la page d\'installation propose l\'APK publié par le workflow', () => {
+  const page = lire('mobile/installer.html');
+  const workflow = lire('.github/workflows/tests.yml');
+  assert.match(page, /href="mes-comptes-__VERSION__\.apk"/);
+  assert.match(workflow, /cp [^\n]*app-release\.apk "_appli\/mes-comptes-\$v\.apk"/);
+  assert.match(workflow, /sed "s\/__VERSION__\/\$v\/g" mobile\/installer\.html > _appli\/index\.html/);
+  assert.match(workflow, /mes-comptes-%s\.apk/); // version.json : même nom que l'APK publié
+  assert.match(lire('js/app.js').match(/const SITE_APPLI='([^']+)'/)[1] + 'mes-comptes-2.1.0.apk', motifJava('ADRESSE_MAJ'));
+  for (const r of [...page.matchAll(/(?:src|href)="([^"#:]+)"/g)].map(m => m[1]).filter(r => r.startsWith('../')))
+    assert.ok(existsSync(new URL('../' + r.slice(3), import.meta.url)), `${r} introuvable`);
+});

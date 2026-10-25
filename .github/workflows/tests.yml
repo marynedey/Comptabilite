@@ -81,13 +81,13 @@ jobs:
           fi
           ./gradlew --no-daemon assembleRelease
           rm -f "$RUNNER_TEMP/cle.jks"
-      - name: APK et version.json (publiés avec le site, dossier android/)
+      - name: APK, version.json et page d'installation (publiés avec le site, dossier android/)
         run: |
           v="$(grep -oP "VERSION = '\K[\d.]+" js/app.js)"
           mkdir -p _appli
           if [ -f mobile/android/app/build/outputs/apk/release/app-release.apk ]; then
             cp mobile/android/app/build/outputs/apk/release/app-release.apk "_appli/mes-comptes-$v.apk"
-            cp "_appli/mes-comptes-$v.apk" _appli/mes-comptes.apk   # lien fixe pour la première installation
+            sed "s/__VERSION__/$v/g" mobile/installer.html > _appli/index.html   # lien fixe : …/android/
             printf '{ "version": "%s", "apk": "https://marynedey.github.io/Comptabilite/android/mes-comptes-%s.apk" }\n' "$v" "$v" > _appli/version.json
           fi
           ls -l _appli

@@ -15,8 +15,8 @@ Sur Android, « Mes comptes » existe aussi en vraie appli (dossier `mobile/`, f
 le même code que le site, mais rangé dans l'APK. Elle s'ouvre et marche sans réseau dès le premier
 lancement, sans barre de navigateur.
 
-- **Installer** : ouvrir https://marynedey.github.io/Comptabilite/android/mes-comptes.apk dans Chrome sur le
-  téléphone, puis l'ouvrir (Android demande d'autoriser Chrome à installer des applis, une fois).
+- **Installer** : ouvrir https://marynedey.github.io/Comptabilite/android/ dans Chrome sur le téléphone
+  (page d'installation : bouton de téléchargement de `mes-comptes-X.Y.Z.apk` et marche à suivre).
 - **Reprendre ses comptes** (une fois) : l'appli a son propre stockage. Dans Chrome, **Sauvegarder** ;
   dans l'appli, **Charger une sauvegarde**. L'appli le propose à sa première ouverture.
 - **Sauvegarder** dans l'appli : le fichier `comptes_….sqlite` va dans **Téléchargements**.
@@ -38,7 +38,8 @@ Le site (PC, Chrome/Edge) ne change pas.
 - La version de l'APK est celle de `js/app.js` (`versionCode` = X·10000 + Y·100 + Z) : une seule commande
   `npm run nouvelle-version` pour les deux. Un changement dans `mobile/` demande aussi une nouvelle version.
 - Le contrôle « Appli Android » construit l'APK sur chaque PR (téléchargeable dans l'onglet *Actions*,
-  *Artifacts*) ; après fusion, l'APK et `android/version.json` sont publiés avec le site.
+  *Artifacts*) ; après fusion, l'APK (`android/mes-comptes-X.Y.Z.apk`), `android/version.json` et la page
+  d'installation (`mobile/installer.html` → `android/index.html`) sont publiés avec le site.
 
 ### Clé de signature
 
