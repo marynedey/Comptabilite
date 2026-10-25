@@ -1,18 +1,26 @@
 package io.github.marynedey.comptes;
 
+import android.app.Activity;
 import android.content.ContentResolver;
 import android.content.ContentValues;
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.UriPermission;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.Environment;
+import android.provider.DocumentsContract;
 import android.provider.MediaStore;
 import android.provider.Settings;
 import android.util.Base64;
+import androidx.activity.result.ActivityResult;
 import androidx.core.content.FileProvider;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -24,8 +32,9 @@ import java.util.regex.Pattern;
 
 /**
  * Fonctions natives de l'appli, appelées par js/app.js (Capacitor.nativePromise('MesComptes', …)).
- * Volontairement limitées : écrire une sauvegarde dans Téléchargements, installer une mise à jour
- * venue du site de l'app. Rien d'autre n'est accessible au JavaScript.
+ * Volontairement limitées : écrire une sauvegarde dans Téléchargements ou dans le dossier choisi par
+ * la personne (fenêtre d'Android), installer une mise à jour venue du site de l'app. Le JavaScript ne
+ * peut ni lister, ni lire, ni supprimer de fichier, ni écrire ailleurs.
  */
 @CapacitorPlugin(name = "MesComptes")
 public class MesComptesPlugin extends Plugin {
@@ -35,13 +44,120 @@ public class MesComptesPlugin extends Plugin {
     /** Les mises à jour ne viennent que du site de l'app. */
     static final Pattern ADRESSE_MAJ = Pattern.compile("https://marynedey\\.github\\.io/Comptabilite/android/[A-Za-z0-9._-]+\\.apk");
 
-    /** Écrit la base (base64) dans le dossier Téléchargements du téléphone. */
+    /** Réglage de cet appareil : dossier choisi pour les sauvegardes (adresse donnée par Android). */
+    private SharedPreferences reglages() {
+        return getContext().getSharedPreferences("reglages", Context.MODE_PRIVATE);
+    }
+
+    /** Dossier choisi, s'il est toujours autorisé ; sinon null (= Téléchargements). */
+    private Uri dossierChoisi() {
+        String d = reglages().getString("dossier", null);
+        if (d == null) return null;
+        Uri uri = Uri.parse(d);
+        for (UriPermission p : getContext().getContentResolver().getPersistedUriPermissions())
+            if (p.getUri().equals(uri) && p.isWritePermission()) return uri;
+        return null;
+    }
+
+    private String nomDuDossier(Uri arbre) {
+        Uri doc = DocumentsContract.buildDocumentUriUsingTree(arbre, DocumentsContract.getTreeDocumentId(arbre));
+        try (Cursor c = getContext().getContentResolver().query(doc, new String[] { DocumentsContract.Document.COLUMN_DISPLAY_NAME }, null, null, null)) {
+            if (c != null && c.moveToFirst()) return c.getString(0);
+        } catch (Exception e) { /* nom inconnu */ }
+        return "dossier choisi";
+    }
+
+    /** Nom du dossier choisi pour les sauvegardes, ou rien (Téléchargements). */
+    @PluginMethod
+    public void dossier(PluginCall call) {
+        JSObject r = new JSObject();
+        Uri d = dossierChoisi();
+        if (d != null) r.put("nom", nomDuDossier(d));
+        call.resolve(r);
+    }
+
+    /** Ouvre la fenêtre d'Android pour choisir le dossier des sauvegardes. */
+    @PluginMethod
+    public void choisirDossier(PluginCall call) {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        startActivityForResult(call, i, "dossierChoisi");
+    }
+
+    @ActivityCallback
+    private void dossierChoisi(PluginCall call, ActivityResult resultat) {
+        JSObject r = new JSObject();
+        Intent data = resultat.getData();
+        if (resultat.getResultCode() != Activity.RESULT_OK || data == null || data.getData() == null) {
+            call.resolve(r); // fenêtre fermée sans choisir : rien ne change
+            return;
+        }
+        Uri uri = data.getData();
+        ContentResolver cr = getContext().getContentResolver();
+        try {
+            cr.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        } catch (Exception e) {
+            call.reject("Android ne permet pas d'écrire dans ce dossier : " + e.getMessage());
+            return;
+        }
+        oublierAutorisation(uri);
+        reglages().edit().putString("dossier", uri.toString()).apply();
+        r.put("nom", nomDuDossier(uri));
+        call.resolve(r);
+    }
+
+    /** Retire l'autorisation d'Android sur l'ancien dossier (sauf celui qu'on garde). */
+    private void oublierAutorisation(Uri garder) {
+        String d = reglages().getString("dossier", null);
+        if (d == null || (garder != null && garder.toString().equals(d))) return;
+        try {
+            getContext().getContentResolver().releasePersistableUriPermission(Uri.parse(d), Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        } catch (Exception e) { /* déjà retirée */ }
+    }
+
+    /** Retour aux Téléchargements. */
+    @PluginMethod
+    public void oublierDossier(PluginCall call) {
+        oublierAutorisation(null);
+        reglages().edit().remove("dossier").apply();
+        call.resolve();
+    }
+
+    /**
+     * Écrit la base (base64) : dans le dossier choisi si « dossier » est vrai (refus si ce dossier
+     * n'est plus accessible : le JavaScript propose alors Téléchargements), sinon dans Téléchargements.
+     */
     @PluginMethod
     public void enregistrer(PluginCall call) {
         String nom = call.getString("nom", "");
         String donnees = call.getString("donnees");
         if (!NOM_SAUVEGARDE.matcher(nom).matches() || donnees == null) {
             call.reject("Nom de sauvegarde refusé : " + nom);
+            return;
+        }
+        if (call.getBoolean("dossier", false)) {
+            Uri arbre = dossierChoisi();
+            if (arbre == null) {
+                call.reject("le dossier choisi n'est plus autorisé");
+                return;
+            }
+            execute(() -> {
+                ContentResolver cr = getContext().getContentResolver();
+                try {
+                    byte[] octets = Base64.decode(donnees, Base64.DEFAULT);
+                    Uri parent = DocumentsContract.buildDocumentUriUsingTree(arbre, DocumentsContract.getTreeDocumentId(arbre));
+                    Uri doc = DocumentsContract.createDocument(cr, parent, "application/octet-stream", nom);
+                    if (doc == null) throw new IllegalStateException("création du fichier refusée");
+                    try (OutputStream out = cr.openOutputStream(doc, "w")) {
+                        out.write(octets);
+                    }
+                    JSObject r = new JSObject();
+                    r.put("dossier", nomDuDossier(arbre));
+                    call.resolve(r);
+                } catch (Exception e) {
+                    call.reject(e.getMessage() != null ? e.getMessage() : e.toString());
+                }
+            });
             return;
         }
         execute(() -> {

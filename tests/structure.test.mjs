@@ -60,7 +60,7 @@ test('appli Android : le module natif accepte le nom de sauvegarde de l\'app, et
   const nom = motifJava('NOM_SAUVEGARDE');
   assert.match('comptes_2026-10-25_18h05m09.sqlite', nom); // nom fabriqué par sauvegarder()
   assert.match('comptes_2026-10-25_18h05m09s.sqlite', nom); // anciennes versions
-  assert.match(lire('js/app.js'), /const nom='comptes_'\+stamp\+'\.sqlite';/);
+  assert.match(lire('js/app.js'), /return 'comptes_'\+stamp\+'\.sqlite';/); // nomSauvegarde()
   for (const autre of ['comptes_2026-10-25_18h05m09.sqlite.apk', '../comptes_2026-10-25_18h05m09s.sqlite', 'notes.txt'])
     assert.doesNotMatch(autre, nom);
 });

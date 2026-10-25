@@ -30,6 +30,7 @@
     <a data-v="releve" onclick="setView('releve')" id="nav-releve" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h10l6 6v10H4z"/><path d="M9 14l2 2 4-4"/></svg>Relevé en cours</a>
     <a data-v="recurrences" title="Opérations récurrentes (touche 5)" onclick="setView('recurrences')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>Opérations récurrentes</a>
     <a data-v="corbeille" title="Corbeille (touche 6)" onclick="setView('corbeille')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg>Corbeille <span id="nav-trash-n" style="margin-left:auto;font-size:.75rem;opacity:.8"></span></a>
+    <a data-v="reglages" title="Réglages de cet appareil" onclick="setView('reglages')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>Réglages</a>
   </nav>
 </aside>
 <div class="menu-backdrop" id="menu-backdrop" onclick="closeMenu()"></div>
@@ -254,6 +255,23 @@
       <button class="danger" onclick="viderCorbeille()">Vider la corbeille</button>
     </div>
     <div class="tablecard"><table class="auto"><thead><tr id="tr-head"></tr></thead><tbody id="tr-rows"></tbody></table></div>
+  </section>
+
+  <section class="view" id="v-reglages">
+    <div class="top">
+      <div><h1>Réglages</h1>
+        <div class="meta">Propres à cet appareil : ils ne sont pas dans les fichiers de sauvegarde.</div></div>
+    </div>
+    <div class="card reglage">
+      <h3>Sauvegarde</h3>
+      <div class="meta">Dossier où « Sauvegarder » enregistre le fichier <code>comptes_….sqlite</code>.</div>
+      <div class="rg-valeur">Dossier : <b id="rg-dossier">Téléchargements</b></div>
+      <div class="rg-btns" id="rg-btns">
+        <button class="primary" onclick="choisirDossierSauvegarde()">Choisir un dossier…</button>
+        <button id="rg-defaut" onclick="oublierDossierSauvegarde()" hidden>Revenir à Téléchargements</button>
+      </div>
+      <div class="meta" id="rg-note"></div>
+    </div>
   </section>
 </main>
 

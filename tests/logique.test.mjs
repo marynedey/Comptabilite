@@ -165,3 +165,9 @@ test('appli Android : base64 de la sauvegarde, même pour une grosse base', () =
   assert.deepEqual(new Uint8Array(Buffer.from(app.enBase64(octets), 'base64')), octets);
   assert.equal(app.enBase64(new Uint8Array([83, 81, 76])), 'U1FM');
 });
+
+test('sauvegarde : nom du fichier et message (dossier où il a été mis)', () => {
+  assert.equal(app.nomSauvegarde(new Date(2026, 9, 5, 8, 3, 9)), 'comptes_2026-10-05_08h03m09.sqlite');
+  assert.equal(app.messageSauvegarde('Comptes', 'comptes_2026-10-05_08h03m09.sqlite'),
+    'Sauvegarde enregistrée dans « Comptes » : comptes_2026-10-05_08h03m09.sqlite');
+});

@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.1.2'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.2.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -506,6 +506,7 @@ function render(){
   else if(state.view==='tiers')renderTiers();
   else if(state.view==='categories')renderCategories();
   else if(state.view==='corbeille')renderCorbeille();
+  else if(state.view==='reglages')renderReglages();
 
   else if(state.view==='recurrences')renderRecurrences();
   else if(state.view==='releve')renderReleve();
@@ -2077,26 +2078,80 @@ function annulOp(){
 /* ============================================================
    Sauvegarde / chargement fichier
    ============================================================ */
-function sauvegarder(){
+/* nom du fichier de sauvegarde (le module natif de l'appli n'accepte que ce format) */
+function nomSauvegarde(d){
+  const p2=x=>String(x).padStart(2,'0');
+  const stamp=d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate())+'_'+p2(d.getHours())+'h'+p2(d.getMinutes())+'m'+p2(d.getSeconds());
+  return 'comptes_'+stamp+'.sqlite';}
+function messageSauvegarde(dossier,nom){return 'Sauvegarde enregistrée dans « '+dossier+' » : '+nom;}
+/* Sauvegarder : dans le dossier choisi dans les Réglages, sinon dans Téléchargements. Si le dossier
+   n'est plus accessible, on propose Téléchargements. Compté sauvegardé seulement si le fichier est écrit. */
+async function sauvegarder(){
+  let data,nom;
+  try{setMeta('updated',nowTS());data=db.export();nom=nomSauvegarde(new Date());}
+  catch(e){dlgAlert('Échec de la sauvegarde : '+e.message,'Erreur');return;}
+  const dossier=await dossierSauvegarde();
   try{
-    setMeta('updated',nowTS());
-    const data=db.export();
-    const d=new Date(),p2=x=>String(x).padStart(2,'0');
-    const stamp=d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate())+'_'+p2(d.getHours())+'h'+p2(d.getMinutes())+'m'+p2(d.getSeconds());
-    const nom='comptes_'+stamp+'.sqlite';
-    if(enAppli()){ // module natif : fichier écrit dans Téléchargements ; compté sauvegardé seulement s'il y est
-      natif('enregistrer',{nom,donnees:enBase64(data)})
-        .then(()=>{sauvegardeFaite();toast('Sauvegarde enregistrée dans Téléchargements : '+nom);})
-        .catch(e=>dlgAlert('Échec de la sauvegarde : '+(e.message||e),'Erreur'));
-      return;
+    if(dossier){
+      try{await ecrireDansDossier(dossier,nom,data);}
+      catch(e){
+        const ok=await dlgConfirm('Le dossier « '+dossier.nom+' » n’est pas accessible ('+(e.message||e)+').\n\n'+
+          'Enregistrer la sauvegarde dans Téléchargements à la place ?\nTu peux choisir un autre dossier dans les Réglages.',
+          'Sauvegarde','Enregistrer dans Téléchargements');
+        if(!ok)return;
+        await versTelechargements(nom,data);sauvegardeFaite();toast(messageSauvegarde('Téléchargements',nom));return;
+      }
+      sauvegardeFaite();toast(messageSauvegarde(dossier.nom,nom));return;
     }
-    const blob=new Blob([data],{type:'application/octet-stream'});
-    const a=document.createElement('a');a.href=URL.createObjectURL(blob);
-    a.download=nom;document.body.appendChild(a);a.click();
-    setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1000);
-    sauvegardeFaite();
-    toast('Sauvegarde téléchargée : '+nom);
-  }catch(e){dlgAlert('Échec de la sauvegarde : '+e.message,'Erreur');}
+    await versTelechargements(nom,data);sauvegardeFaite();toast(messageSauvegarde('Téléchargements',nom));
+  }catch(e){dlgAlert('Échec de la sauvegarde : '+(e.message||e),'Erreur');}
+}
+async function ecrireDansDossier(dossier,nom,data){
+  if(enAppli()){await natif('enregistrer',{nom,donnees:enBase64(data),dossier:true});return;}
+  const h=dossier.handle; // le navigateur peut redemander l'autorisation (le clic sur Sauvegarder le permet)
+  if(await h.queryPermission({mode:'readwrite'})!=='granted'&&await h.requestPermission({mode:'readwrite'})!=='granted')
+    throw new Error('autorisation refusée');
+  const w=await (await h.getFileHandle(nom,{create:true})).createWritable();
+  await w.write(data);await w.close();
+}
+async function versTelechargements(nom,data){
+  if(enAppli()){await natif('enregistrer',{nom,donnees:enBase64(data)});return;}
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([data],{type:'application/octet-stream'}));
+  a.download=nom;document.body.appendChild(a);a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1000);
+}
+/* ---------- Réglages de cet appareil : gardés hors de la base (IndexedDB de l'appareil, ou natif dans
+   l'appli), donc ils ne voyagent pas avec les fichiers de sauvegarde ---------- */
+const choixDossierPossible=()=>enAppli()||typeof window.showDirectoryPicker==='function';
+async function dossierSauvegarde(){ // {nom, handle} ou null = Téléchargements
+  try{
+    if(enAppli()){const r=await natif('dossier');return r&&r.nom?{nom:r.nom}:null;}
+    if(!choixDossierPossible())return null;
+    const h=await idbGetKey('dossierSauvegarde');return h?{nom:h.name,handle:h}:null;
+  }catch(e){return null;}
+}
+async function renderReglages(){
+  const d=await dossierSauvegarde(),possible=choixDossierPossible();
+  document.getElementById('rg-dossier').textContent=d?d.nom:'Téléchargements';
+  document.getElementById('rg-btns').hidden=!possible;
+  document.getElementById('rg-defaut').hidden=!d;
+  document.getElementById('rg-note').textContent=!possible
+    ?'Ce navigateur ne permet pas de choisir un dossier : les sauvegardes vont dans Téléchargements.'
+    :d?'Si ce dossier n’est plus accessible, l’app proposera d’enregistrer dans Téléchargements.':'Par défaut, les sauvegardes vont dans Téléchargements.';
+}
+async function choisirDossierSauvegarde(){
+  try{
+    let nom;
+    if(enAppli()){const r=await natif('choisirDossier');if(!r||!r.nom)return;nom=r.nom;}
+    else{const h=await window.showDirectoryPicker({id:'sauvegardes',mode:'readwrite'});await idbPutKey('dossierSauvegarde',h);nom=h.name;}
+    toast('Les sauvegardes iront dans « '+nom+' »');
+  }catch(e){if(!e||e.name!=='AbortError')dlgAlert('Impossible d’utiliser ce dossier.\n\n'+((e&&e.message)||e),'Réglages');}
+  finally{renderReglages();}
+}
+async function oublierDossierSauvegarde(){
+  try{if(enAppli())await natif('oublierDossier');else await idbPutKey('dossierSauvegarde',null);}
+  catch(e){dlgAlert('Impossible de changer ce réglage.\n\n'+(e.message||e),'Réglages');return;}
+  renderReglages();toast('Les sauvegardes iront dans « Téléchargements »');
 }
 function sauvegardeFaite(){
   setMeta('rev',(+getMeta('rev',0))+1);
