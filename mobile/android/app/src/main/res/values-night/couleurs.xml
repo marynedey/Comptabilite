@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- --paper du mode sombre (css/app.css) -->
+    <!-- Fond du mode sombre (variable paper de css/app.css) -->
     <color name="fond">#14171A</color>
 </resources>

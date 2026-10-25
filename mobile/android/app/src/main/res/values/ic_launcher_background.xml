@@ -2,6 +2,6 @@
 <resources>
     <!-- Vert de l'icône (icons/maskable-512.png) -->
     <color name="ic_launcher_background">#0F6E56</color>
-    <!-- Fond de l'app (--paper de css/app.css) : derrière les barres d'Android -->
+    <!-- Fond de l'app (variable paper de css/app.css) : derrière les barres d'Android -->
     <color name="fond">#F6F7F4</color>
 </resources>
