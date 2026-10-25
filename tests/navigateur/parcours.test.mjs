@@ -21,6 +21,7 @@ before(async () => {
     let chemin = decodeURIComponent(new URL(req.url, 'http://x').pathname);
     if (!chemin.startsWith('/Comptabilite/')) { res.writeHead(404); return res.end(); }
     chemin = normalize(chemin.slice('/Comptabilite/'.length) || 'index.html');
+    if (chemin === 'android/' || chemin === 'android/index.html') chemin = 'mobile/installer.html'; // publiée là par le workflow
     const fichier = join(RACINE, chemin);
     if (chemin.startsWith('..') || !existsSync(fichier) || statSync(fichier).isDirectory()) { res.writeHead(404); return res.end(); }
     let corps = readFileSync(fichier);
@@ -135,6 +136,16 @@ test('hors ligne : l\'app s\'ouvre sans réseau, avec ses données', async () =>
     assert.match(await page.textContent('#v-registre'), /Marché/);
     // le lecteur de PDF aussi est disponible hors ligne
     assert.ok(await page.evaluate(async () => (await lirePdf(new Uint8Array(0)).catch(e => e.name)) === 'InvalidPDFException'));
+  } finally { await navigateur.close(); }
+});
+
+test('page d\'installation de l\'appli : pas remplacée par l\'app quand le service worker est actif', async () => {
+  const { navigateur, page } = await ouvrir();
+  try {
+    assert.ok(await swActif(page) || (await allerA(page), await swActif(page)), 'service worker actif');
+    await page.goto(BASE + 'android/');
+    assert.match(await page.title(), /Installer Mes comptes/);
+    assert.equal(await page.getAttribute('a.bouton', 'href'), 'mes-comptes-__VERSION__.apk');
   } finally { await navigateur.close(); }
 });
 
