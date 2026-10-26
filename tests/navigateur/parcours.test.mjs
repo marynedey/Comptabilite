@@ -437,6 +437,9 @@ test('téléphone, opérations : liste par jour, la barre de statut à gauche po
     assert.deepEqual(await page.locator('#m-ops .m-jour > span:first-child').allTextContents(),
       ['Mercredi 28 octobre', 'Aujourd’hui', 'Hier', 'Dimanche 20 septembre']);
     assert.match(await page.textContent('#m-soldes'), /2\s025,20\s€/); // solde réel
+    // « Rapprocher » à droite du solde réel, sur la même ligne
+    const solde = await page.locator('#m-soldes .ms-reel').boundingBox(), rap = await page.locator('#m-soldes .ms-rapprocher').boundingBox();
+    assert.ok(rap.x > solde.x + solde.width - 1 && rap.y < solde.y + solde.height && rap.y + rap.height > solde.y, 'Rapprocher à droite du solde');
     await ligne(page, 'Boulangerie').locator('.m-st').click();
     assert.equal((await statutDe(page, 'Boulangerie')).s, 'pointe');
     await ligne(page, 'Boulangerie').locator('.m-st').click();
@@ -473,6 +476,7 @@ test('téléphone, opérations : recherche dans l\'écran, filtres dans la feuil
     await page.locator('#f-zone').waitFor({ state: 'visible' });
     await page.click('#f-zone .schip[data-s="pointe"]');           // décocher « Pointé »
     assert.match(await page.textContent('#m-voir'), /Voir 3 opérations/);
+    assert.ok((await page.locator('#m-mois').boundingBox()).y > (await page.locator('#f-statuts').boundingBox()).y, 'mois avec la période, sous les statuts');
     await page.click('#m-mois button[aria-label="Mois précédent"]'); // septembre
     assert.match(await page.textContent('#m-mois-nom'), /Septembre 2026/);
     await page.click('#f-zone .schip[data-s="pointe"]');           // recocher
