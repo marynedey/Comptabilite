@@ -36,6 +36,14 @@
 <div class="menu-backdrop" id="menu-backdrop" onclick="closeMenu()"></div>
 
 <main>
+  <header class="m-entete" id="m-entete">
+    <div class="m-compte" id="m-compte-wrap">
+      <button class="m-compte-btn" id="m-compte-btn" onclick="basculerListeComptes()" aria-haspopup="listbox" aria-expanded="false"><span id="m-compte-nom">—</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
+      <div class="m-comptes" id="m-comptes" role="listbox" hidden></div>
+    </div>
+    <h1 class="m-titre" id="m-titre" hidden></h1>
+    <button class="m-icone" id="m-sauver" onclick="sauvegarder()" aria-label="Sauvegarder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg><span class="m-point" id="m-point" hidden></span></button>
+  </header>
   <div class="topbar">
    <div class="tb-main">
     <button class="navbtn menubtn" id="btn-menu" onclick="toggleMenu()" title="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
@@ -257,6 +265,12 @@
     <div class="tablecard"><table class="auto"><thead><tr id="tr-head"></tr></thead><tbody id="tr-rows"></tbody></table></div>
   </section>
 
+  <section class="view" id="v-plus">
+    <div class="m-sauvegarde" id="plus-sauvegarde"></div>
+    <div id="plus-groupes"></div>
+    <p class="m-version" id="plus-version"></p>
+  </section>
+
   <section class="view" id="v-reglages">
     <div class="top">
       <div><h1>Réglages</h1>
@@ -344,6 +358,12 @@
 <div class="busy" id="busy"><div class="bx"><div class="spin"></div><div class="bt" id="busyTxt">Traitement…</div></div></div>
 <div class="toast" id="toast"></div>
 <div class="maj" id="maj" role="status" hidden>Nouvelle version de l’application <button onclick="installerMaj()">Mettre à jour</button></div>
+<nav class="m-onglets" id="m-onglets" aria-label="Navigation">
+  <button data-o="registre" onclick="ongletMobile('registre')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span>Opérations</span></button>
+  <button data-o="analyse" onclick="ongletMobile('analyse')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 109 9h-9zM15 2.6A9 9 0 0121.4 9H15z"/></svg><span>Analyse</span></button>
+  <button data-o="recurrences" onclick="ongletMobile('recurrences')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 2l4 4-4 4M3 11V9a4 4 0 014-4h14M7 22l-4-4 4-4M21 13v2a4 4 0 01-4 4H3"/></svg><span>Échéances</span></button>
+  <button data-o="plus" onclick="ongletMobile('plus')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg><span>Plus</span></button>
+</nav>
 <div class="deja-ouvert" id="deja-ouvert" hidden><div class="deja-ouvert-carte">
   <h2>Mes comptes est déjà ouvert</h2>
   <p>L’app est ouverte dans une autre fenêtre ou un autre onglet de ce navigateur. Pour ne jamais mélanger tes modifications, elle ne s’ouvre qu’une fois.</p>
