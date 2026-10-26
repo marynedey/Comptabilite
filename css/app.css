@@ -196,7 +196,9 @@
   .m-soldes .ms-grille{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
   .m-soldes .ms-grille>*{border:0;background:none;padding:0;text-align:left;display:block;color:var(--ink);font-size:.95rem;font-weight:600;min-height:0}
   .m-soldes .ms-grille small{display:block;font-size:.75rem;font-weight:400;color:var(--ink-2)}
-  .m-soldes .ms-rapprocher{margin-top:12px;width:100%;justify-content:center;min-height:44px}
+  .m-soldes .ms-haut{display:flex;align-items:center;gap:12px}
+  .m-soldes .ms-haut>div{flex:1;min-width:0}
+  .m-soldes .ms-rapprocher{flex:none;min-height:44px;border-radius:22px;padding:0 16px;font-weight:600}
   body.mobile .m-filtres-actifs{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 0 2px}
   .m-puce{display:inline-flex;align-items:center;gap:2px;min-height:34px;padding:0 4px 0 12px;border-radius:17px;background:var(--brand-soft);color:var(--brand);font-size:.85rem;font-weight:600;border:0}
   .m-puce span{display:inline-flex;width:28px;height:28px;align-items:center;justify-content:center}

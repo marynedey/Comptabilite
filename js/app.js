@@ -535,14 +535,14 @@ function filtresActifsMobile(){
 function renderOperationsMobile(){
   const a=state.acc,r=soldesCompte(a),hz=document.getElementById('f-horizon').value;
   document.getElementById('m-soldes').innerHTML=
-    '<div class="ms-k">Solde réel aujourd’hui</div><div class="ms-reel num">'+eur(r.reel)+'</div>'+
+    '<div class="ms-haut"><div><div class="ms-k">Solde réel aujourd’hui</div><div class="ms-reel num">'+eur(r.reel)+'</div></div>'+
+      '<button class="ms-rapprocher" onclick="ouvrirRapprochement()" aria-label="Rapprocher les opérations pointées">Rapprocher</button></div>'+
     '<div class="ms-grille">'+
       '<div><small>Rapproché</small><span class="num">'+eur(r.rap)+'</span></div>'+
       '<div><small>'+(hz==='masque'?'Sans prévisionnel':hz==='3'?'Dans 3 jours':hz==='finmoisprochain'?'Fin du mois prochain':'Fin du mois')+'</small>'+
         '<span class="num" style="color:var(--st-prev)">'+eur(r.reel+r.prv)+'</span></div>'+
       '<button onclick="filtreAttente()" aria-label="Afficher les opérations à pointer"><small>À pointer</small><span style="color:var(--st-non)">'+r.npt+'</span></button>'+
-    '</div>'+
-    '<button class="ms-rapprocher" onclick="ouvrirRapprochement()">Rapprocher les opérations pointées</button>';
+    '</div>';
   const actifs=filtresActifsMobile();
   document.getElementById('m-filtres-actifs').innerHTML=actifs.map(([t,f])=>
       '<span class="m-puce">'+esc(t)+'<button class="ghost" style="padding:0;min-height:0;border:0;background:none;color:inherit" aria-label="Retirer le filtre '+esc(t)+'" onclick="'+f+'"><span>✕</span></button></span>').join('')+
