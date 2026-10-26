@@ -528,11 +528,17 @@ test('téléphone, fiche d\'une opération : montant en grand, statut en informa
   } finally { await navigateur.close(); }
 });
 
+// Ouvre les réglages et déplie une rubrique (elles sont repliées : une ligne chacune).
+const reglages = async (page, id) => {
+  await page.evaluate(() => setView('reglages'));
+  if (await page.getAttribute('#' + id, 'open') === null) await page.click('#' + id + ' summary');
+};
+
 test('réglages d\'affichage : recherche en bas, thème, montants masqués — gardés sur l\'appareil', async () => {
   const { navigateur, page } = await ouvrirTelephone();
   try {
     await ajouterOperation(page, { dest: 'Boulangerie', montant: '4,50', date: '25/10/26', cat: 'Alimentation' });
-    await page.evaluate(() => setView('reglages'));
+    await reglages(page, 'rg-barres');
     // barres de recherche en bas : juste au-dessus des onglets, pour toutes les recherches
     await page.click('#rg-recherche button[data-v="bas"]');
     await page.evaluate(() => setView('registre'));
@@ -541,7 +547,7 @@ test('réglages d\'affichage : recherche en bas, thème, montants masqués — g
     await page.evaluate(() => setView('tiers'));
     assert.ok(await haut('#ti-search') > 650, 'recherche des tiers en bas');
     // thème sombre forcé
-    await page.evaluate(() => setView('reglages'));
+    await reglages(page, 'rg-affichage');
     await page.click('#rg-theme button[data-v="sombre"]');
     assert.equal(await page.getAttribute('html', 'data-theme'), 'sombre');
     assert.equal(await page.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(20, 23, 26)');
@@ -559,6 +565,9 @@ test('réglages d\'affichage : recherche en bas, thème, montants masqués — g
     assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('#m-soldes .ms-reel')).filter), 'none');
     // retour à l'automatique
     await page.evaluate(() => setView('reglages'));
+    assert.equal(await page.textContent('#rg-affichage-resume'), 'Sombre · montants masqués');
+    assert.equal(await page.textContent('#rg-barres-resume'), 'En bas');
+    await reglages(page, 'rg-affichage');
     await page.click('#rg-theme button[data-v="auto"]');
     assert.equal(await page.getAttribute('html', 'data-theme'), null);
     assert.deepEqual(page.erreurs, []);
@@ -569,8 +578,13 @@ test('réglages sur PC : pas de rubrique « barres de recherche » (elle ne conc
   const { navigateur, page } = await ouvrir();
   try {
     await page.evaluate(() => setView('reglages'));
+    // rubriques repliées : une ligne chacune (titre + résumé), le détail se déroule au toucher
+    assert.equal(await page.isVisible('#rg-theme'), false);
+    assert.equal(await page.textContent('#rg-sauvegarde-resume'), 'Téléchargements');
+    assert.match(await page.textContent('#rg-version'), /^Mes comptes · version \d+\.\d+\.\d+$/);
+    await page.click('#rg-affichage summary');
     assert.equal(await page.isVisible('#rg-theme'), true);
-    assert.equal(await page.isVisible('#rg-recherche'), false);
+    assert.equal(await page.isVisible('#rg-barres'), false);
   } finally { await navigateur.close(); }
 });
 
@@ -652,7 +666,7 @@ const texteToast = page => page.textContent('#toast');
 test('réglages (PC) : sauvegarde dans le dossier choisi, gardé après rechargement ; dossier disparu → Téléchargements', async () => {
   const { navigateur, page } = await ouvrir({ preparer: c => c.addInitScript(fauxChoixDeDossier) });
   try {
-    await page.evaluate(() => setView('reglages'));
+    await reglages(page, 'rg-sauvegarde');
     assert.match(await page.textContent('#rg-dossier'), /Téléchargements/);
     await page.click('#rg-btns button:has-text("Choisir un dossier")');
     await page.locator('#rg-dossier:has-text("Comptes")').waitFor();
@@ -676,7 +690,7 @@ test('réglages (PC) : sauvegarde dans le dossier choisi, gardé après recharge
     assert.match(await texteToast(page), /dans « Téléchargements »/);
 
     // Revenir à Téléchargements.
-    await page.evaluate(() => setView('reglages'));
+    await reglages(page, 'rg-sauvegarde');
     await page.click('#rg-defaut');
     await page.locator('#rg-dossier:has-text("Téléchargements")').waitFor();
     assert.equal(await page.isVisible('#rg-defaut'), false);
@@ -687,7 +701,7 @@ test('réglages (PC) : sauvegarde dans le dossier choisi, gardé après recharge
 test('réglages : navigateur sans choix de dossier → expliqué, sauvegarde dans Téléchargements', async () => {
   const { navigateur, page } = await ouvrir({ preparer: c => c.addInitScript(() => { delete window.showDirectoryPicker; }) });
   try {
-    await page.evaluate(() => setView('reglages'));
+    await reglages(page, 'rg-sauvegarde');
     assert.match(await page.textContent('#rg-note'), /ne permet pas de choisir un dossier/);
     assert.equal(await page.isVisible('#rg-btns'), false);
     assert.deepEqual(page.erreurs, []);
@@ -699,9 +713,10 @@ test('réglages (appli Android) : dossier choisi par Android, sauvegarde dedans,
   try {
     await page.click('#dlgFoot button:has-text("Plus tard")');
     await page.evaluate(() => { window.__natif.choisirDossier = window.__natif.dossier = { nom: 'Mes sauvegardes' }; });
-    await page.evaluate(() => setView('reglages'));
+    await reglages(page, 'rg-sauvegarde');
     await page.click('#rg-btns button:has-text("Choisir un dossier")');
     await page.locator('#rg-dossier:has-text("Mes sauvegardes")').waitFor();
+    assert.equal(await page.textContent('#rg-sauvegarde-resume'), 'Mes sauvegardes');
 
     await ajouterOperation(page, { dest: 'Boulangerie du coin', montant: '4,50', date: '05/01/26', cat: 'Alimentation' });
     await page.click('button[onclick="sauvegarder()"]:visible');

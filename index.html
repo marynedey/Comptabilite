@@ -300,36 +300,45 @@
       <div><h1>Réglages</h1>
         <div class="meta">Propres à cet appareil : ils ne sont pas dans les fichiers de sauvegarde.</div></div>
     </div>
-    <div class="card reglage">
-      <h3>Sauvegarde</h3>
-      <div class="meta">Dossier où « Sauvegarder » enregistre le fichier <code>comptes_….sqlite</code>.</div>
-      <div class="rg-valeur">Dossier : <b id="rg-dossier">Téléchargements</b></div>
-      <div class="rg-btns" id="rg-btns">
-        <button class="primary" onclick="choisirDossierSauvegarde()">Choisir un dossier…</button>
-        <button id="rg-defaut" onclick="oublierDossierSauvegarde()" hidden>Revenir à Téléchargements</button>
+    <div class="rg-liste">
+    <details class="reglage" id="rg-sauvegarde">
+      <summary><svg class="rg-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg><span><b>Sauvegarde</b><small class="rg-resume" id="rg-sauvegarde-resume">Téléchargements</small></span><svg class="rg-fleche" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></summary>
+      <div class="rg-corps">
+        <div class="meta">Dossier où « Sauvegarder » enregistre le fichier <code>comptes_….sqlite</code>.</div>
+        <div class="rg-valeur">Dossier : <b id="rg-dossier">Téléchargements</b></div>
+        <div class="rg-btns" id="rg-btns">
+          <button class="primary" onclick="choisirDossierSauvegarde()">Choisir un dossier…</button>
+          <button id="rg-defaut" onclick="oublierDossierSauvegarde()" hidden>Revenir à Téléchargements</button>
+        </div>
+        <div class="meta" id="rg-note"></div>
       </div>
-      <div class="meta" id="rg-note"></div>
-    </div>
-    <div class="card reglage">
-      <h3>Affichage</h3>
-      <div class="rg-ligne">Thème</div>
-      <div class="rg-choix" role="radiogroup" aria-label="Thème" id="rg-theme">
-        <button role="radio" data-v="auto" onclick="changerReglage('theme','auto')">Automatique</button>
-        <button role="radio" data-v="clair" onclick="changerReglage('theme','clair')">Clair</button>
-        <button role="radio" data-v="sombre" onclick="changerReglage('theme','sombre')">Sombre</button>
+    </details>
+    <details class="reglage" id="rg-affichage">
+      <summary><svg class="rg-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg><span><b>Affichage</b><small class="rg-resume" id="rg-affichage-resume">Automatique</small></span><svg class="rg-fleche" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></summary>
+      <div class="rg-corps">
+        <div class="rg-ligne">Thème</div>
+        <div class="rg-choix" role="radiogroup" aria-label="Thème" id="rg-theme">
+          <button role="radio" data-v="auto" onclick="changerReglage('theme','auto')">Automatique</button>
+          <button role="radio" data-v="clair" onclick="changerReglage('theme','clair')">Clair</button>
+          <button role="radio" data-v="sombre" onclick="changerReglage('theme','sombre')">Sombre</button>
+        </div>
+        <div class="meta">« Automatique » suit le réglage du téléphone ou de l’ordinateur.</div>
+        <label class="rg-case"><input type="checkbox" id="rg-masquer" onchange="changerReglage('masquer',this.checked)">
+          <span>Masquer les montants à l’ouverture<small>Ils restent flous jusqu’à ce que tu touches l’œil, en haut.</small></span></label>
       </div>
-      <div class="meta">« Automatique » suit le réglage du téléphone ou de l’ordinateur.</div>
-      <label class="rg-case"><input type="checkbox" id="rg-masquer" onchange="changerReglage('masquer',this.checked)">
-        <span>Masquer les montants à l’ouverture<small>Ils restent flous jusqu’à ce que tu touches l’œil, en haut.</small></span></label>
-    </div>
-    <div class="card reglage rg-mobile">
-      <h3>Barres de recherche</h3>
-      <div class="rg-choix" role="radiogroup" aria-label="Position des barres de recherche" id="rg-recherche">
-        <button role="radio" data-v="haut" onclick="changerReglage('recherche','haut')">En haut</button>
-        <button role="radio" data-v="bas" onclick="changerReglage('recherche','bas')">En bas</button>
+    </details>
+    <details class="reglage rg-mobile" id="rg-barres">
+      <summary><svg class="rg-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><span><b>Barres de recherche</b><small class="rg-resume" id="rg-barres-resume">En haut</small></span><svg class="rg-fleche" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></summary>
+      <div class="rg-corps">
+        <div class="rg-choix" role="radiogroup" aria-label="Position des barres de recherche" id="rg-recherche">
+          <button role="radio" data-v="haut" onclick="changerReglage('recherche','haut')">En haut</button>
+          <button role="radio" data-v="bas" onclick="changerReglage('recherche','bas')">En bas</button>
+        </div>
+        <div class="meta">Pour toutes les barres de recherche : opérations, tiers, catégories. En bas, elles se placent juste au-dessus des onglets.</div>
       </div>
-      <div class="meta">Pour toutes les barres de recherche : opérations, tiers, catégories. En bas, elles se placent juste au-dessus des onglets.</div>
+    </details>
     </div>
+    <div class="rg-version" id="rg-version"></div>
   </section>
 </main>
 
