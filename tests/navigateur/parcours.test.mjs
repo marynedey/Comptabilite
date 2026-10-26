@@ -549,6 +549,8 @@ test('réglages d\'affichage : recherche en bas, thème, montants masqués — g
     await page.check('#rg-masquer');
     await page.waitForTimeout(1200);   // la base est écrite (0,9 s) avant de rouvrir
     await allerA(page);
+    await page.waitForFunction(() => state.view === 'reglages'); // l'app rouvre sur le dernier écran visité
+    await page.evaluate(() => setView('registre'));
     assert.equal(await page.getAttribute('html', 'data-theme'), 'sombre');
     assert.ok(await haut('#f-search') > 650);
     assert.equal(await page.evaluate(() => document.body.classList.contains('montants-masques')), true);
