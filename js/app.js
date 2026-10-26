@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.9.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.10.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -3094,7 +3094,53 @@ function recSort(col){
   if(state.recSort===col)state.recDir=-state.recDir;else{state.recSort=col;state.recDir=1;}
   renderRecurrences();
 }
+/* ---------- Échéances (téléphone) : ce mois-ci / ensuite / suspendues, ce qui reste à payer ou recevoir ce mois ----------
+   r.prochaine = la prochaine échéance à venir (déjà créée en prévisionnel). Les virements ne comptent pas dans les totaux. */
+function echeancesMobile(recs,auj){
+  const finMois=isoDe(new Date(+auj.slice(0,4),+auj.slice(5,7),0)),out={mois:[],ensuite:[],suspendues:[],aPayer:0,aRecevoir:0};
+  recs.slice().sort((a,b)=>(a.prochaine||'').localeCompare(b.prochaine||'')).forEach(r=>{
+    const fini=r.date_fin&&r.prochaine>r.date_fin;
+    if(!r.actif||fini){out.suspendues.push(r);return;}
+    (r.prochaine<=finMois?out.mois:out.ensuite).push(r);
+    if(r.compte_cible)return;
+    // toutes les échéances d'ici la fin du mois (une hebdomadaire passe plusieurs fois)
+    for(let d=r.prochaine,g=0;d&&d<=finMois&&(!r.date_fin||d<=r.date_fin)&&g<40;d=avancerDate(d,r.frequence,r.jour,r.intervalle),g++){
+      if(d<auj)continue;
+      if(r.montant<0)out.aPayer+=r.montant;else out.aRecevoir+=r.montant;
+    }
+  });
+  return out;
+}
+function renderEcheancesMobile(){
+  const recs=qy('SELECT r.*, c.nom cnom FROM recurrence r JOIN compte c ON c.id=r.compte_id');
+  const E=echeancesMobile(recs,todayISO());
+  const item=r=>{const d=r.prochaine||'';
+    return '<button class="me-item'+(r.actif?'':' suspendue')+'" onclick="actionEcheance('+r.id+')">'+
+      '<span class="me-date"><b>'+(r.actif&&d?+d.slice(8,10):'—')+'</b><small>'+(r.actif&&d?MOIS_COURT[+d.slice(5,7)-1]:'')+'</small></span>'+
+      '<span class="me-nom">'+esc(r.tiers||'(sans destinataire)')+'<small>'+esc(freqLabel(r.frequence,r.intervalle)+' · '+(r.compte_cible?'virement':r.cnom)+(r.actif?'':' · suspendue'))+'</small></span>'+
+      '<span class="num" style="color:'+(r.montant<0?'var(--ink)':'var(--credit)')+'">'+(r.montant<0?'':'+')+eur(r.montant)+'</span></button>';};
+  const groupe=(t,l)=>l.length?'<div class="ma-h">'+t+'</div><div class="me-liste">'+l.map(item).join('')+'</div>':'';
+  document.getElementById('m-echeances').innerHTML=
+    '<p class="me-aide">Opérations qui reviennent : elles sont créées toutes seules, en prévisionnel, à chaque échéance.</p>'+
+    '<div class="me-totaux"><div><small>Encore à payer ce mois</small><b class="num" style="color:var(--debit)">'+eur(E.aPayer)+'</b></div>'+
+      '<div><small>Encore à recevoir</small><b class="num" style="color:var(--credit)">+'+eur(E.aRecevoir)+'</b></div></div>'+
+    (recs.length?groupe('Ce mois-ci',E.mois)+groupe('Ensuite',E.ensuite)+groupe('Suspendues ou terminées',E.suspendues)
+      :'<div class="m-vide">Aucune échéance pour le moment. Ajoute un loyer, un abonnement, un salaire…</div>')+
+    '<button class="me-nouvelle" onclick="editRec(0)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Nouvelle échéance</button>';
+}
+// toucher une échéance : son détail, puis Modifier / Suspendre (Réactiver) / Supprimer
+async function actionEcheance(id){
+  const r=qy('SELECT r.*, c.nom cnom FROM recurrence r JOIN compte c ON c.id=r.compte_id WHERE r.id=?',[id])[0];if(!r)return;
+  const ligne=(k,v)=>'<div class="me-info"><span>'+k+'</span><b>'+v+'</b></div>';
+  const html=ligne('Montant','<span class="num">'+(r.montant<0?'':'+')+eur(r.montant)+'</span>')+ligne('Fréquence',esc(freqLabel(r.frequence,r.intervalle)))+
+    ligne('Compte',esc(r.cnom))+ligne('Prochaine',r.actif?isoToFr(r.prochaine):'suspendue')+
+    ligne('Jusqu’au',r.date_fin?isoToFr(r.date_fin):'sans fin')+(r.commentaire?ligne('Commentaire',esc(r.commentaire)):'');
+  const v=await dlgOpen({title:r.tiers||'Échéance',html,fermeDehors:true,buttons:[
+    {t:'Supprimer',v:'suppr',d:true},{t:r.actif?'Suspendre':'Réactiver',v:'susp'},{t:'Modifier',v:'mod',p:true}]});
+  if(v==='mod')editRec(id);else if(v==='susp')toggleRec(id,r.actif?0:1);else if(v==='suppr')supprRec(id);
+}
 function renderRecurrences(){
+  if(document.body.classList.contains('mobile')){renderEcheancesMobile();return;}
   const map={tiers:'LOWER(COALESCE(r.tiers,\'\'))',compte:'LOWER(c.nom)',montant:'r.montant',
     frequence:'r.frequence',debut:'r.date_debut',prochaine:'r.prochaine',commentaire:'LOWER(COALESCE(r.commentaire,\'\'))'};
   const col=map[state.recSort]||'r.prochaine',dir=state.recDir<0?'DESC':'ASC';
