@@ -286,3 +286,23 @@ test('échéances (téléphone) : ce mois-ci / ensuite / suspendues ; reste à p
   assert.equal(E.aPayer, -60000 - 2000);   // le virement ne compte pas, la suspendue non plus
   assert.equal(E.aRecevoir, 0);
 });
+
+test('tiers (téléphone) : les plus utilisés, A → Z, montant total', () => {
+  const rows = [{ dest: 'Boulangerie', n: 40, total: -28000 }, { dest: 'Salaire', n: 12, total: 2520000 }, { dest: 'Assurance', n: 40, total: -50000 }];
+  const noms = tri => [...app.trierTiersMobile(rows, tri).map(r => r.dest)];
+  assert.deepEqual(noms('n'), ['Assurance', 'Boulangerie', 'Salaire']);
+  assert.deepEqual(noms('az'), ['Assurance', 'Boulangerie', 'Salaire']);
+  assert.deepEqual(noms('total'), ['Salaire', 'Assurance', 'Boulangerie']);
+});
+
+test('catégories (téléphone) : arbre replié par défaut, flèche pour déplier, recherche → tout ce qui correspond déplié', () => {
+  const c = (id, libelle, parent_id) => ({ id, libelle, parent_id });
+  const cats = [c(1, 'Alimentation', null), c(2, 'Courses', 1), c(3, 'Boulangerie', 1), c(4, 'Logement', null), c(5, 'Bio', 2)];
+  const kids = {}; cats.forEach(x => (kids[x.parent_id ?? 0] = kids[x.parent_id ?? 0] || []).push(x));
+  const n = { 1: 0, 2: 5, 3: 2, 4: 0, 5: 1 }, totOf = id => n[id] + (kids[id] || []).reduce((t, k) => t + totOf(k.id), 0);
+  const noms = (o, q, v) => [...app.lignesCategoriesMobile(kids, totOf, new Set(o), q, v).map(l => '  '.repeat(l.depth) + l.c.libelle)];
+  assert.deepEqual(noms([], '', false), ['Alimentation', 'Logement']);
+  assert.deepEqual(noms([1], '', false), ['Alimentation', '  Boulangerie', '  Courses', 'Logement']);
+  assert.deepEqual(noms([], 'bio', false), ['Alimentation', '  Courses', '    Bio']);
+  assert.deepEqual(noms([], '', true), ['Logement']);   // seulement les vides
+});

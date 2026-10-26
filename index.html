@@ -236,6 +236,7 @@
       <input type="text" id="ti-search" placeholder="Rechercher un tiers…" style="width:100%;max-width:360px" oninput="renderTiers();syncHist()" onkeydown="if(event.key==='Escape'&&this.value){event.preventDefault();event.stopPropagation();this.value='';renderTiers();syncHist();}">
     </div>
     <div class="tablecard"><table class="auto"><thead><tr id="ti-head"></tr></thead><tbody id="ti-rows"></tbody></table></div>
+    <div class="m-gestion" id="m-tiers"></div>
   </section>
 
   <section class="view" id="v-categories">
@@ -245,6 +246,7 @@
       <label class="ventchk" style="margin:0"><input type="checkbox" id="cat-vides" onchange="state.catVides=this.checked;renderCategories();syncHist()"> Afficher seulement les catégories vides (0)</label>
     </div>
     <div class="card"><div class="tree" id="cat-tree"></div></div>
+    <div class="m-gestion" id="m-categories"></div>
   </section>
 
   <section class="view" id="v-releve">
@@ -287,6 +289,7 @@
       <button class="danger" onclick="viderCorbeille()">Vider la corbeille</button>
     </div>
     <div class="tablecard"><table class="auto"><thead><tr id="tr-head"></tr></thead><tbody id="tr-rows"></tbody></table></div>
+    <div class="m-gestion" id="m-corbeille"></div>
   </section>
 
   <section class="view" id="v-plus">

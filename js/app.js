@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.11.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.12.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -1476,6 +1476,19 @@ function renderCorbeille(){
     WHERE o.supprime=1 ORDER BY o.date_suppression DESC`);
   document.getElementById('tr-meta').textContent=rows.length?
     (rows.length+' opération'+(rows.length>1?'s':'')+' en corbeille — restaurables tant que tu ne vides pas'):'La corbeille est vide';
+  if(document.body.classList.contains('mobile')){
+    const jour=d=>d?(+d.slice(8,10))+' '+MOIS_COURT[+d.slice(5,7)-1]+' '+d.slice(0,4):'';
+    document.getElementById('m-corbeille').innerHTML=
+      '<p class="me-aide">Rien n’est supprimé tout seul : les opérations restent ici tant que tu ne vides pas la corbeille.</p>'+
+      (rows.length?'<div class="me-liste">'+rows.map(o=>'<div class="mg-ligne">'+
+        '<span class="me-nom">'+esc(o.dest||'(sans destinataire)')+'<small>Supprimée le '+jour((o.ds||'').slice(0,10))+' · '+esc(o.cpt||'')+' · opération du '+isoToFr(o.d)+'</small></span>'+
+        '<span class="num" style="color:'+(o.m<0?'var(--ink)':'var(--credit)')+'">'+eur(o.m)+'</span>'+
+        '<button class="mg-restaurer" onclick="restaurer('+o.id+')">Restaurer</button>'+
+        '<button class="ghost mg-icone" aria-label="Supprimer définitivement" onclick="supprDef('+o.id+')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button></div>').join('')+'</div>'+
+        '<div class="mg-pied"><button class="danger" onclick="viderCorbeille()">Vider la corbeille</button></div>'
+      :'<div class="m-vide">La corbeille est vide.</div>');
+    return;
+  }
   document.getElementById('tr-head').innerHTML=['Supprimée le','Compte','Date','Destinataire','Montant','']
     .map((h,i)=>'<th class="fix'+(i===4?' r':'')+'">'+h+'</th>').join('');
   document.getElementById('tr-rows').innerHTML=rows.map(o=>'<tr>'+
@@ -1524,6 +1537,7 @@ function renderTiers(){
   rowsF.sort((x,y)=>{let vx=x[k],vy=y[k];if(vx==null)vx='';if(vy==null)vy='';
     if(typeof vx==='string'){vx=vx.toLowerCase();vy=String(vy).toLowerCase();}return vx<vy?-dir:vx>vy?dir:0;});
   document.getElementById('ti-meta').textContent=rows.length+' destinataires enregistrés';
+  if(document.body.classList.contains('mobile')){renderTiersMobile(rowsF);return;}
   const cols=[['Destinataire','dest'],['Catégorie habituelle','cat'],['Ajouté le','first'],['Dernier paiement','last'],['Opér.','n']];
   document.getElementById('ti-head').innerHTML=cols.map(c=>{const r=c[1]==='n'?' class="r"':'';
     const arr=state.tiSort===c[1]?(state.tiDir===1?' ↑':' ↓'):'';
@@ -1533,6 +1547,36 @@ function renderTiers(){
     '<td class="num">'+(t.first?isoToFr(t.first):'—')+'</td>'+
     '<td class="num">'+(t.last?isoToFr(t.last):'—')+'</td>'+
     '<td class="r num">'+t.n+'</td></tr>').join('');
+}
+/* Tiers sur téléphone : une ligne par destinataire (initiale, nombre d'opérations, catégorie habituelle, total),
+   tri « les plus utilisés » / A → Z / montant total ; toucher → ses opérations */
+const TRIS_TIERS=[['n','Les plus utilisés'],['az','A → Z'],['total','Montant total']];
+function trierTiersMobile(rows,tri){
+  const r=rows.slice();
+  if(tri==='az')r.sort((a,b)=>(a.dest||'').localeCompare(b.dest||'','fr'));
+  else if(tri==='total')r.sort((a,b)=>Math.abs(b.total||0)-Math.abs(a.total||0));
+  else r.sort((a,b)=>(b.n-a.n)||(a.dest||'').localeCompare(b.dest||'','fr'));
+  return r;
+}
+function renderTiersMobile(rows){
+  const tot={};qy('SELECT tiers_id t,SUM(montant) s FROM operation WHERE supprime=0 AND statut<>\'annule\' GROUP BY tiers_id').forEach(x=>tot[x.t]=x.s);
+  const ids={};qy('SELECT id,nom FROM tiers').forEach(t=>ids[t.nom]=t.id);
+  rows.forEach(r=>r.total=tot[ids[r.dest]]||0);
+  const tri=state.tiMTri||'n',liste=trierTiersMobile(rows,tri);
+  document.getElementById('m-tiers').innerHTML=
+    '<div class="ma-puces mg-tris">'+TRIS_TIERS.map(([k,t])=>'<button aria-pressed="'+(k===tri)+'" onclick="state.tiMTri=\''+k+'\';renderTiers()">'+t+'</button>').join('')+'</div>'+
+    (liste.length?'<div class="me-liste">'+liste.map(t=>'<button class="me-item" onclick="voirTiers('+esc(JSON.stringify(t.dest))+')">'+
+      '<span class="mg-lettre" aria-hidden="true">'+esc((t.dest||'?').charAt(0).toUpperCase())+'</span>'+
+      '<span class="me-nom">'+esc(t.dest)+'<small>'+t.n+' op.'+(t.cat?' · '+esc(t.cat):'')+'</small></span>'+
+      '<span class="num" style="color:'+(t.total<0?'var(--ink)':'var(--credit)')+'">'+(t.total>0?'+':'')+eur(t.total)+'</span></button>').join('')+'</div>'
+      :'<div class="m-vide">Aucun destinataire ne correspond.</div>')+
+    '<p class="me-aide" style="margin-top:12px">Touche un destinataire pour voir ses opérations.</p>';
+}
+// un destinataire -> registre filtré par la recherche sur son nom
+function voirTiers(nom){
+  state.fCat=null;state.fSens=null;setStatutsTous();
+  const s=document.getElementById('f-search');if(s)s.value=nom;syncClear();
+  setView('registre');goPage(1);
 }
 function cheminCategorie(id){
   const by={};qy('SELECT id,libelle,parent_id FROM categorie').forEach(c=>by[c.id]=c);
@@ -1569,6 +1613,7 @@ function renderCategories(){
   function totOf(id){if(tot[id]!=null)return tot[id];let n=cnt[id]||0;(kids[id]||[]).forEach(k=>n+=totOf(k.id));return tot[id]=n;}
   function cheminDe(id){const parts=[];let x=id;const by={};cats.forEach(z=>by[z.id]=z);
     while(x!=null){const z=by[x];if(!z)break;parts.unshift(z.libelle);x=z.parent_id;}return parts.join(' : ');}
+  if(document.body.classList.contains('mobile')){renderCategoriesMobile(cats,kids,totOf);return;}
   function renderNode(c,depth){const t=totOf(c.id);
     return '<div class="tnode d'+(depth+1)+'" style="padding-left:'+(depth*22)+'px">'+
       '<span class="tname" style="cursor:pointer" title="Voir les opérations" onclick="voirCategorie('+c.id+')">'+esc(c.libelle)+'</span>'+
@@ -1594,6 +1639,35 @@ function renderCategories(){
     html=walk(0,0)||'<div style="color:var(--ink-3)">Aucune catégorie pour l’instant.</div>';
   }
   document.getElementById('cat-tree').innerHTML=html;
+}
+
+/* Catégories sur téléphone : arbre qui se déplie (flèche), nombre d'opérations ; toucher le nom → ses opérations.
+   Pendant une recherche (ou « vides seulement »), tout ce qui correspond est déplié. */
+function lignesCategoriesMobile(kids,totOf,ouvertes,q,vides){
+  const critere=c=>(!q||c.libelle.toLowerCase().includes(q))&&(!vides||totOf(c.id)===0);
+  const garde={},keep=c=>garde[c.id]!=null?garde[c.id]:(garde[c.id]=critere(c)||(kids[c.id]||[]).some(keep));
+  const filtre=!!(q||vides),out=[];
+  (function walk(pid,depth,tout){
+    (kids[pid]||[]).filter(c=>tout||!filtre||keep(c)).sort((a,b)=>a.libelle.localeCompare(b.libelle,'fr')).forEach(c=>{
+      const enfants=(kids[c.id]||[]).length>0,ouverte=filtre?enfants:ouvertes.has(c.id);
+      out.push({c,depth,enfants,ouverte,n:totOf(c.id)});
+      if(enfants&&ouverte)walk(c.id,depth+1,tout||(filtre&&critere(c)));
+    });
+  })(0,0,false);
+  return out;
+}
+function basculerCategorie(id){const o=state.catOuvertes||(state.catOuvertes=new Set());if(o.has(id))o.delete(id);else o.add(id);renderCategories();}
+function renderCategoriesMobile(cats,kids,totOf){
+  const q=((document.getElementById('cat-search')||{}).value||'').trim().toLowerCase();
+  const L=lignesCategoriesMobile(kids,totOf,state.catOuvertes||new Set(),q,!!state.catVides);
+  const fleche=(o)=>'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="'+(o?'M6 9l6 6 6-6':'M9 6l6 6-6 6')+'"/></svg>';
+  document.getElementById('m-categories').innerHTML=(L.length?'<div class="me-liste">'+L.map(l=>
+    '<div class="mg-cat d'+l.depth+'" style="padding-left:'+(6+l.depth*22)+'px">'+
+      (l.enfants?'<button class="ghost mg-icone" aria-expanded="'+l.ouverte+'" aria-label="'+(l.ouverte?'Replier ':'Déplier ')+esc(l.c.libelle)+'" onclick="basculerCategorie('+l.c.id+')">'+fleche(l.ouverte)+'</button>':'<span class="mg-icone"></span>')+
+      '<button class="mg-nom" onclick="voirCategorie('+l.c.id+')">'+esc(l.c.libelle)+'</button>'+
+      (l.n===0?'<button class="ghost mg-suppr" onclick="supprCategorie('+l.c.id+')">Supprimer</button>':'<span class="mg-nb">'+l.n+' op.</span>')+'</div>').join('')+'</div>'
+    :'<div class="m-vide">'+(q||state.catVides?'Aucune catégorie ne correspond.':'Aucune catégorie pour l’instant.')+'</div>')+
+    '<p class="me-aide" style="margin-top:12px">Touche une catégorie pour voir ses opérations ; la flèche montre ses sous-catégories.</p>';
 }
 
 /* ============================================================

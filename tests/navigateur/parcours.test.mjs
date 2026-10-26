@@ -721,6 +721,41 @@ test('téléphone, relevé PDF : trois tuiles qui filtrent (retrouvées / à vé
   } finally { await navigateur.close(); }
 });
 
+test('téléphone, gestion : tiers (tri, toucher → opérations), catégories (déplier), corbeille (restaurer, vider)', async () => {
+  const { navigateur, page } = await ouvrirTelephone();
+  try {
+    await opsExemple(page);
+    // tiers
+    await page.evaluate(() => setView('tiers'));
+    const t = page.locator('#m-tiers');
+    assert.equal(await page.isVisible('#ti-rows'), false);
+    await t.locator('button:has-text("A → Z")').click();
+    assert.deepEqual((await t.locator('.me-nom').evaluateAll(es => es.map(x => x.firstChild.textContent))).slice(0, 2), ['Boulangerie', 'Électricité']);
+    await t.locator('button:has-text("Montant total")').click();
+    assert.equal(await t.locator('.me-nom').first().evaluate(x => x.firstChild.textContent), 'Salaire');
+    await t.locator('.me-item', { hasText: 'Pharmacie' }).click();
+    await page.waitForFunction(() => state.view === 'registre');
+    assert.equal(await page.inputValue('#f-search'), 'Pharmacie');
+    assert.equal(await page.locator('#m-ops .m-op').count(), 1);
+    // catégories : repliées, la flèche déplie
+    await page.evaluate(() => { document.getElementById('f-search').value = ''; upsertCategorie('Alimentation : Courses'); upsertCategorie('Santé'); setView('categories'); });
+    const c = page.locator('#m-categories');
+    assert.equal(await c.locator('.mg-nom', { hasText: 'Courses' }).count(), 0);
+    await c.locator('button[aria-label="Déplier Alimentation"]').click();
+    assert.equal(await c.locator('.mg-nom', { hasText: 'Courses' }).count(), 1);
+    // corbeille : restaurer, vider
+    await page.evaluate(() => { run("UPDATE operation SET supprime=1,date_suppression='2026-10-22 10:00:00' WHERE tiers_id IN (SELECT id FROM tiers WHERE nom IN ('Pharmacie','Boulangerie'))"); setView('corbeille'); });
+    const b = page.locator('#m-corbeille');
+    assert.equal(await b.locator('.mg-ligne').count(), 2);
+    await b.locator('.mg-ligne', { hasText: 'Pharmacie' }).locator('.mg-restaurer').click();
+    assert.equal(await b.locator('.mg-ligne').count(), 1);
+    await b.locator('button:has-text("Vider la corbeille")').click();
+    await page.click('#dlgFoot button:has-text("Tout supprimer")');
+    await b.locator('.m-vide:has-text("vide")').waitFor();
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
 test('deux fenêtres : la 2e dit « déjà ouvert », fait signe à la 1re, et démarre quand la 1re se ferme', async () => {
   const { navigateur, contexte, page } = await ouvrir();
   try {
