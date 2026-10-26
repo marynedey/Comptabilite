@@ -147,6 +147,7 @@
   </section>
 
   <section class="view" id="v-analyse">
+    <div class="m-analyse" id="m-analyse"></div>
     <div class="top">
       <div><h1>Analyse</h1><div class="meta" id="an-meta"></div></div>
       <div class="actions">
@@ -176,6 +177,11 @@
   </section>
 
   <section class="view" id="v-graphiques">
+    <div class="m-gr-seg"><div class="m-ana-seg m-ana-seg-gr" role="tablist" aria-label="Analyse">
+      <button role="tab" aria-selected="false" data-s="debit" onclick="anaMobileSens('debit')">Dépenses</button>
+      <button role="tab" aria-selected="false" data-s="credit" onclick="anaMobileSens('credit')">Revenus</button>
+      <button role="tab" aria-selected="true" class="on" data-s="evolution">Évolution</button>
+    </div></div>
     <div class="top"><div><h1>Graphiques</h1><div class="meta" id="gr-meta"></div></div></div>
     <div class="grfsbar" id="gr-fsbar">
       <span class="grfstit" id="gr-fstit"></span>

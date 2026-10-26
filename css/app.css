@@ -267,6 +267,52 @@
   .mf-infos span:last-child{text-align:right;overflow-wrap:anywhere}
   .mf-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:auto;padding-top:18px}
   .mf-actions button{min-height:50px;justify-content:center;border-radius:14px;font-weight:600;font-size:.95rem}
+  /* Analyse sur téléphone : mois ‹ ›, Dépenses / Revenus / Évolution, anneau, comparaison avec un mois au choix,
+     détail d'une catégorie (6 derniers mois, sous-catégories, opérations) */
+  .m-analyse,.m-gr-seg{display:none}
+  body.mobile #v-analyse>:not(#m-analyse){display:none}
+  body.mobile .m-analyse{display:block}
+  body.mobile .m-gr-seg{display:block;margin-bottom:12px}
+  .ma-mois{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+  .ma-mois>button{width:44px;height:44px;border-radius:22px;justify-content:center;padding:0;flex:none}
+  .ma-mois>button svg{width:22px;height:22px}
+  .ma-mois-centre{display:flex;flex-direction:column;align-items:center}
+  .ma-mois-centre b{font-size:1.1rem}
+  .ma-mois-centre select{border:0;background:none;color:var(--ink-2);font-size:.82rem;padding:2px 18px 2px 4px;min-height:32px;text-align:center}
+  .m-ana-seg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));background:var(--line);border-radius:12px;padding:3px}
+  .m-ana-seg button{border:0;border-radius:10px;background:none;min-height:40px;justify-content:center;color:var(--ink-2);font-size:.92rem}
+  .m-ana-seg button.on{background:var(--card);color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+  .ma-anneau{position:relative;display:flex;justify-content:center;margin:14px 0 4px}
+  .ma-anneau svg{width:190px;height:190px;transform:rotate(-90deg)}
+  .ma-centre{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+  .ma-centre b{font-size:1.35rem}
+  .ma-compare{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:6px;font-size:.88rem;color:var(--ink-2);margin:6px 0 4px}
+  .ma-compare select{min-height:36px;border-radius:18px;font-size:.88rem}
+  .ma-ecart.hausse{color:var(--debit);font-weight:600}.ma-ecart.baisse{color:var(--credit);font-weight:600}
+  .ma-puces{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin:8px 0}
+  .ma-puces button{min-height:36px;border-radius:18px;font-size:.85rem}
+  .ma-puces button[aria-pressed="true"]{background:var(--brand-soft);border-color:var(--brand);color:var(--brand);font-weight:600}
+  .ma-liste{border-top:1px solid var(--line)}
+  .ma-ligne{display:flex;align-items:center;gap:12px;width:100%;min-height:58px;border:0;border-bottom:1px solid var(--line);border-radius:0;background:none;
+       padding:6px 4px;text-align:left;color:var(--ink)}
+  .ma-ligne i{width:12px;height:12px;border-radius:6px;flex:none}
+  .ma-ligne .ma-nom{flex:1;min-width:0}
+  .ma-ligne .ma-nom small{display:block;font-size:.78rem;color:var(--ink-2)}
+  .ma-ligne .num{font-weight:600}
+  .ma-ligne svg{width:16px;height:16px;color:var(--ink-3);flex:none}
+  .ma-tete{display:flex;align-items:center;gap:4px;margin:0 -6px 6px}
+  .ma-tete>button{width:44px;height:44px;border:0;background:none;justify-content:center;padding:0;flex:none}
+  .ma-tete>button svg{width:24px;height:24px}
+  .ma-tete small{display:block;font-size:.78rem;color:var(--ink-2)}
+  .ma-tete h2{margin:0;font-size:1.25rem}
+  .ma-total{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin:4px 0 12px}
+  .ma-total b{font-size:1.8rem;letter-spacing:-.02em}
+  .ma-barres{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;align-items:end;height:110px;background:var(--card-alt);border-radius:14px;padding:12px 14px 8px}
+  .ma-barres div{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:6px;height:100%}
+  .ma-barres span{display:block;width:100%;border-radius:6px 6px 2px 2px;background:var(--line-2);min-height:2px}
+  .ma-barres div.actuel span{background:var(--st-prev)}
+  .ma-barres small{font-size:.7rem;color:var(--ink-2)}
+  .ma-h{font-size:.85rem;font-weight:600;color:var(--ink-2);margin:16px 2px 4px}
   .m-version{text-align:center;font-size:.8rem;color:var(--ink-2);margin:18px 0 0}
 
   /* Réglages */

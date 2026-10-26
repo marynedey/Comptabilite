@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.7.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.8.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -460,7 +460,6 @@ function renderPlus(){
       it('Pointer avec un relevé PDF','Compare le relevé de la banque à tes opérations',"document.getElementById('filePdf').click()",'M6 3h9l4 4v14H6zM9 14l2 2 4-4'),
       it('Importer un fichier QIF','Opérations exportées par la banque',"document.getElementById('fileQif').click()",'M12 3v12M7 10l5 5 5-5M5 21h14')]],
     ['Organiser',[
-      it('Évolution du solde','Graphiques du compte et du patrimoine',"setView('graphiques')",'M4 19h16M4 15l5-5 4 3 7-7'),
       it('Catégories',nb('SELECT COUNT(*) FROM categorie','catégorie'),"setView('categories')",'M3 7l9-4 9 4v10l-9 4-9-4zM3 7l9 4 9-4M12 11v10'),
       it('Tiers',nb('SELECT COUNT(*) FROM tiers','destinataire'),"setView('tiers')",'M9 11a3 3 0 100-6 3 3 0 000 6zM3 20a6 6 0 0112 0M16 6a3 3 0 010 6'),
       it('Corbeille',nb('SELECT COUNT(*) FROM operation WHERE supprime=1','opération'),"setView('corbeille')",'M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13')]],
@@ -518,6 +517,7 @@ function fermerFeuilles(){
   const l=document.getElementById('m-comptes');if(l&&!l.hidden){fermerListeComptes();return true;}
   const ov=document.getElementById('overlay');if(ov&&ov.classList.contains('show')){closeModal();return true;}
   const fi=document.getElementById('m-fiche');if(fi&&!fi.hidden){fermerFiche();return true;}
+  if(state.view==='analyse'&&MA.chemin.length){anaMobileRemonter();return true;}
   return false;
 }
 /* puces des filtres actifs (✕ pour retirer) ; la recherche a sa propre barre */
@@ -630,6 +630,123 @@ async function corbeilleDepuisFiche(){
   const id=ficheId;state.editing=id;await deleteOp();
   if(scal('SELECT supprime FROM operation WHERE id=?',[id]))fermerFiche();
   state.editing=null;
+}
+/* ---------- Analyse sur téléphone ----------
+   Un mois (ou une année) à la fois, comparé à n'importe quel autre ; anneau des catégories ; toucher une
+   catégorie descend dans ses sous-catégories et montre ses 6 derniers mois et ses opérations. */
+const MA={sens:'debit',unite:'mois',debut:null,comp:null,vir:false,chemin:[]}; // debut/comp : 'AAAA-MM' ou 'AAAA'
+const clefMois=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+/* bornes ISO d'un mois 'AAAA-MM' ou d'une année 'AAAA' */
+function bornesPeriodeAna(cle){
+  if(cle.length===4)return {f:cle+'-01-01',t:cle+'-12-31'};
+  const [y,m]=cle.split('-').map(Number);return {f:cle+'-01',t:isoDe(new Date(y,m,0))};
+}
+/* période précédente : le mois (ou l'année) d'avant */
+function periodeDecalee(cle,delta){
+  if(cle.length===4)return String(+cle+delta);
+  const [y,m]=cle.split('-').map(Number);return clefMois(new Date(y,m-1+delta,1));
+}
+function libellePeriodeAna(cle){
+  if(cle.length===4)return cle;
+  const [y,m]=cle.split('-').map(Number);return majuscule(MOIS_FR[m-1])+' '+y;
+}
+/* lignes de l'analyse sur une période (hors annulées et prévisionnelles, répartitions comprises) */
+function lignesAnalyse(acc,cle){
+  const b=bornesPeriodeAna(cle),p={$acc:acc,$f:b.f,$t:b.t};
+  return lignesOps(" WHERE o.compte_id=$acc AND o.supprime=0 AND o.statut<>'annule' AND o.previsionnel=0 AND o.date_operation>=$f AND o.date_operation<=$t",p);
+}
+/* lignes retenues pour un sens (dépenses en positif), avec ou sans virements, sous une catégorie */
+function lignesSens(lignes,sens,vir,chemin){
+  return lignes.filter(l=>{
+    if(l.vir&&!vir)return false;
+    if(sens==='debit'?l.m>=0:l.m<=0)return false;
+    const p=catParts(l.vir?'Virements : '+(l.ti||'Virement'):l.cat);
+    return chemin.every((c,i)=>p[i]===c);
+  });
+}
+/* regroupement au niveau suivant : [{nom, total (centimes, positif), n, feuille}] du plus gros au plus petit */
+function regrouperAnalyse(lignes,sens,vir,chemin){
+  const g=new Map();
+  lignesSens(lignes,sens,vir,chemin).forEach(l=>{
+    const p=catParts(l.vir?'Virements : '+(l.ti||'Virement'):l.cat),nom=p[chemin.length]||(chemin.length?'Sans sous-catégorie':'Divers');
+    const e=g.get(nom)||{nom,total:0,n:0,feuille:p.length<=chemin.length+1};
+    e.total+=Math.abs(l.m);e.n++;if(p.length>chemin.length+1)e.feuille=false;g.set(nom,e);
+  });
+  return [...g.values()].sort((a,b)=>b.total-a.total||a.nom.localeCompare(b.nom,'fr'));
+}
+function totalAnalyse(lignes,sens,vir,chemin){return lignesSens(lignes,sens,vir,chemin).reduce((t,l)=>t+Math.abs(l.m),0);}
+/* écart avec la période de comparaison : texte « +8 % » / « −12 % » / « = », null sans base */
+function ecartPct(a,b){if(!b)return null;const p=Math.round((a-b)/b*100);return p>0?'+'+p+' %':p<0?'−'+(-p)+' %':'=';}
+function anaMobileSens(s){MA.sens=s;MA.chemin=[];if(state.view!=='analyse')setView('analyse');else renderAnalyseMobile();}
+function anaMobileDecaler(d){MA.debut=periodeDecalee(MA.debut,d);MA.comp=null;renderAnalyseMobile();}
+function anaMobileUnite(u){const auj=new Date();MA.unite=u;MA.debut=u==='annee'?String(auj.getFullYear()):clefMois(auj);MA.comp=null;MA.chemin=[];renderAnalyseMobile();}
+function anaMobileDescendre(nom){MA.chemin.push(nom);renderAnalyseMobile();document.querySelector('main').scrollTop=0;}
+function anaMobileRemonter(){MA.chemin.pop();renderAnalyseMobile();}
+/* périodes proposées pour la comparaison : tous les mois (ou années) depuis la 1re opération du compte */
+function periodesDuCompte(acc,unite,auj){
+  const d0=scal('SELECT MIN(date_operation) FROM operation WHERE compte_id=? AND supprime=0',[acc]);
+  const debut=d0?new Date(d0+'T00:00:00'):auj,out=[];
+  if(unite==='annee'){for(let y=auj.getFullYear();y>=debut.getFullYear();y--)out.push(String(y));return out;}
+  for(let d=new Date(auj.getFullYear(),auj.getMonth(),1);d>=new Date(debut.getFullYear(),debut.getMonth(),1);d.setMonth(d.getMonth()-1))out.push(clefMois(d));
+  return out;
+}
+function renderAnalyseMobile(){
+  const acc=state.acc,auj=new Date();if(!acc)return;
+  if(!MA.debut)MA.debut=clefMois(auj);
+  const comp=MA.comp||periodeDecalee(MA.debut,-1);
+  const L=lignesAnalyse(acc,MA.debut),LC=lignesAnalyse(acc,comp);
+  const tot=totalAnalyse(L,MA.sens,MA.vir,MA.chemin),totC=totalAnalyse(LC,MA.sens,MA.vir,MA.chemin);
+  const groupes=regrouperAnalyse(L,MA.sens,MA.vir,MA.chemin),grC=new Map(regrouperAnalyse(LC,MA.sens,MA.vir,MA.chemin).map(g=>[g.nom,g.total]));
+  const motSens=MA.sens==='debit'?'Dépenses':'Revenus',nomP=libellePeriodeAna(MA.debut),nomC=libellePeriodeAna(comp);
+  const ec=ecartPct(tot,totC),classeEc=ec&&ec!=='='?((ec[0]==='+')===(MA.sens==='debit')?'hausse':'baisse'):'';
+  const fl=d=>icoPlus(d);
+  const optsComp=periodesDuCompte(acc,MA.unite,auj).filter(k=>k!==MA.debut);
+  if(optsComp.indexOf(comp)<0)optsComp.push(comp);
+  const selComp='<select aria-label="Comparer avec" onchange="MA.comp=this.value;renderAnalyseMobile()">'+
+    optsComp.map(k=>'<option value="'+k+'"'+(k===comp?' selected':'')+'>'+libellePeriodeAna(k)+'</option>').join('')+'</select>';
+  const ecartLigne=(v,vc)=>{const d=v-vc;return d===0?'comme en '+nomC.toLowerCase():(d>0?'+':'−')+eur(Math.abs(d)).replace('-','')+' vs '+nomC.toLowerCase();};
+  let h='';
+  if(!MA.chemin.length){
+    h+='<div class="ma-mois"><button onclick="anaMobileDecaler(-1)" aria-label="Période précédente">'+fl('M15 6l-6 6 6 6')+'</button>'+
+      '<div class="ma-mois-centre"><b>'+nomP+'</b><select aria-label="Mois ou année" onchange="anaMobileUnite(this.value)">'+
+        '<option value="mois"'+(MA.unite==='mois'?' selected':'')+'>Un mois</option><option value="annee"'+(MA.unite==='annee'?' selected':'')+'>Une année</option></select></div>'+
+      '<button onclick="anaMobileDecaler(1)" aria-label="Période suivante">'+fl('M9 6l6 6-6 6')+'</button></div>';
+    h+='<div class="m-ana-seg" role="tablist" aria-label="Analyse">'+[['debit','Dépenses'],['credit','Revenus'],['evolution','Évolution']].map(([k,t])=>
+      '<button role="tab" aria-selected="'+(k===MA.sens)+'"'+(k===MA.sens?' class="on"':'')+' onclick="'+(k==='evolution'?"setView('graphiques')":"anaMobileSens('"+k+"')")+'">'+t+'</button>').join('')+'</div>';
+    // anneau : 5 plus grosses catégories + « Autres »
+    const top=groupes.slice(0,5),autres=groupes.slice(5).reduce((t,g)=>t+g.total,0);
+    const parts=top.map((g,i)=>({nom:g.nom,v:g.total,col:PAL[i%PAL.length]})).concat(autres?[{nom:'Autres',v:autres,col:'var(--ink-3)'}]:[]);
+    let pos=0;
+    const arcs=parts.map(p=>{const pc=tot?p.v/tot*100:0,a='<circle cx="21" cy="21" r="15.9" fill="none" stroke="'+p.col+'" stroke-width="5" pathLength="100" stroke-dasharray="'+pc.toFixed(2)+' '+(100-pc).toFixed(2)+'" stroke-dashoffset="'+(-pos).toFixed(2)+'"/>';pos+=pc;return a;}).join('');
+    h+='<div class="ma-anneau"><svg viewBox="0 0 42 42" role="img" aria-label="'+esc(motSens+' : '+parts.map(p=>p.nom+' '+Math.round(tot?p.v/tot*100:0)+' %').join(', '))+'">'+
+      '<circle cx="21" cy="21" r="15.9" fill="none" stroke="var(--line)" stroke-width="5"/>'+arcs+'</svg>'+
+      '<div class="ma-centre"><b class="num">'+eur(tot).replace('-','')+'</b><small>'+motSens.toLowerCase()+'</small></div></div>';
+    h+='<div class="ma-compare">'+(ec?'<span class="ma-ecart '+classeEc+'">'+ec+'</span>':'')+'<span>par rapport à</span>'+selComp+'</div>';
+    h+='<div class="ma-puces"><button aria-pressed="'+MA.vir+'" onclick="MA.vir=!MA.vir;renderAnalyseMobile()">Inclure les virements</button></div>';
+    h+='<div class="ma-liste">'+(groupes.length?groupes.map((g,i)=>'<button class="ma-ligne" onclick="anaMobileDescendre('+esc(JSON.stringify(g.nom))+')">'+
+        '<i style="background:'+(i<5?PAL[i%PAL.length]:'var(--ink-3)')+'"></i><span class="ma-nom">'+esc(g.nom)+
+        '<small>'+Math.round(tot?g.total/tot*100:0)+' % · '+ecartLigne(g.total,grC.get(g.nom)||0)+'</small></span>'+
+        '<span class="num">'+eur(g.total).replace('-','')+'</span>'+fl('M9 6l6 6-6 6')+'</button>').join('')
+      :'<div class="m-vide">Aucune '+(MA.sens==='debit'?'dépense':'rentrée')+' en '+nomP.toLowerCase()+'.</div>')+'</div>';
+  }else{
+    const nom=MA.chemin[MA.chemin.length-1];
+    h+='<div class="ma-tete"><button onclick="anaMobileRemonter()" aria-label="Retour">'+fl('M15 6l-6 6 6 6')+'</button>'+
+      '<div><small>'+esc([motSens].concat(MA.chemin.slice(0,-1)).join(' › '))+' › '+nomP+'</small><h2>'+esc(nom)+'</h2></div></div>';
+    h+='<div class="ma-total"><b class="num">'+eur(tot).replace('-','')+'</b><span class="ma-ecart '+classeEc+'">'+ecartLigne(tot,totC)+'</span></div>';
+    // 6 derniers mois (ou années) de cette catégorie
+    const ps=[];for(let i=5;i>=0;i--)ps.push(periodeDecalee(MA.debut,-i));
+    const vals=ps.map(k=>totalAnalyse(lignesAnalyse(acc,k),MA.sens,MA.vir,MA.chemin)),max=Math.max(1,...vals);
+    h+='<div class="ma-barres" role="img" aria-label="'+esc(ps.map((k,i)=>libellePeriodeAna(k)+' '+eur(vals[i]).replace('-','')).join(', '))+'">'+
+      ps.map((k,i)=>'<div'+(k===MA.debut?' class="actuel"':'')+'><span style="height:'+Math.round(vals[i]/max*100)+'%"></span><small>'+
+        (k.length===4?k:MOIS_COURT[+k.slice(5)-1])+'</small></div>').join('')+'</div>';
+    if(groupes.some(g=>!(g.nom==='Sans sous-catégorie'&&g.feuille)||groupes.length>1))
+      h+='<h3 class="ma-h">Sous-catégories</h3><div class="ma-liste">'+groupes.map(g=>'<button class="ma-ligne" onclick="anaMobileDescendre('+esc(JSON.stringify(g.nom))+')">'+
+        '<span class="ma-nom">'+esc(g.nom)+'<small>'+Math.round(tot?g.total/tot*100:0)+' %</small></span><span class="num">'+eur(g.total).replace('-','')+'</span>'+fl('M9 6l6 6-6 6')+'</button>').join('')+'</div>';
+    const ops=lignesSens(L,MA.sens,MA.vir,MA.chemin).sort((a,b)=>b.d.localeCompare(a.d));
+    h+='<h3 class="ma-h">Opérations ('+ops.length+')</h3><div class="ma-liste">'+ops.map(o=>'<button class="ma-ligne" onclick="ouvrirFiche('+o.id+')">'+
+      '<span class="ma-nom">'+esc(o.ti||'(sans destinataire)')+'<small>'+libJour(o.d,auj)+'</small></span><span class="num">'+eur(Math.abs(o.m))+'</span></button>').join('')+'</div>';
+  }
+  document.getElementById('m-analyse').innerHTML=h;
 }
 /* ---------- une seule fenêtre à la fois (PC) ----------
    Chaque fenêtre garde sa copie de la base en mémoire et la réécrit en entier : deux fenêtres (ou onglets)
@@ -1468,6 +1585,7 @@ function anMoyenne(total,mode,sel){
 }
 function renderAnalyse(){
   if(!state.acc)return;
+  if(document.body.classList.contains('mobile')){renderAnalyseMobile();return;}
   const cp=qy('SELECT nom FROM compte WHERE id=?',[state.acc])[0];
   document.getElementById('an-meta').textContent=cp?cp.nom:'';
 

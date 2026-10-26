@@ -406,7 +406,7 @@ test('téléphone : écran Plus — sauvegarde en attente, sauvegarder, outils',
     assert.match(telechargement.suggestedFilename(), /^comptes_.*\.sqlite$/);
     await page.locator('#plus-sauvegarde:has-text("Tout est sauvegardé")').waitFor();
     assert.equal(await page.isVisible('#m-point'), false);
-    for (const nom of ['Pointer avec un relevé PDF', 'Importer un fichier QIF', 'Évolution du solde', 'Tiers', 'Corbeille', 'Charger une sauvegarde', 'Réglages', 'Annuler la dernière modification'])
+    for (const nom of ['Pointer avec un relevé PDF', 'Importer un fichier QIF', 'Tiers', 'Corbeille', 'Charger une sauvegarde', 'Réglages', 'Annuler la dernière modification'])
       assert.equal(await page.isVisible(`#plus-groupes button:has-text("${nom}")`), true, nom);
     assert.match(await page.textContent('#plus-version'), new RegExp(VERSION.replaceAll('.', '\\.')));
     assert.deepEqual(page.erreurs, []);
@@ -569,6 +569,47 @@ test('réglages sur PC : pas de rubrique « barres de recherche » (elle ne conc
     await page.evaluate(() => setView('reglages'));
     assert.equal(await page.isVisible('#rg-theme'), true);
     assert.equal(await page.isVisible('#rg-recherche'), false);
+  } finally { await navigateur.close(); }
+});
+
+test('téléphone, analyse : le mois en anneau, comparé au mois choisi ; une catégorie en détail ; évolution', async () => {
+  const { navigateur, page } = await ouvrirTelephone();
+  try {
+    await page.evaluate(() => {
+      const ins = (d, m, dest, cat) => run("INSERT INTO operation(compte_id,date_operation,montant,cat_path,statut,supprime,previsionnel,tiers_id) VALUES(?,?,?,?,'pointe',0,0,?)",
+        [state.acc, d, m, cat, upsertTiers(dest)]);
+      ins('2026-10-05', -60000, 'Loyer', 'Logement'); ins('2026-10-12', -30000, 'Supermarché', 'Alimentation : Courses');
+      ins('2026-10-14', -10000, 'Boulangerie', 'Alimentation : Boulangerie'); ins('2026-10-28', 200000, 'Salaire', 'Revenus');
+      ins('2026-09-05', -60000, 'Loyer', 'Logement'); ins('2026-09-12', -20000, 'Supermarché', 'Alimentation : Courses');
+      ins('2026-05-05', -50000, 'Loyer', 'Logement');
+    });
+    await page.click('#m-onglets button[data-o="analyse"]');
+    const a = page.locator('#m-analyse');
+    assert.match(await a.locator('.ma-mois-centre b').textContent(), /Octobre 2026/);
+    assert.match(await a.locator('.ma-centre b').textContent(), /1\s000,00\s€/);
+    assert.equal(await a.locator('.ma-ecart').textContent(), '+25 %');           // 1 000 € contre 800 € en septembre
+    assert.deepEqual(await a.locator('.ma-ligne .ma-nom').evaluateAll(es => es.map(e => e.firstChild.textContent)), ['Logement', 'Alimentation']);
+    // comparer avec un autre mois, n'importe lequel
+    await a.locator('select[aria-label="Comparer avec"]').selectOption('2026-05');
+    assert.equal(await a.locator('.ma-ecart').textContent(), '+100 %');
+    // une catégorie en détail : sous-catégories, opérations, puis la fiche
+    await a.locator('.ma-ligne', { hasText: 'Alimentation' }).click();
+    assert.equal(await a.locator('h2').textContent(), 'Alimentation');
+    assert.match(await a.locator('.ma-total b').textContent(), /400,00\s€/);
+    assert.deepEqual(await a.locator('.ma-h').allTextContents(), ['Sous-catégories', 'Opérations (2)']);
+    await a.locator('.ma-ligne', { hasText: 'Boulangerie' }).last().click();
+    assert.equal(await page.isVisible('#m-fiche'), true);
+    await page.click('#m-fiche button[aria-label="Retour"]');
+    await a.locator('button[aria-label="Retour"]').click();
+    // mois précédent, revenus, évolution
+    await a.locator('button[aria-label="Période précédente"]').click();
+    assert.match(await a.locator('.ma-mois-centre b').textContent(), /Septembre 2026/);
+    await a.locator('.m-ana-seg button:has-text("Revenus")').click();
+    assert.match(await a.textContent(), /Aucune rentrée en septembre 2026/);
+    await a.locator('.m-ana-seg button:has-text("Évolution")').click();
+    assert.equal(await page.isVisible('#v-graphiques'), true);
+    assert.match(await page.textContent('#m-onglets button.on'), /Analyse/);
+    assert.deepEqual(page.erreurs, []);
   } finally { await navigateur.close(); }
 });
 
