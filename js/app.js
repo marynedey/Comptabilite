@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.5.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.6.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -517,6 +517,7 @@ function fermerFeuilles(){
   if(document.body.classList.contains('filtres-ouverts')){fermerFiltres();return true;}
   const l=document.getElementById('m-comptes');if(l&&!l.hidden){fermerListeComptes();return true;}
   const ov=document.getElementById('overlay');if(ov&&ov.classList.contains('show')){closeModal();return true;}
+  const fi=document.getElementById('m-fiche');if(fi&&!fi.hidden){fermerFiche();return true;}
   return false;
 }
 /* puces des filtres actifs (✕ pour retirer) ; la recherche a sa propre barre */
@@ -568,7 +569,7 @@ function renderOperationsMobile(){
     const action=stt==='previsionnel'?'confirmer':o.st==='pointe'?'dépointer':o.st==='non_pointe'?'pointer':'';
     html+='<div class="m-op'+(stt==='previsionnel'?' prev':stt==='annule'?' ann':'')+'" style="--st:'+m.col+'">'+
       '<button class="m-st" onclick="togglePointe('+o.id+',event)" aria-label="'+m.label+(action?' — toucher pour '+action:'')+'"></button>'+
-      '<button class="m-op-corps" onclick="openModal('+o.id+')"><span class="m-op-nom">'+esc(o.dest||'(sans destinataire)')+'</span>'+
+      '<button class="m-op-corps" onclick="ouvrirFiche('+o.id+')"><span class="m-op-nom">'+esc(o.dest||'(sans destinataire)')+'</span>'+
         '<span class="m-op-det">'+(parJour?'':isoToFr(o.d)+' · ')+esc(o.cat||'')+' · '+m.label.toLowerCase()+'</span></button>'+
       '<span class="m-op-mt num '+(o.m<0?'':'credit')+'">'+(o.m>0?'+':'')+eur(o.m)+'</span></div>';
   });
@@ -580,6 +581,55 @@ function renderOperationsMobile(){
   const per=document.getElementById('f-periode').value,mn=document.getElementById('m-mois-nom');
   mn.textContent=nomMois(moisDePeriode(per,auj));mn.classList.toggle('on',estPeriodeMois(per));
   document.getElementById('m-voir').textContent=total?'Voir '+total.toLocaleString('fr-FR')+' opération'+(total>1?'s':''):'Aucune opération';
+}
+/* fiche d'une opération (téléphone) : on la lit avant de la modifier. Le statut n'est qu'une information
+   (il se change depuis la barre de la liste) ; une opération rapprochée ne se modifie plus. */
+let ficheId=null;
+function lignesVentilation(id){
+  return qy(`SELECT v.montant m,(SELECT GROUP_CONCAT(libelle,' : ') FROM (
+      WITH RECURSIVE up(id,libelle,parent_id,lvl) AS (
+        SELECT id,libelle,parent_id,0 FROM categorie WHERE id=v.categorie_id
+        UNION ALL SELECT c.id,c.libelle,c.parent_id,up.lvl+1 FROM categorie c JOIN up ON c.id=up.parent_id)
+      SELECT libelle FROM up ORDER BY lvl DESC)) cat
+    FROM ventilation v WHERE v.operation_id=?`,[id]);
+}
+function ouvrirFiche(id){
+  const o=qy(`SELECT o.*,t.nom dest,c.nom compte,(SELECT c2.nom FROM operation m JOIN compte c2 ON c2.id=m.compte_id WHERE m.id=o.miroir_id) lie
+    FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id LEFT JOIN compte c ON c.id=o.compte_id WHERE o.id=?`,[id])[0];
+  if(!o)return;
+  ficheId=id;
+  const stt=o.statut==='annule'?'annule':(o.previsionnel?'previsionnel':o.statut),m=META[stt]||META.non_pointe;
+  const d=new Date(o.date_operation+'T00:00:00');
+  const quand=majuscule(JOURS_FR[d.getDay()])+' '+d.getDate()+' '+MOIS_FR[d.getMonth()]+' '+d.getFullYear()+' · '+esc(o.compte||'');
+  const vent=lignesVentilation(id);
+  const infos=[];
+  if(isVirCat(o.cat_path))infos.push(['Virement',(o.montant<0?'vers ':'reçu de ')+esc(o.lie||'un autre compte')]);
+  else if(vent.length>1)vent.forEach(l=>infos.push([esc(l.cat||'Divers'),eur(l.m)]));
+  else infos.push(['Catégorie',esc((o.cat_path||'Divers').replace(/\s*:\s*/g,' › '))]);
+  if(o.numero)infos.push(['N° (chèque…)',esc(String(o.numero))]);
+  if(o.commentaire)infos.push(['Commentaire',esc(o.commentaire)]);
+  const rapp=o.statut==='rapproche',ann=o.statut==='annule';
+  const fi=document.getElementById('m-fiche');
+  fi.innerHTML='<div class="mf-tete"><button class="mf-retour" onclick="fermerFiche()" aria-label="Retour">'+icoPlus('M15 6l-6 6 6 6')+'</button>'+
+      (rapp?'':'<button class="mf-modifier" onclick="modifierDepuisFiche()">Modifier</button>')+'</div>'+
+    '<div class="mf-haut"><div class="mf-lettre" aria-hidden="true">'+esc((o.dest||'?').charAt(0).toUpperCase())+'</div>'+
+      '<h2 class="mf-dest">'+esc(o.dest||'(sans destinataire)')+'</h2>'+
+      '<div class="mf-montant num '+(o.montant>0?'credit':'')+'">'+(o.montant>0?'+':'')+eur(o.montant)+'</div>'+
+      '<div class="mf-quand">'+quand+'</div></div>'+
+    '<div class="mf-statut"><i style="background:'+m.col+'"></i>'+m.label+
+      (rapp?' — elle ne peut plus être modifiée':stt==='previsionnel'?' — prévue, pas encore effective':'')+'</div>'+
+    '<div class="mf-infos">'+infos.map(([k,v])=>'<div><span>'+k+'</span><span>'+v+'</span></div>').join('')+'</div>'+
+    '<div class="mf-actions"><button onclick="dupliquerDepuisFiche()">Dupliquer</button>'+
+      (rapp||ann?'':'<button class="danger" onclick="corbeilleDepuisFiche()">Mettre à la corbeille</button>')+'</div>';
+  fi.hidden=false;fi.scrollTop=0;
+}
+function fermerFiche(){const fi=document.getElementById('m-fiche');if(fi)fi.hidden=true;ficheId=null;}
+function modifierDepuisFiche(){const id=ficheId;fermerFiche();openModal(id);}
+function dupliquerDepuisFiche(){const id=ficheId;fermerFiche();openModal(id);dupliquerOp();}
+async function corbeilleDepuisFiche(){
+  const id=ficheId;state.editing=id;await deleteOp();
+  if(scal('SELECT supprime FROM operation WHERE id=?',[id]))fermerFiche();
+  state.editing=null;
 }
 /* ---------- une seule fenêtre à la fois (PC) ----------
    Chaque fenêtre garde sa copie de la base en mémoire et la réécrit en entier : deux fenêtres (ou onglets)

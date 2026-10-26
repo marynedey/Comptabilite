@@ -446,10 +446,10 @@ test('téléphone, opérations : liste par jour, la barre de statut à gauche po
     assert.match(await page.textContent('#toast'), /déjà rapprochée/);
     await ligne(page, 'Électricité').locator('.m-st').click(); // prévisionnelle : confirmée
     assert.equal((await statutDe(page, 'Électricité')).pv, 0);
-    // toucher la ligne ouvre l'opération ; le bouton + en ajoute une
+    // toucher la ligne ouvre sa fiche ; le bouton + ajoute une opération
     await ligne(page, 'Salaire').locator('.m-op-corps').click();
-    assert.equal(await page.inputValue('#i-dest'), 'Salaire');
-    await page.click('#overlay button:has-text("Annuler")');
+    assert.equal(await page.isVisible('#m-fiche'), true);
+    await page.click('#m-fiche button[aria-label="Retour"]');
     await page.click('#m-ajouter');
     assert.equal(await page.textContent('#modal-title'), 'Nouvelle opération');
     assert.deepEqual(page.erreurs, []);
@@ -486,6 +486,44 @@ test('téléphone, opérations : recherche dans l\'écran, filtres dans la feuil
     // « À pointer » de la carte des soldes : seulement les non pointées
     await page.click('#m-soldes button[aria-label="Afficher les opérations à pointer"]');
     assert.deepEqual(await page.locator('#m-ops .m-op-nom').allTextContents(), ['Boulangerie']);
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
+test('téléphone, fiche d\'une opération : montant en grand, statut en information, Modifier / Dupliquer / Corbeille', async () => {
+  const { navigateur, page } = await ouvrirTelephone();
+  try {
+    await opsExemple(page);
+    await ligne(page, 'Boulangerie').locator('.m-op-corps').click();
+    const fiche = page.locator('#m-fiche');
+    assert.match(await fiche.locator('.mf-montant').textContent(), /^-4,50\s€$/);
+    assert.match(await fiche.textContent(), /Lundi 26 octobre 2026 · Compte courant/);
+    assert.match(await fiche.locator('.mf-statut').textContent(), /Non pointé/);
+    assert.equal(await fiche.locator('.mf-statut button').count(), 0); // le statut ne se change pas ici
+    assert.match(await fiche.locator('.mf-infos').textContent(), /CatégorieAlimentation/);
+    // Modifier : la fenêtre d'opération, remplie
+    await fiche.locator('button:has-text("Modifier")').click();
+    assert.equal(await page.isVisible('#m-fiche'), false);
+    assert.equal(await page.inputValue('#i-dest'), 'Boulangerie');
+    await page.click('#overlay button:has-text("Annuler")');
+    // Dupliquer : une nouvelle opération, datée d'aujourd'hui
+    await ligne(page, 'Pharmacie').locator('.m-op-corps').click();
+    await fiche.locator('button:has-text("Dupliquer")').click();
+    assert.match(await page.textContent('#modal-title'), /copie/);
+    assert.equal(await page.inputValue('#i-dest'), 'Pharmacie');
+    assert.equal(await page.inputValue('#i-date'), '26/10/26');
+    await page.click('#overlay button:has-text("Annuler")');
+    // Corbeille, après confirmation
+    await ligne(page, 'Boulangerie').locator('.m-op-corps').click();
+    await fiche.locator('button:has-text("Mettre à la corbeille")').click();
+    await page.click('#dlgFoot button:has-text("Mettre à la corbeille")');
+    await fiche.waitFor({ state: 'hidden' });
+    assert.equal(await ligne(page, 'Boulangerie').count(), 0);
+    // rapprochée : ni Modifier, ni Corbeille
+    await ligne(page, 'Supermarché').locator('.m-op-corps').click();
+    assert.match(await fiche.locator('.mf-statut').textContent(), /Rapproché — elle ne peut plus être modifiée/);
+    assert.equal(await fiche.locator('button:has-text("Modifier")').count(), 0);
+    assert.equal(await fiche.locator('button:has-text("corbeille")').count(), 0);
     assert.deepEqual(page.erreurs, []);
   } finally { await navigateur.close(); }
 });

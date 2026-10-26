@@ -223,6 +223,30 @@
   body.mobile #v-registre .periode{display:flex;flex-wrap:wrap;gap:8px}
   body.mobile #v-registre .pchip{min-height:42px;padding:0 14px;font-size:.92rem;border-radius:21px}
   body.mobile .m-voir{display:flex;justify-content:center;min-height:52px;font-size:1rem;margin-top:8px;border-radius:14px}
+  /* fiche d'une opération (téléphone) : montant en grand, statut en information, Modifier / Dupliquer / Corbeille */
+  .m-fiche{position:fixed;inset:0;z-index:36;background:var(--paper);overflow-y:auto;display:flex;flex-direction:column;
+       padding:0 16px calc(20px + env(safe-area-inset-bottom, 0px))}
+  .m-fiche[hidden]{display:none}
+  .mf-tete{display:flex;align-items:center;justify-content:space-between;min-height:56px;margin:0 -8px}
+  .mf-tete button{min-height:44px;border:0;background:none;font-weight:600;font-size:1rem}
+  .mf-tete .mf-retour{width:44px;justify-content:center;padding:0;color:var(--ink)}
+  .mf-tete .mf-retour svg{width:24px;height:24px}
+  .mf-tete .mf-modifier{color:var(--brand);padding:0 10px}
+  .mf-haut{display:flex;flex-direction:column;align-items:center;text-align:center;gap:4px;padding:4px 0 14px}
+  .mf-lettre{width:56px;height:56px;border-radius:28px;background:var(--brand-soft);color:var(--brand);display:flex;align-items:center;justify-content:center;font-size:1.4rem;font-weight:700}
+  .mf-dest{margin:6px 0 0;font-size:1.25rem;font-weight:700}
+  .mf-montant{font-size:2.3rem;font-weight:700;letter-spacing:-.02em}
+  .mf-quand{font-size:.9rem;color:var(--ink-2)}
+  .mf-statut{display:flex;align-items:center;justify-content:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:14px;
+       min-height:50px;font-size:.95rem;margin-bottom:12px;padding:6px 12px;text-align:center}
+  .mf-statut i{width:12px;height:12px;border-radius:6px;flex:none}
+  .mf-infos{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:0 14px}
+  .mf-infos div{display:flex;justify-content:space-between;gap:14px;min-height:48px;align-items:center;border-bottom:1px solid var(--line);font-size:.95rem}
+  .mf-infos div:last-child{border-bottom:0}
+  .mf-infos span:first-child{color:var(--ink-2);flex:none}
+  .mf-infos span:last-child{text-align:right;overflow-wrap:anywhere}
+  .mf-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:auto;padding-top:18px}
+  .mf-actions button{min-height:50px;justify-content:center;border-radius:14px;font-weight:600;font-size:.95rem}
   .m-version{text-align:center;font-size:.8rem;color:var(--ink-2);margin:18px 0 0}
 
   /* Réglages */
