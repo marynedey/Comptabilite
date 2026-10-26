@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.2.1'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.2.2'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -485,7 +485,7 @@ function snapshotNav(){
     fSearch:(document.getElementById('f-search')||{}).value||'',
     fStatuts:statutsChips().filter(c=>c.classList.contains('on')).map(c=>c.dataset.s),
     fPeriode:(document.getElementById('f-periode')||{}).value||'tout',
-    fHorizon:(document.getElementById('f-horizon')||{}).value||'tout',
+    fHorizon:(document.getElementById('f-horizon')||{}).value||'finmois',
     catSearch:(document.getElementById('cat-search')||{}).value||'',
     tiSearch:(document.getElementById('ti-search')||{}).value||'',
     catVides:!!state.catVides,fSens:state.fSens||null,fCat:state.fCat||null};
@@ -521,7 +521,7 @@ function restoreNav(s){
   state.anPath=(s.anPath||[]).slice();state.anSens=s.anSens||'debit';state.grMode=s.grMode||'compte';state.catVides=!!s.catVides;state.fSens=s.fSens||null;state.fCat=s.fCat||null;
   const set=(id,val)=>{const e=document.getElementById(id);if(e&&val!==undefined)e.value=val;};
   set('f-search',s.fSearch||'');set('cat-search',s.catSearch||'');set('ti-search',s.tiSearch||'');
-  set('f-periode',s.fPeriode||'tout');set('f-horizon',s.fHorizon||'tout');
+  set('f-periode',s.fPeriode||'tout');set('f-horizon',['3','finmois','finmoisprochain','masque'].indexOf(s.fHorizon)>=0?s.fHorizon:'finmois');
   document.querySelectorAll('#f-periode-wrap .pchip').forEach(b=>b.classList.toggle('on',b.dataset.m===(s.fPeriode||'tout')));
   if(s.fStatuts)statutsChips().forEach(c=>c.classList.toggle('on',s.fStatuts.indexOf(c.dataset.s)>=0));
   const cv=document.getElementById('cat-vides');if(cv)cv.checked=!!s.catVides;
@@ -733,13 +733,14 @@ function periodClause(pfx,params){
 }
 function avancerJours(iso,nb){const d=new Date(iso+'T00:00:00');d.setDate(d.getDate()+nb);
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
-/* borne d'horizon prévisionnel : null=tout, 'MASQUE'=aucun, sinon date ISO limite */
-function horizonMax(){
-  const hz=(document.getElementById('f-horizon')||{}).value||'tout';
-  if(hz==='tout')return null;
+/* borne d'horizon prévisionnel : 'MASQUE'=aucun, sinon date ISO limite.
+   (« tout » n'existe plus : un ancien réglage enregistré vaut « fin du mois ».) */
+function horizonMax(){return borneHorizon((document.getElementById('f-horizon')||{}).value,new Date());}
+function borneHorizon(hz,d){
   if(hz==='masque')return 'MASQUE';
-  if(hz==='finmois'){const d=new Date();return isoDe(new Date(d.getFullYear(),d.getMonth()+1,0));}
-  return avancerJours(todayISO(),+hz);
+  if(hz==='3')return avancerJours(isoDe(d),3);
+  if(hz==='finmoisprochain')return isoDe(new Date(d.getFullYear(),d.getMonth()+2,0));
+  return isoDe(new Date(d.getFullYear(),d.getMonth()+1,0)); // fin du mois
 }
 function buildWhere(params){
   let w=" WHERE o.compte_id=$acc AND o.supprime=0";params.$acc=state.acc;
@@ -867,8 +868,8 @@ function tiles(){
     {k:'Solde rapproché',v:eur(r.rap),c:'var(--ink)',d:'Confirmé par la banque'},
     {k:'Solde réel',v:eur(r.reel),c:'var(--ink)',d:'Tout jusqu’à aujourd’hui'},
     {k:'En attente',v:eur(r.att),c:'#F59E0B',d:'Non rapproché · cliquer pour filtrer',click:true},
-    {k:'Solde prévisionnel',v:eur(r.reel+r.prv),c:'#7C3AED',d:(()=>{const hz=(document.getElementById('f-horizon')||{}).value||'tout';
-    return hz==='masque'?'= solde réel (prévisionnel masqué)':hz==='3'?'Réel + à venir sous 3 jours':hz==='finmois'?'Réel + à venir d’ici fin de mois':'Réel + toutes les opérations à venir';})()}];
+    {k:'Solde prévisionnel',v:eur(r.reel+r.prv),c:'#7C3AED',d:(()=>{const hz=(document.getElementById('f-horizon')||{}).value;
+    return hz==='masque'?'= solde réel (prévisionnel masqué)':hz==='3'?'Réel + à venir sous 3 jours':hz==='finmoisprochain'?'Réel + à venir d’ici fin du mois prochain':'Réel + à venir d’ici fin de mois';})()}];
   document.getElementById('tiles').innerHTML=cards.map(c=>'<div class="tile'+(c.click?' clickable':'')+'"'+(c.click?' onclick="filtreAttente()"':'')+
     '><div class="k">'+c.k+'</div><div class="v num" style="color:'+c.c+'">'+c.v+'</div><div class="d">'+c.d+'</div></div>').join('');
   const cp=qy('SELECT nom,type,numero FROM compte WHERE id=?',[a])[0]||{nom:'—',type:'autre'};
@@ -1198,6 +1199,8 @@ function anSetSens(s){state.anSens=s;
   state.anPath=[];renderAnalyse();
   syncHist();} // l'historique mémorise le sens choisi (sinon « retour » restaurait un ancien sens)
 /* moyenne qui s'adapte à la période : par mois si longue, par semaine si moyenne, par jour si courte */
+/* nombre de mois du calendrier touchés par la période, bornes comprises (1er janvier → 26 octobre = 10) */
+function nbMoisCalendaires(d1,d2){return (d2.getFullYear()-d1.getFullYear())*12+(d2.getMonth()-d1.getMonth())+1;}
 function anMoyenne(total,mode,sel){
   if(!total)return null;
   let d1,d2;const b=periodBounds('an');
@@ -1208,7 +1211,7 @@ function anMoyenne(total,mode,sel){
   }
   const jours=Math.max(1,Math.round((d2-d1)/86400000)+1);
   let unite,div;
-  if(jours>=80){unite='mois';div=jours/30.44;}
+  if(jours>=80){unite='mois';div=nbMoisCalendaires(d1,d2);}
   else if(jours>=14){unite='semaine';div=jours/7;}
   else{unite='jour';div=jours;}
   div=Math.max(div,1);
@@ -1248,7 +1251,7 @@ function renderAnalyse(){
   {const ds=sel.map(o=>o.d).sort();const per=textePeriode('an',ds[0],ds[ds.length-1]);
    document.getElementById('an-meta').textContent=(cp?cp.nom:'')+(per?' · '+per:'');}
   const sumAbs=anGroups.reduce((t,x)=>t+Math.abs(x.v),0)||1;
-  let cr='<a onclick="goDepth(0)">Tous les '+motSens+'</a>';
+  let cr='<a onclick="goDepth(0)">'+(motSens==='dépenses'?'Toutes':'Tous')+' les '+motSens+'</a>';
   state.anPath.forEach((x,i)=>{cr+=' <span style="color:var(--ink-3)">›</span> '+
     (i===state.anPath.length-1?'<b>'+esc(x)+'</b>':'<a onclick="goDepth('+(i+1)+')">'+esc(x)+'</a>');});
   if(state.anPath.length)cr+='  <span style="color:var(--ink-3);font-size:.8rem">— bouton retour pour remonter</span>';
@@ -1809,6 +1812,28 @@ function majSousCats(){
   if(dl0)dl0.innerHTML=catEnfants('').map(x=>'<option value="'+esc(x)+'">').join('');
   if(dl1)dl1.innerHTML=catEnfants(c0.value.trim()).map(x=>'<option value="'+esc(x)+'">').join('');
   if(dl2)dl2.innerHTML=catEnfants([c0.value.trim(),c1?c1.value.trim():''].filter(Boolean).join(' : ')).map(x=>'<option value="'+esc(x)+'">').join('');
+}
+/* la sous-catégorie existe-t-elle sous ce parent ? (sinon elle vient de l'ancienne catégorie) */
+function sousCatValide(parent,enfant){
+  if(!enfant)return true;const e=enfant.trim().toLowerCase();
+  return catEnfants(parent).some(x=>x.toLowerCase()===e);}
+function catChangee(niveau){ // niveau 0 = catégorie, 1 = sous-catégorie
+  const v=i=>document.getElementById('i-cat'+i).value.trim();
+  if(niveau===0&&!sousCatValide(v(0),v(1))){document.getElementById('i-cat1').value='';document.getElementById('i-cat2').value='';}
+  else if(niveau<=1&&!sousCatValide([v(0),v(1)].filter(Boolean).join(' : '),v(2)))document.getElementById('i-cat2').value='';
+  majSousCats();
+}
+/* toucher un champ de catégorie déjà rempli : le texte passe en indication, la liste entière s'affiche ;
+   rien choisi → l'ancien texte revient */
+function catOuvrir(el){
+  if(document.activeElement===el||!el.value)return;
+  el.dataset.avant=el.value;el.dataset.indice=el.placeholder;el.placeholder=el.value;el.value='';
+}
+function catFermer(el){
+  if(el.dataset.avant===undefined)return;
+  const avant=el.dataset.avant;el.placeholder=el.dataset.indice||'';delete el.dataset.avant;delete el.dataset.indice;
+  if(!el.value.trim())el.value=avant;
+  else if(el.value.trim()!==avant)catChangee(+el.id.slice(-1));
 }
 function getCat(){return ['i-cat0','i-cat1','i-cat2'].map(id=>document.getElementById(id).value.trim()).filter(Boolean).join(' : ')||'Divers';}
 function setType(t){state.addType=t;document.querySelectorAll('#seg button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));

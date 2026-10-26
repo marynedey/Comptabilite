@@ -257,6 +257,45 @@ test('appli Android : sauvegarde refusée par Android → pas comptée comme fai
   } finally { await navigateur.close(); }
 });
 
+test('catégories : en changeant de catégorie, l\'ancienne sous-catégorie est vidée ; toucher le champ montre toute la liste', async () => {
+  const { navigateur, page } = await ouvrir();
+  try {
+    await ajouterOperation(page, { dest: 'Supermarché', montant: '10', date: '05/01/26', cat: 'Alimentation' });
+    await page.evaluate(() => { upsertCategorie('Alimentation : Courses'); upsertCategorie('Loisirs : Cinéma'); });
+    await page.keyboard.press('a');
+    await page.locator('#overlay #i-dest').waitFor({ state: 'visible' });
+    await page.fill('#i-cat0', 'Alimentation');
+    await page.fill('#i-cat1', 'Courses');
+    // toucher la catégorie : le champ se vide (la liste entière s'affiche), l'ancien texte reste en indication
+    await page.click('#i-cat0');
+    assert.equal(await page.inputValue('#i-cat0'), '');
+    assert.equal(await page.getAttribute('#i-cat0', 'placeholder'), 'Alimentation');
+    await page.keyboard.type('Loisirs');
+    await page.click('#i-montant');
+    assert.equal(await page.inputValue('#i-cat1'), '', 'Courses n\'est pas une sous-catégorie de Loisirs');
+    // toucher puis repartir sans rien choisir : rien ne change
+    await page.click('#i-cat0');
+    await page.click('#i-montant');
+    assert.equal(await page.inputValue('#i-cat0'), 'Loisirs');
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
+test('analyse « Cette année » : moyenne = total ÷ nombre de mois depuis janvier (le 26 octobre : 10 mois)', async () => {
+  const { navigateur, page } = await ouvrir({ preparer: c => c.clock.setFixedTime(new Date('2026-10-26T10:00:00')) });
+  try {
+    const texte = await page.evaluate(() => {
+      for (let m = 1; m <= 10; m++)
+        run("INSERT INTO operation(compte_id,date_operation,montant,cat_path,statut,supprime,previsionnel) VALUES(?,?,?,?,'pointe',0,0)",
+          [state.acc, '2026-' + String(m).padStart(2, '0') + '-01', -100000, 'Test']);
+      setView('analyse'); setPeriode('an', 'annee');
+      return document.getElementById('v-analyse').innerText;
+    });
+    assert.match(texte, /Moyenne 1\s000,00\s€ \/ mois/);
+    assert.match(texte, /Toutes les dépenses/);
+  } finally { await navigateur.close(); }
+});
+
 test('deux fenêtres : la 2e dit « déjà ouvert », fait signe à la 1re, et démarre quand la 1re se ferme', async () => {
   const { navigateur, contexte, page } = await ouvrir();
   try {
