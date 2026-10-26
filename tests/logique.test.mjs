@@ -249,3 +249,23 @@ test('analyse (téléphone) : périodes, comparaison, regroupement par catégori
   assert.deepEqual(js(app.regrouperAnalyse(L, 'debit', true, [])).map(g => g.nom), ['Virements', 'Alimentation', 'Logement']);
   assert.equal(app.totalAnalyse(L, 'credit', false, []), 200000);
 });
+
+test('évolution : solde réel à chaque fin de mois (sans prévisionnel ni annulées), du mois qui précède au jour même', () => {
+  app.run("INSERT INTO compte(nom,type,solde_initial) VALUES('Évolution','courant',50000)");
+  const c = app.scal("SELECT id FROM compte WHERE nom='Évolution'");
+  const ins = (d, m, st, pv) => app.run("INSERT INTO operation(compte_id,date_operation,montant,statut,supprime,previsionnel) VALUES(?,?,?,?,0,?)", [c, d, m, st, pv]);
+  ins('2026-06-15', -10000, 'pointe', 0); ins('2026-08-02', 30000, 'rapproche', 0);
+  ins('2026-08-20', -99999, 'annule', 0); ins('2026-10-10', -5000, 'non_pointe', 0);
+  ins('2026-10-20', -7000, 'pointe', 1);   // prévisionnelle
+  ins('2026-10-28', 2000, 'pointe', 0);    // après aujourd'hui
+  const auj = new Date(2026, 9, 26);
+  assert.equal(app.debutEvolution([c], '6', auj), '2026-05');
+  assert.equal(app.debutEvolution([c], 'annee', auj), '2026-01');
+  assert.equal(app.debutEvolution([c], 'tout', auj), '2026-06');
+  assert.deepEqual(JSON.parse(JSON.stringify(app.serieEvolution([c], '2026-06', auj))), [
+    { cle: '2026-05', v: 50000 }, { cle: '2026-06', v: 40000 }, { cle: '2026-07', v: 40000 },
+    { cle: '2026-08', v: 70000 }, { cle: '2026-09', v: 70000 }, { cle: '2026-10', v: 65000 }]);
+  const flux = app.fluxEvolution([c], '2026-06', auj);
+  assert.deepEqual({ ...flux.get('2026-08') }, { rev: 30000, dep: 0 });
+  assert.deepEqual({ ...flux.get('2026-10') }, { rev: 0, dep: 5000 });
+});

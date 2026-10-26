@@ -312,6 +312,38 @@
   .ma-barres span{display:block;width:100%;border-radius:6px 6px 2px 2px;background:var(--line-2);min-height:2px}
   .ma-barres div.actuel span{background:var(--st-prev)}
   .ma-barres small{font-size:.7rem;color:var(--ink-2)}
+  /* Évolution (téléphone) : courbe du solde, ce compte ou patrimoine, barres par mois */
+  .ev-outils{display:flex;align-items:center;gap:8px;margin:4px 0 14px}
+  .ev-portee{display:flex;background:var(--line);border-radius:20px;padding:3px}
+  .ev-portee button{min-height:36px;border:0;border-radius:17px;background:transparent;padding:0 14px;font-size:.85rem;color:var(--ink-2)}
+  .ev-portee button[aria-selected="true"]{background:var(--card);color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+  .ev-outils select{margin-left:auto;min-height:40px;border-radius:20px;padding:0 12px;font-weight:600;font-size:.85rem;width:auto}
+  .ev-solde small{display:block;font-size:.82rem;color:var(--ink-2)}
+  .ev-solde>div{display:flex;align-items:baseline;flex-wrap:wrap;column-gap:10px}
+  .ev-solde b{font-size:1.75rem;letter-spacing:-.02em}
+  .ev-solde span{font-size:.82rem;font-weight:600}
+  .ev-solde .hausse{color:var(--credit)}.ev-solde .baisse{color:var(--debit)}
+  .ev-courbe{display:block;width:100%;height:auto;margin-top:10px;overflow:visible}
+  .ev-axe{display:flex;justify-content:space-between;font-size:.72rem;color:var(--ink-2);margin-top:4px}
+  .ev-legende{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:.78rem;color:var(--ink-2);margin-top:10px}
+  .ev-legende span{display:flex;align-items:center;gap:6px}
+  .ev-legende i{width:14px;height:3px;border-radius:2px;background:var(--brand)}
+  .ev-legende .prevu i{background:var(--st-prev)}
+  .ev-legende .rev i{height:10px;width:10px;background:var(--credit)}
+  .ev-legende .dep i{height:10px;width:10px;background:var(--debit)}
+  .ev-boutons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:16px 0 0}
+  .ev-boutons button{min-height:46px;border-radius:12px;justify-content:center;font-size:.88rem}
+  .ev-boutons button[aria-pressed="true"]{background:var(--brand-soft);border-color:var(--brand);color:var(--brand);font-weight:600}
+  .ev-detail{display:flex;align-items:baseline;gap:12px;margin:16px 2px 6px;font-size:.9rem}
+  .ev-detail b{flex:1}
+  .ev-detail .credit{color:var(--credit);font-weight:600}.ev-detail .debit{color:var(--debit);font-weight:600}
+  .ev-barres{display:grid;gap:4px;height:130px;background:var(--line);border-radius:14px;padding:10px 8px 6px}
+  .ev-barres button{display:flex;flex-direction:column;align-items:stretch;justify-content:flex-end;gap:4px;height:100%;min-height:0;border:0;background:none;padding:2px 0;border-radius:8px}
+  .ev-barres button.actuel{background:var(--card)}
+  .ev-b{flex:1;display:flex;align-items:flex-end;justify-content:center;gap:2px}
+  .ev-b i{display:block;width:40%;max-width:12px;min-height:2px;border-radius:3px 3px 1px 1px}
+  .ev-b .rev{background:var(--credit)}.ev-b .dep{background:var(--debit)}
+  .ev-barres small{font-size:.62rem;color:var(--ink-2);text-align:center;white-space:nowrap}
   .ma-h{font-size:.85rem;font-weight:600;color:var(--ink-2);margin:16px 2px 4px}
   .m-version{text-align:center;font-size:.8rem;color:var(--ink-2);margin:18px 0 0}
 
