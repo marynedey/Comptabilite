@@ -637,7 +637,11 @@ test('téléphone, analyse : le mois en anneau, comparé au mois choisi ; une ca
     await a.locator('select[aria-label="Période"]').selectOption('annee');
     assert.match(await a.locator('.ev-solde span').textContent(), /depuis le 1er janvier/);
     // barres par mois : revenus / dépenses du mois touché
-    await a.locator('button:has-text("Barres par mois")').click();
+    // une vue à la fois : Courbe ou Barres
+    assert.equal(await a.locator('.ev-barres').count(), 0);
+    await a.locator('.ev-vue button:has-text("Barres")').click();
+    assert.equal(await a.locator('.ev-courbe').count(), 0);
+    assert.ok((await a.locator('.ev-barres').boundingBox()).height >= 280, 'barres en grand');
     assert.equal(await a.locator('.ev-barres button').count(), 10);   // janvier → octobre
     assert.match(await a.locator('.ev-detail').textContent(), /Octobre 2026.*1\s000,00\s€/);
     await a.locator('.ev-barres button').nth(8).click();
