@@ -608,9 +608,31 @@ test('téléphone, analyse : le mois en anneau, comparé au mois choisi ; une ca
     assert.match(await a.locator('.ma-mois-centre b').textContent(), /Septembre 2026/);
     await a.locator('.m-ana-seg button:has-text("Revenus")').click();
     assert.match(await a.textContent(), /Aucune rentrée en septembre 2026/);
+    // évolution : la courbe du solde dans l'écran Analyse (plus l'ancien écran Graphiques)
     await a.locator('.m-ana-seg button:has-text("Évolution")').click();
-    assert.equal(await page.isVisible('#v-graphiques'), true);
+    assert.equal(await page.isVisible('#v-graphiques'), false);
     assert.match(await page.textContent('#m-onglets button.on'), /Analyse/);
+    assert.match(await a.locator('.ev-solde b').textContent(), /−2\s300,00\s€|-2\s300,00\s€/);
+    assert.match(await a.locator('.ev-solde span').textContent(), /2\s300,00\s€ en 12 mois/);
+    assert.match(await a.locator('.ev-legende .prevu').textContent(), /Prévu : −?-?300,00\s€/); // salaire du 28 octobre
+    assert.equal(await a.locator('.ev-axe span').first().textContent(), 'fin oct. 2025');
+    await a.locator('select[aria-label="Période"]').selectOption('annee');
+    assert.match(await a.locator('.ev-solde span').textContent(), /depuis le 1er janvier/);
+    // barres par mois : revenus / dépenses du mois touché
+    await a.locator('button:has-text("Barres par mois")').click();
+    assert.equal(await a.locator('.ev-barres button').count(), 10);   // janvier → octobre
+    assert.match(await a.locator('.ev-detail').textContent(), /Octobre 2026.*1\s000,00\s€/);
+    await a.locator('.ev-barres button').nth(8).click();
+    assert.match(await a.locator('.ev-detail').textContent(), /Septembre 2026.*800,00\s€/);
+    // patrimoine : tous les comptes
+    await a.locator('.ev-portee button:has-text("Patrimoine")').click();
+    assert.match(await a.locator('.ev-solde small').textContent(), /Patrimoine/);
+    // plein écran (paysage) : l'ancienne courbe détaillée ; en sortant, retour ici
+    await a.locator('button:has-text("Plein écran")').click();
+    assert.equal(await page.evaluate(() => document.body.classList.contains('gr-plein')), true);
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => state.view === 'analyse' && !document.body.classList.contains('gr-plein'));
+    assert.equal(await a.locator('.ev-portee button[aria-selected="true"]').textContent(), 'Patrimoine');
     assert.deepEqual(page.erreurs, []);
   } finally { await navigateur.close(); }
 });

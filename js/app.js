@@ -690,8 +690,102 @@ function periodesDuCompte(acc,unite,auj){
   for(let d=new Date(auj.getFullYear(),auj.getMonth(),1);d>=new Date(debut.getFullYear(),debut.getMonth(),1);d.setMonth(d.getMonth()-1))out.push(clefMois(d));
   return out;
 }
+/* ---------- Évolution (téléphone) : courbe du solde fin de mois, ce compte ou patrimoine ----------
+   MA.evo : portee 'compte' | 'tout' ; duree '6' | '12' | 'annee' | 'tout' ; barres : revenus / dépenses par mois */
+const EVO_DUREES=[['6','6 mois'],['12','12 mois'],['annee','Cette année'],['tout','Depuis le début']];
+MA.evo={portee:'compte',duree:'12',barres:false,mois:null};
+function comptesEvolution(acc,portee){
+  return portee==='tout'?qy('SELECT id FROM compte WHERE actif=1').map(r=>+r.id):[+acc];
+}
+// 1er mois affiché ('AAAA-MM') pour une durée
+function debutEvolution(ids,duree,auj){
+  if(duree==='annee')return auj.getFullYear()+'-01';
+  if(duree==='tout'){const m=scal('SELECT MIN(date_operation) FROM operation WHERE supprime=0 AND compte_id IN ('+ids.join(',')+')');
+    return m?m.slice(0,7):clefMois(auj);}
+  return clefMois(new Date(auj.getFullYear(),auj.getMonth()-(+duree)+1,1));
+}
+/* solde réel (hors prévisionnel et annulées) à la fin de chaque mois, du mois qui précède `debut` (point de départ)
+   jusqu'au mois en cours (solde d'aujourd'hui) : [{cle:'AAAA-MM', v:centimes}] */
+function serieEvolution(ids,debut,auj){
+  const cles=[],fin=clefMois(auj);
+  for(let d=new Date(+debut.slice(0,4),+debut.slice(5)-2,1);;d.setMonth(d.getMonth()+1)){const k=clefMois(d);cles.push(k);if(k>=fin)break;}
+  const liste=ids.join(',');
+  let v=+scal('SELECT COALESCE(SUM(solde_initial),0) FROM compte WHERE id IN ('+liste+')');
+  const rows=qy("SELECT substr(date_operation,1,7) m,SUM(montant) s FROM operation WHERE compte_id IN ("+liste+") AND supprime=0"+
+    " AND statut IN('non_pointe','pointe','rapproche') AND previsionnel=0 AND date_operation<=$t GROUP BY m ORDER BY m",{$t:isoDe(auj)});
+  let i=0;
+  return cles.map(cle=>{while(i<rows.length&&rows[i].m<=cle)v+=rows[i++].s;return {cle,v};});
+}
+// revenus et dépenses de chaque mois (sans les virements), dépenses en positif
+function fluxEvolution(ids,debut,auj){
+  const L=lignesOps(" WHERE o.compte_id IN ("+ids.join(',')+") AND o.supprime=0 AND o.statut<>'annule' AND o.previsionnel=0 AND o.date_operation>=$f AND o.date_operation<=$t",
+    {$f:debut+'-01',$t:isoDe(auj)});
+  const par=new Map();
+  for(const l of L){if(l.vir)continue;const k=l.d.slice(0,7),e=par.get(k)||{rev:0,dep:0};
+    if(l.m>0)e.rev+=l.m;else e.dep-=l.m;par.set(k,e);}
+  return par;
+}
+const dateCle=cle=>new Date(+cle.slice(0,4),+cle.slice(5)-1,1);
+function nomMoisCourt(cle,annee){return MOIS_COURT[+cle.slice(5)-1]+(annee?' '+cle.slice(0,4):'');}
+function anaEvo(cle,val){MA.evo[cle]=val;renderAnalyseMobile();}
+// plein écran à l'horizontale : la courbe détaillée de l'ancien écran Graphiques, sur la même période ; on revient ici en sortant
+function evoPleinEcran(){
+  const e=MA.evo,auj=new Date(),ids=comptesEvolution(state.acc,e.portee),debut=debutEvolution(ids,e.duree,auj);
+  state.grMode=e.portee==='tout'?'patrimoine':'compte';state.grDepuisEvo=true;
+  setView('graphiques');
+  if(e.duree==='annee'||e.duree==='tout')setPeriode('gr',e.duree);
+  else{document.getElementById('gr-from').value='01/'+debut.slice(5)+'/'+debut.slice(2,4);document.getElementById('gr-to').value='';setPeriode('gr','perso');}
+  grPleinEcran(true);
+}
+function renderEvolutionMobile(acc,auj){
+  const e=MA.evo,ids=comptesEvolution(acc,e.portee);
+  const debut=debutEvolution(ids,e.duree,auj),pts=serieEvolution(ids,debut,auj);
+  // prévu : avec les prévisionnelles jusqu'à l'horizon choisi dans Opérations (comme la tuile « Solde prévisionnel »)
+  const prv=ids.reduce((t,a)=>t+soldesCompte(a).prv,0),actuel=pts[pts.length-1].v,prevu=actuel+prv;
+  const ecart=actuel-pts[0].v,txtDuree={annee:'depuis le 1er janvier',tout:'depuis le début'}[e.duree]||'en '+e.duree+' mois';
+  const nomCompte=e.portee==='tout'?'Patrimoine (tous les comptes)':'Solde de « '+(scal('SELECT nom FROM compte WHERE id=?',[acc])||'')+' »';
+  let h='<div class="m-ana-seg" role="tablist" aria-label="Analyse">'+[['debit','Dépenses'],['credit','Revenus'],['evolution','Évolution']].map(([k,t])=>
+    '<button role="tab" aria-selected="'+(k==='evolution')+'"'+(k==='evolution'?' class="on"':'')+' onclick="anaMobileSens(\''+k+'\')">'+t+'</button>').join('')+'</div>';
+  h+='<div class="ev-outils"><div class="ev-portee" role="tablist" aria-label="Comptes">'+[['compte','Ce compte'],['tout','Patrimoine']].map(([k,t])=>
+      '<button role="tab" aria-selected="'+(e.portee===k)+'" onclick="anaEvo(\'portee\',\''+k+'\')">'+t+'</button>').join('')+'</div>'+
+    '<select aria-label="Période" onchange="anaEvo(\'duree\',this.value)">'+EVO_DUREES.map(([k,t])=>'<option value="'+k+'"'+(k===e.duree?' selected':'')+'>'+t+'</option>').join('')+'</select></div>';
+  h+='<div class="ev-solde"><small>'+esc(nomCompte)+'</small><div><b class="num">'+eur(actuel)+'</b>'+
+    '<span class="'+(ecart>=0?'hausse':'baisse')+'">'+(ecart>=0?'+':'−')+eur(Math.abs(ecart))+' '+txtDuree+'</span></div></div>';
+  // courbe : x régulier par mois (+ un pas pour le prévu), y borné aux valeurs
+  const W=360,H=190,haut=10,bas=10,avecPrevu=prv!==0,n=pts.length-1+(avecPrevu?1:0);
+  const vals=pts.map(p=>p.v).concat(avecPrevu?[prevu]:[]),mn=Math.min(...vals),mx=Math.max(...vals),marge=Math.max(1,(mx-mn)*0.1);
+  const X=i=>n?i*W/n:W/2,Y=v=>haut+(1-(v-(mn-marge))/((mx+marge)-(mn-marge)))*(H-haut-bas);
+  const ligne=pts.map((p,i)=>(i?'L':'M')+X(i).toFixed(1)+' '+Y(p.v).toFixed(1)).join(' ');
+  const xa=X(pts.length-1),ya=Y(actuel);
+  const zero=mn-marge<0&&mx+marge>0?'<path d="M0 '+Y(0).toFixed(1)+'H'+W+'" stroke="var(--ink-3)" stroke-width="1" stroke-dasharray="2 4" vector-effect="non-scaling-stroke"/>':'';
+  h+='<svg class="ev-courbe" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+esc('Solde fin de mois : '+pts.map(p=>nomMoisCourt(p.cle,true)+' '+eur(p.v)).join(', ')+(avecPrevu?', prévu '+eur(prevu):''))+'">'+
+    '<path d="M0 '+(H/3).toFixed(0)+'H'+W+'M0 '+(2*H/3).toFixed(0)+'H'+W+'" stroke="var(--line)" stroke-width="1"/>'+zero+
+    '<path d="'+ligne+' L'+xa.toFixed(1)+' '+H+' L0 '+H+'Z" fill="var(--brand-soft)"/>'+
+    '<path d="'+ligne+'" fill="none" stroke="var(--brand)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>'+
+    (avecPrevu?'<path d="M'+xa.toFixed(1)+' '+ya.toFixed(1)+' L'+X(n).toFixed(1)+' '+Y(prevu).toFixed(1)+'" stroke="var(--st-prev)" stroke-width="2.5" stroke-dasharray="5 5" stroke-linecap="round"/>'+
+      '<circle cx="'+X(n).toFixed(1)+'" cy="'+Y(prevu).toFixed(1)+'" r="4" fill="var(--st-prev)"/>':'')+
+    '<circle cx="'+xa.toFixed(1)+'" cy="'+ya.toFixed(1)+'" r="4.5" fill="var(--brand)"/></svg>';
+  const mil=pts[Math.round((pts.length-1)/2)];
+  h+='<div class="ev-axe"><span>fin '+nomMoisCourt(pts[0].cle,true)+'</span><span>'+(pts.length>2?nomMoisCourt(mil.cle,false):'')+'</span><span>aujourd’hui</span></div>';
+  h+='<div class="ev-legende"><span><i></i>Réel</span>'+(avecPrevu?'<span class="prevu"><i></i>Prévu : <b class="num">'+eur(prevu)+'</b></span>':'')+'</div>';
+  h+='<div class="ev-boutons"><button aria-pressed="'+e.barres+'" onclick="anaEvo(\'barres\','+!e.barres+')">Barres par mois</button>'+
+    '<button onclick="evoPleinEcran()">Plein écran (paysage)</button></div>';
+  if(e.barres){
+    const flux=fluxEvolution(ids,debut,auj),mois=pts.slice(1).map(p=>p.cle),sel=mois.indexOf(e.mois)>=0?e.mois:mois[mois.length-1];
+    const max=Math.max(1,...mois.map(k=>{const f=flux.get(k)||{rev:0,dep:0};return Math.max(f.rev,f.dep);}));
+    const f=flux.get(sel)||{rev:0,dep:0};
+    h+='<div class="ev-detail"><b>'+nomMois(dateCle(sel))+'</b><span class="credit num">+'+eur(f.rev)+'</span><span class="debit num">−'+eur(f.dep)+'</span></div>';
+    h+='<div class="ev-barres" style="grid-template-columns:repeat('+mois.length+',minmax(0,1fr))">'+mois.map(k=>{const g=flux.get(k)||{rev:0,dep:0};
+      return '<button'+(k===sel?' class="actuel"':'')+' onclick="anaEvo(\'mois\',\''+k+'\')" aria-label="'+esc(nomMois(dateCle(k))+' : revenus '+eur(g.rev)+', dépenses '+eur(g.dep))+'">'+
+        '<span class="ev-b"><i class="rev" style="height:'+Math.round(g.rev/max*100)+'%"></i><i class="dep" style="height:'+Math.round(g.dep/max*100)+'%"></i></span>'+
+        '<small>'+(mois.length<=12?nomMoisCourt(k,false).replace('.',''):'')+'</small></button>';}).join('')+'</div>';
+    h+='<div class="ev-legende"><span class="rev"><i></i>Revenus</span><span class="dep"><i></i>Dépenses</span><span>hors virements</span></div>';
+  }
+  document.getElementById('m-analyse').innerHTML=h;
+}
 function renderAnalyseMobile(){
   const acc=state.acc,auj=new Date();if(!acc)return;
+  if(MA.sens==='evolution'){renderEvolutionMobile(acc,auj);return;}
   if(!MA.debut)MA.debut=clefMois(auj);
   const comp=MA.comp||periodeDecalee(MA.debut,-1);
   const L=lignesAnalyse(acc,MA.debut),LC=lignesAnalyse(acc,comp);
@@ -712,7 +806,7 @@ function renderAnalyseMobile(){
         '<option value="mois"'+(MA.unite==='mois'?' selected':'')+'>Un mois</option><option value="annee"'+(MA.unite==='annee'?' selected':'')+'>Une année</option></select></div>'+
       '<button onclick="anaMobileDecaler(1)" aria-label="Période suivante">'+fl('M9 6l6 6-6 6')+'</button></div>';
     h+='<div class="m-ana-seg" role="tablist" aria-label="Analyse">'+[['debit','Dépenses'],['credit','Revenus'],['evolution','Évolution']].map(([k,t])=>
-      '<button role="tab" aria-selected="'+(k===MA.sens)+'"'+(k===MA.sens?' class="on"':'')+' onclick="'+(k==='evolution'?"setView('graphiques')":"anaMobileSens('"+k+"')")+'">'+t+'</button>').join('')+'</div>';
+      '<button role="tab" aria-selected="'+(k===MA.sens)+'"'+(k===MA.sens?' class="on"':'')+' onclick="anaMobileSens(\''+k+'\')">'+t+'</button>').join('')+'</div>';
     // anneau : 5 plus grosses catégories + « Autres »
     const top=groupes.slice(0,5),autres=groupes.slice(5).reduce((t,g)=>t+g.total,0);
     const parts=top.map((g,i)=>({nom:g.nom,v:g.total,col:PAL[i%PAL.length]})).concat(autres?[{nom:'Autres',v:autres,col:'var(--ink-3)'}]:[]);
@@ -1808,6 +1902,7 @@ async function grPleinEcran(on,auto){
     if(grFsNatif&&pleinEcranActif())try{await (d.exitFullscreen||d.webkitExitFullscreen).call(d);}catch(e){}
     grFsNatif=false;
   }
+  if(!on&&state.grDepuisEvo){state.grDepuisEvo=false;setView('analyse');return;}
   if(state.view==='graphiques')renderGraphiques();
 }
 function grFsVue(barres){const s=grShow();s.fsBarres=barres?1:0;try{setMeta('grShow3',JSON.stringify(s));}catch(e){}
