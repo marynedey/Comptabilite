@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.12.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.13.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -2426,6 +2426,9 @@ function openModal(id,focus){
   setCatFields(o&&!(state.vent)?o.cat_path:'');
   majSousCats();
   if(state.vent)ventRender();   // après que i-montant soit renseigné, sinon le total cible est périmé
+  // téléphone, modification : le statut est rappelé sous le type (pour information, il se change dans la liste)
+  const stEl=document.getElementById('i-statut'),stK=o?(o.previsionnel&&o.statut!=='annule'?'previsionnel':o.statut):null;
+  stEl.hidden=!stK;if(stK)stEl.innerHTML='<i style="background:'+META[stK].col+'"></i>'+META[stK].label;
   const del=document.getElementById('btn-del'),ann=document.getElementById('btn-ann');
   del.style.display='none';ann.style.display='none';
   document.getElementById('btn-dup').style.display=o?'inline-flex':'none';
