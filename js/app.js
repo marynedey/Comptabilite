@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.2.2'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.3.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -1892,6 +1892,7 @@ function openModal(id,focus){
   if(state.vent)ventRender();   // après que i-montant soit renseigné, sinon le total cible est périmé
   const del=document.getElementById('btn-del'),ann=document.getElementById('btn-ann');
   del.style.display='none';ann.style.display='none';
+  document.getElementById('btn-dup').style.display=o?'inline-flex':'none';
   const rapp=!!(o&&o.statut==='rapproche');
   state.editingRapproche=rapp;
   const mEl=document.getElementById('i-montant'),mHint=document.getElementById('i-montant-hint');
@@ -1917,6 +1918,30 @@ function openModal(id,focus){
       :destEl();
     if(cible){cible.focus();if(cible.select)cible.select();}
   },30);
+}
+/* Dupliquer : le formulaire devient une nouvelle opération avec les mêmes informations (destinataire,
+   catégories ou répartition, montant, type, commentaire, prévisionnel), datée d'aujourd'hui, non pointée.
+   Le n° (chèque…) n'est pas recopié. Rien n'est créé avant « Enregistrer ». */
+function dupliquerOp(){
+  if(!state.editing)return;
+  const val=id=>document.getElementById(id).value;
+  const copie={type:state.addType,entrant:state.virEntrant,vent:state.vent?state.vent.map(l=>Object.assign({},l)):null,
+    prev:document.getElementById('i-prev').checked,vir:(document.getElementById('i-vircompte')||{}).value,
+    champs:['i-dest','i-cat0','i-cat1','i-cat2','i-montant','i-comm'].map(id=>[id,val(id)])};
+  openModal(null);
+  setType(copie.type);state.virEntrant=copie.entrant;
+  const vc=document.getElementById('i-vircompte');if(vc&&copie.vir)vc.value=copie.vir;
+  copie.champs.forEach(([id,v])=>{document.getElementById(id).value=v;});
+  document.getElementById('i-prev').checked=copie.prev;
+  if(copie.vent){
+    state.vent=copie.vent;document.getElementById('i-vent').checked=true;
+    document.getElementById('cat-simple').style.display='none';document.getElementById('vent-box').style.display='';
+    document.getElementById('dlfull').innerHTML=catCheminsComplets().map(x=>'<option value="'+esc(x)+'">').join('');
+    ventRender();
+  }
+  majSousCats();
+  document.getElementById('modal-title').textContent='Nouvelle opération (copie)';
+  toast('Copie prête : vérifie la date, puis Enregistrer');
 }
 function closeModal(){document.getElementById('overlay').classList.remove('show');state.editing=null;closeAC();}
 function prefill(){const idx=tiersIndex(),v=destEl().value.trim();if(idx[v])setCatFields(idx[v]);}

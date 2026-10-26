@@ -296,6 +296,29 @@ test('analyse « Cette année » : moyenne = total ÷ nombre de mois depuis janv
   } finally { await navigateur.close(); }
 });
 
+test('dupliquer une opération : mêmes informations, datée d\'aujourd\'hui, l\'originale ne change pas', async () => {
+  const { navigateur, page } = await ouvrir({ preparer: c => c.clock.setFixedTime(new Date('2026-10-26T10:00:00')) });
+  try {
+    await ajouterOperation(page, { dest: 'Loyer', montant: '650', date: '05/10/26', cat: 'Logement' });
+    const id = await page.evaluate(() => scal("SELECT id FROM operation WHERE supprime=0"));
+    await page.evaluate(i => openModal(i), id);
+    await page.fill('#i-comm', 'octobre');
+    await page.click('#overlay button:has-text("Dupliquer")');
+    assert.match(await page.textContent('#modal-title'), /copie/);
+    assert.equal(await page.inputValue('#i-dest'), 'Loyer');
+    assert.equal(await page.inputValue('#i-cat0'), 'Logement');
+    assert.equal(await page.inputValue('#i-montant'), '650,00');
+    assert.equal(await page.inputValue('#i-comm'), 'octobre');
+    assert.equal(await page.inputValue('#i-date'), '26/10/26');
+    assert.equal(await page.isVisible('#btn-dup'), false);
+    await page.click('#overlay button.primary:has-text("Enregistrer")');
+    await page.locator('#overlay #i-dest').waitFor({ state: 'hidden' });
+    const ops = await page.evaluate(() => qy("SELECT date_operation d,montant m,statut s,commentaire c FROM operation WHERE supprime=0 ORDER BY id"));
+    assert.deepEqual(ops.map(o => [o.d, o.m, o.s, o.c || '']), [['2026-10-05', -65000, 'non_pointe', ''], ['2026-10-26', -65000, 'non_pointe', 'octobre']]);
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
 test('deux fenêtres : la 2e dit « déjà ouvert », fait signe à la 1re, et démarre quand la 1re se ferme', async () => {
   const { navigateur, contexte, page } = await ouvrir();
   try {
