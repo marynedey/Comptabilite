@@ -336,13 +336,14 @@
   .ev-legende .prevu i{background:var(--st-prev)}
   .ev-legende .rev i{height:10px;width:10px;background:var(--credit)}
   .ev-legende .dep i{height:10px;width:10px;background:var(--debit)}
-  .ev-boutons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:16px 0 0}
-  .ev-boutons button{min-height:46px;border-radius:12px;justify-content:center;font-size:.88rem}
-  .ev-boutons button[aria-pressed="true"]{background:var(--brand-soft);border-color:var(--brand);color:var(--brand);font-weight:600}
+  .ev-vue{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));background:var(--line);border-radius:12px;padding:3px;margin:14px 0 4px}
+  .ev-vue button{min-height:40px;border:0;border-radius:10px;background:transparent;justify-content:center;color:var(--ink-2);font-size:.9rem}
+  .ev-vue button[aria-selected="true"]{background:var(--card);color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+  .ev-plein{width:100%;min-height:46px;border-radius:12px;justify-content:center;font-size:.88rem;margin-top:16px}
   .ev-detail{display:flex;align-items:baseline;gap:12px;margin:16px 2px 6px;font-size:.9rem}
   .ev-detail b{flex:1}
   .ev-detail .credit{color:var(--credit);font-weight:600}.ev-detail .debit{color:var(--debit);font-weight:600}
-  .ev-barres{display:grid;gap:4px;height:130px;background:var(--line);border-radius:14px;padding:10px 8px 6px}
+  .ev-barres{display:grid;gap:4px;height:300px;background:var(--line);border-radius:14px;padding:10px 8px 6px}
   .ev-barres button{display:flex;flex-direction:column;align-items:stretch;justify-content:flex-end;gap:4px;height:100%;min-height:0;border:0;background:none;padding:2px 0;border-radius:8px}
   .ev-barres button.actuel{background:var(--card)}
   .ev-b{flex:1;display:flex;align-items:flex-end;justify-content:center;gap:2px}
