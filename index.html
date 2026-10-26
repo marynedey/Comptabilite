@@ -42,6 +42,7 @@
       <div class="m-comptes" id="m-comptes" role="listbox" hidden></div>
     </div>
     <h1 class="m-titre" id="m-titre" hidden></h1>
+    <button class="m-icone m-oeil" onclick="basculerMontants()" aria-label="Afficher les montants"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button>
     <button class="m-icone" id="m-sauver" onclick="sauvegarder()" aria-label="Sauvegarder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg><span class="m-point" id="m-point" hidden></span></button>
   </header>
   <div class="topbar">
@@ -52,6 +53,7 @@
     <button class="navbtn" onclick="aideRaccourcis()" title="Raccourcis clavier ( ? )">?</button>
     <button class="navbtn" id="btn-fs" onclick="basculerPleinEcran()" title="Plein écran" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path id="fs-ico" d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
     <button class="navbtn" id="btn-undo" onclick="annulerDerniere()" title="Annuler la dernière modification (Ctrl+Z)" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/></svg></button>
+    <button class="navbtn m-oeil" onclick="basculerMontants()" title="Afficher / masquer les montants" aria-label="Afficher les montants"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button>
     <button onclick="sauvegarder()" title="Exporter la base vers un fichier"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg><span class="lbl-save">Sauvegarder</span></button>
    </div>
    <div class="tb-more">
@@ -301,6 +303,26 @@
         <button id="rg-defaut" onclick="oublierDossierSauvegarde()" hidden>Revenir à Téléchargements</button>
       </div>
       <div class="meta" id="rg-note"></div>
+    </div>
+    <div class="card reglage">
+      <h3>Affichage</h3>
+      <div class="rg-ligne">Thème</div>
+      <div class="rg-choix" role="radiogroup" aria-label="Thème" id="rg-theme">
+        <button role="radio" data-v="auto" onclick="changerReglage('theme','auto')">Automatique</button>
+        <button role="radio" data-v="clair" onclick="changerReglage('theme','clair')">Clair</button>
+        <button role="radio" data-v="sombre" onclick="changerReglage('theme','sombre')">Sombre</button>
+      </div>
+      <div class="meta">« Automatique » suit le réglage du téléphone ou de l’ordinateur.</div>
+      <label class="rg-case"><input type="checkbox" id="rg-masquer" onchange="changerReglage('masquer',this.checked)">
+        <span>Masquer les montants à l’ouverture<small>Ils restent flous jusqu’à ce que tu touches l’œil, en haut.</small></span></label>
+    </div>
+    <div class="card reglage rg-mobile">
+      <h3>Barres de recherche</h3>
+      <div class="rg-choix" role="radiogroup" aria-label="Position des barres de recherche" id="rg-recherche">
+        <button role="radio" data-v="haut" onclick="changerReglage('recherche','haut')">En haut</button>
+        <button role="radio" data-v="bas" onclick="changerReglage('recherche','bas')">En bas</button>
+      </div>
+      <div class="meta">Pour toutes les barres de recherche : opérations, tiers, catégories. En bas, elles se placent juste au-dessus des onglets.</div>
     </div>
   </section>
 </main>

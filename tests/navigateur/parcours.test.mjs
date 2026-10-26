@@ -528,6 +528,50 @@ test('téléphone, fiche d\'une opération : montant en grand, statut en informa
   } finally { await navigateur.close(); }
 });
 
+test('réglages d\'affichage : recherche en bas, thème, montants masqués — gardés sur l\'appareil', async () => {
+  const { navigateur, page } = await ouvrirTelephone();
+  try {
+    await ajouterOperation(page, { dest: 'Boulangerie', montant: '4,50', date: '25/10/26', cat: 'Alimentation' });
+    await page.evaluate(() => setView('reglages'));
+    // barres de recherche en bas : juste au-dessus des onglets, pour toutes les recherches
+    await page.click('#rg-recherche button[data-v="bas"]');
+    await page.evaluate(() => setView('registre'));
+    const haut = async sel => (await page.locator(sel).boundingBox()).y;
+    assert.ok(await haut('#f-search') > 650, 'recherche des opérations en bas');
+    await page.evaluate(() => setView('tiers'));
+    assert.ok(await haut('#ti-search') > 650, 'recherche des tiers en bas');
+    // thème sombre forcé
+    await page.evaluate(() => setView('reglages'));
+    await page.click('#rg-theme button[data-v="sombre"]');
+    assert.equal(await page.getAttribute('html', 'data-theme'), 'sombre');
+    assert.equal(await page.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(20, 23, 26)');
+    // montants masqués à l'ouverture
+    await page.check('#rg-masquer');
+    await page.waitForTimeout(1200);   // la base est écrite (0,9 s) avant de rouvrir
+    await allerA(page);
+    assert.equal(await page.getAttribute('html', 'data-theme'), 'sombre');
+    assert.ok(await haut('#f-search') > 650);
+    assert.equal(await page.evaluate(() => document.body.classList.contains('montants-masques')), true);
+    assert.match(await page.evaluate(() => getComputedStyle(document.querySelector('#m-soldes .ms-reel')).filter), /blur/);
+    await page.click('#m-entete .m-oeil');
+    assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('#m-soldes .ms-reel')).filter), 'none');
+    // retour à l'automatique
+    await page.evaluate(() => setView('reglages'));
+    await page.click('#rg-theme button[data-v="auto"]');
+    assert.equal(await page.getAttribute('html', 'data-theme'), null);
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
+test('réglages sur PC : pas de rubrique « barres de recherche » (elle ne concerne que le téléphone)', async () => {
+  const { navigateur, page } = await ouvrir();
+  try {
+    await page.evaluate(() => setView('reglages'));
+    assert.equal(await page.isVisible('#rg-theme'), true);
+    assert.equal(await page.isVisible('#rg-recherche'), false);
+  } finally { await navigateur.close(); }
+});
+
 test('deux fenêtres : la 2e dit « déjà ouvert », fait signe à la 1re, et démarre quand la 1re se ferme', async () => {
   const { navigateur, contexte, page } = await ouvrir();
   try {
