@@ -8,6 +8,7 @@
     --sidebar:#18221E; --sidebar-2:#27332D; --sidebar-ink:#DCE3DD; --sidebar-ink-2:#8DA197;
     --debit:#A8392B; --credit:#0F6E56;
     --st-non:#B5790C; --st-rap:#0F6E56; --st-prev:#3E6FA8; --st-ann:#9AA09B;
+    --attente-fond:#FBEFD9; --attente-encre:#5E3D00; --absent-fond:#F7E3E0;
     --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
     --radius:10px;
@@ -20,6 +21,7 @@
       --sidebar:#0F1714; --sidebar-2:#1C2622; --sidebar-ink:#DCE3DD; --sidebar-ink-2:#7D938A;
       --debit:#E0796B; --credit:#3FB892;
       --st-non:#E0A93A; --st-rap:#3FB892; --st-prev:#76A4DA; --st-ann:#7C837E;
+      --attente-fond:#3A2E17; --attente-encre:#F2CF8A; --absent-fond:#3B2421;
     }}
   :root[data-theme="sombre"]{color-scheme:dark;
       --paper:#14171A; --card:#1B1F22; --card-alt:#1F2427;
@@ -29,6 +31,7 @@
       --sidebar:#0F1714; --sidebar-2:#1C2622; --sidebar-ink:#DCE3DD; --sidebar-ink-2:#7D938A;
       --debit:#E0796B; --credit:#3FB892;
       --st-non:#E0A93A; --st-rap:#3FB892; --st-prev:#76A4DA; --st-ann:#7C837E;
+      --attente-fond:#3A2E17; --attente-encre:#F2CF8A; --absent-fond:#3B2421;
     }
   *{box-sizing:border-box}
   html{font-size:var(--fs)}
@@ -369,6 +372,33 @@
   .me-info{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);font-size:.92rem}
   .me-info span{color:var(--ink-2)}
   .me-info b{text-align:right;overflow-wrap:anywhere}
+  /* Relevé PDF (téléphone) : tuiles-filtres, lignes à cocher, pied « Appliquer » */
+  body.mobile #v-releve>.top .actions{display:none}
+  body.mobile #v-releve>.top h1{font-size:1.2rem}
+  body.mobile #v-releve{padding-bottom:150px}
+  .rm-tuiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:10px 0 4px;width:100%;flex:1 1 100%}
+  .rm-tuile{display:flex;flex-direction:column;align-items:flex-start;gap:0;padding:10px;border-radius:12px;border:2px solid transparent;min-height:0;text-align:left}
+  .rm-tuile b{font-size:1.25rem;line-height:1.2}
+  .rm-tuile span{font-size:.78rem}
+  .rm-tuile.ok{background:var(--brand-soft);color:var(--brand)}
+  .rm-tuile.verif{background:var(--attente-fond);color:var(--attente-encre)}
+  .rm-tuile.abs{background:var(--absent-fond);color:var(--debit)}
+  .rm-tuile[aria-pressed="true"]{border-color:currentColor}
+  .rm-tout{min-height:36px;margin:2px 0 0}
+  .rm-liste{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .rm-ligne{display:flex;align-items:center;gap:12px;min-height:64px;padding:8px 6px 8px 14px;border-bottom:1px solid var(--line)}
+  .rm-ligne:last-child{border-bottom:0}
+  .rm-ligne input{width:22px;height:22px;margin:0;accent-color:var(--brand);flex:none}
+  .rm-vide{width:22px;flex:none}
+  .rm-nom{flex:1;min-width:0;font-size:.95rem;overflow-wrap:anywhere}
+  .rm-nom small{display:block;font-size:.76rem;color:var(--ink-2)}
+  .rm-ligne .num{font-weight:600;white-space:nowrap}
+  .rm-plus{width:40px;min-height:44px;padding:0;justify-content:center;border:0;font-size:1.2rem;flex:none}
+  #rl-corps .rm-voir{width:100%;min-height:44px;justify-content:center;margin-top:12px;color:var(--brand);font-weight:600}
+  .rm-pied{position:fixed;left:0;right:0;bottom:calc(72px + env(safe-area-inset-bottom, 0px));z-index:14;background:var(--card);border-top:1px solid var(--line);padding:8px 16px 10px;display:flex;flex-direction:column;gap:6px}
+  .rm-autres{display:flex;gap:4px;justify-content:space-between}
+  .rm-autres button{min-height:36px;font-size:.82rem;padding:0 8px;border:0}
+  .rm-pied .primary{min-height:50px;border-radius:14px;justify-content:center;font-size:1rem}
   .ma-h{font-size:.85rem;font-weight:600;color:var(--ink-2);margin:16px 2px 4px}
   .m-version{text-align:center;font-size:.8rem;color:var(--ink-2);margin:18px 0 0}
 

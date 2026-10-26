@@ -682,6 +682,45 @@ test('téléphone, échéances : ce mois-ci / ensuite, reste à payer ; toucher 
   } finally { await navigateur.close(); }
 });
 
+test('téléphone, relevé PDF : trois tuiles qui filtrent (retrouvées / à vérifier / absentes), cases, Appliquer', async () => {
+  const { navigateur, page } = await ouvrirTelephone();
+  try {
+    await page.evaluate(() => {
+      const rel = (date, montant, libelle) => ({ date, montant, libelle });
+      const app = (id, date, montant, dest) => ({ id, date, montant, dest, cat: 'Divers', statut: 'non_pointe' });
+      REL = { comptes: [state.acc], idx: 0, compteId: state.acc, filtre: null,
+        relCompte: { titre: 'Relevé du 25 octobre', ops: [], soldes: [] },
+        res: {
+          rapproches: [{ on: true, rel: rel('2026-10-20', -4500, 'CB BOULANGERIE'), app: app(1, '2026-10-20', -4500, 'Boulangerie'), ecartJours: 0 },
+                       { on: true, rel: rel('2026-10-21', -2000, 'CB CINEMA'), app: app(2, '2026-10-21', -2000, 'Cinéma'), ecartJours: 0 }],
+          deja: [{ on: false, rel: rel('2026-10-02', 210000, 'VIR SALAIRE'), app: app(3, '2026-10-02', 210000, 'Salaire'), ecartJours: 0 }],
+          proches: [{ on: true, rel: rel('2026-10-24', -1230, 'PHARMACIE'), app: app(4, '2026-10-24', -1200, 'Pharmacie'), ecartJours: 0, ecartMontant: -30 }],
+          aCreer: [{ on: true, rel: rel('2026-10-24', -250, 'FRAIS TENUE DE COMPTE'), prop: { tiers: 'Banque', cat: 'Frais bancaires' } }],
+          ignores: [] } };
+      setView('releve');
+    });
+    const tuiles = page.locator('#rl-chips .rm-tuile');
+    assert.deepEqual(await tuiles.allTextContents(), ['3retrouvées', '1à vérifier', '1absente']);
+    const corps = page.locator('#rl-corps');
+    assert.deepEqual(await corps.locator('.ma-h').allTextContents(), ['À vérifier : montant ou date un peu différents', 'Absentes de tes comptes']);
+    assert.match(await corps.locator('.rm-pied .primary').textContent(), /Appliquer : 3 pointées, 1 créée/);
+    // toucher la tuile verte : seulement les retrouvées
+    await tuiles.first().click();
+    assert.deepEqual(await corps.locator('.ma-h').allTextContents(), ['Retrouvées dans tes comptes']);
+    assert.equal(await corps.locator('.rm-ligne').count(), 3);
+    await corps.locator('.rm-ligne', { hasText: 'Cinéma' }).locator('input').uncheck();
+    assert.match(await corps.locator('.rm-pied .primary').textContent(), /Appliquer : 2 pointées, 1 créée/);
+    // retoucher la tuile : tout revient
+    await page.locator('#rl-chips .rm-tuile').first().click();
+    assert.equal(await page.locator('#rl-corps .ma-h').count(), 2);
+    // « ⋯ » : les autres actions
+    await page.locator('#rl-corps .rm-ligne', { hasText: 'Pharmacie' }).locator('.rm-plus').click();
+    await page.locator('#dlgBack.show #dlgFoot button:has-text("Modifier l’opération")').waitFor();
+    await page.keyboard.press('Escape');
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
 test('deux fenêtres : la 2e dit « déjà ouvert », fait signe à la 1re, et démarre quand la 1re se ferme', async () => {
   const { navigateur, contexte, page } = await ouvrir();
   try {
