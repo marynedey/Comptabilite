@@ -108,6 +108,12 @@
 
   .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;margin-bottom:18px}
   .card h3{margin:0 0 6px;font-size:0.93rem;font-weight:600}
+  /* Réglages */
+  .reglage{max-width:640px}
+  .reglage .meta{font-size:.86rem;color:var(--ink-2)}
+  .rg-valeur{margin:14px 0 12px;font-size:.95rem;overflow-wrap:anywhere}
+  .rg-btns{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+  .rg-btns[hidden],.rg-btns [hidden]{display:none}
   .crumb{font-size:0.82rem;color:var(--ink-2);margin-bottom:14px;display:flex;gap:5px;flex-wrap:wrap;align-items:center}
   .crumb a{color:var(--brand);cursor:pointer}
   .donleg-item{display:flex;align-items:center;gap:9px;padding:5px 0;font-size:0.86rem;cursor:pointer;border-radius:6px}

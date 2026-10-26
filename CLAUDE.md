@@ -18,6 +18,10 @@ App web de comptes personnels, en français, hors ligne. Publiée sur https://ma
   Module natif limité (nom de sauvegarde et adresse de mise à jour vérifiés) : ne pas l'élargir sans en parler.
   APK construit par le job « Appli Android » ; signé avec les secrets `ANDROID_CLE`, `ANDROID_CLE_MOT_DE_PASSE`.
   Le SDK Android n'est pas téléchargeable dans une session cloud (dl.google.com bloqué) : construire via Actions.
+- Réglages de l'appareil (vue `reglages`) : jamais dans la table `meta` (elle part dans les sauvegardes).
+  Dossier de sauvegarde : `idbPutKey('dossierSauvegarde', handle)` sur PC, SharedPreferences côté natif dans l'appli.
+  Chrome 153 de la session cloud plante en relisant un FileSystemHandle depuis IndexedDB (bogue du navigateur) :
+  le parcours « réglages (PC) » passe sur GitHub (Chromium de Playwright).
 - `vendor/` : sql.js 1.10.3 et pdf.js 3.11.174, tels quels (ne pas modifier).
 
 ## Versions

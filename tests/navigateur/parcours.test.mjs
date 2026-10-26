@@ -257,6 +257,96 @@ test('appli Android : sauvegarde refusée par Android → pas comptée comme fai
   } finally { await navigateur.close(); }
 });
 
+/* ---------- Réglages : dossier de sauvegarde ---------- */
+// Le choix de dossier du navigateur est simulé par un dossier de l'espace privé du site (vrai
+// FileSystemDirectoryHandle, gardé dans IndexedDB comme le vrai).
+function fauxChoixDeDossier() {
+  window.showDirectoryPicker = async () => (await navigator.storage.getDirectory()).getDirectoryHandle('Comptes', { create: true });
+}
+const fichiersDuDossier = page => page.evaluate(async () => {
+  const d = await (await navigator.storage.getDirectory()).getDirectoryHandle('Comptes');
+  const noms = [];
+  for await (const [nom] of d.entries()) noms.push(nom);
+  return noms;
+});
+const texteToast = page => page.textContent('#toast');
+
+test('réglages (PC) : sauvegarde dans le dossier choisi, gardé après rechargement ; dossier disparu → Téléchargements', async () => {
+  const { navigateur, page } = await ouvrir({ preparer: c => c.addInitScript(fauxChoixDeDossier) });
+  try {
+    await page.evaluate(() => setView('reglages'));
+    assert.match(await page.textContent('#rg-dossier'), /Téléchargements/);
+    await page.click('#rg-btns button:has-text("Choisir un dossier")');
+    await page.locator('#rg-dossier:has-text("Comptes")').waitFor();
+
+    await allerA(page); // le choix est gardé sur l'appareil
+    await ajouterOperation(page, { dest: 'Boulangerie du coin', montant: '4,50', date: '05/01/26', cat: 'Alimentation' });
+    await page.click('button[onclick="sauvegarder()"]');
+    await page.locator('#status-txt:has-text("À jour")').waitFor();
+    assert.match(await texteToast(page), /^Sauvegarde enregistrée dans « Comptes » : comptes_.*\.sqlite$/);
+    const [fichier] = await fichiersDuDossier(page);
+    assert.match(fichier, /^comptes_.*\.sqlite$/);
+
+    // Le dossier n'existe plus : l'app propose Téléchargements.
+    await page.evaluate(async () => (await navigator.storage.getDirectory()).removeEntry('Comptes', { recursive: true }));
+    await ajouterOperation(page, { dest: 'Pharmacie', montant: '12', date: '06/01/26', cat: 'Santé' });
+    await page.click('button[onclick="sauvegarder()"]');
+    await page.locator('#dlgBack.show #dlgMsg:has-text("« Comptes » n’est pas accessible")').waitFor();
+    const [telechargement] = await Promise.all([page.waitForEvent('download'), page.click('#dlgFoot button:has-text("Enregistrer dans Téléchargements")')]);
+    assert.match(telechargement.suggestedFilename(), /^comptes_.*\.sqlite$/);
+    await page.locator('#status-txt:has-text("À jour")').waitFor();
+    assert.match(await texteToast(page), /dans « Téléchargements »/);
+
+    // Revenir à Téléchargements.
+    await page.evaluate(() => setView('reglages'));
+    await page.click('#rg-defaut');
+    await page.locator('#rg-dossier:has-text("Téléchargements")').waitFor();
+    assert.equal(await page.isVisible('#rg-defaut'), false);
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
+test('réglages : navigateur sans choix de dossier → expliqué, sauvegarde dans Téléchargements', async () => {
+  const { navigateur, page } = await ouvrir({ preparer: c => c.addInitScript(() => { delete window.showDirectoryPicker; }) });
+  try {
+    await page.evaluate(() => setView('reglages'));
+    assert.match(await page.textContent('#rg-note'), /ne permet pas de choisir un dossier/);
+    assert.equal(await page.isVisible('#rg-btns'), false);
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
+test('réglages (appli Android) : dossier choisi par Android, sauvegarde dedans, sinon Téléchargements', async () => {
+  const { navigateur, page } = await ouvrirAppli();
+  try {
+    await page.click('#dlgFoot button:has-text("Plus tard")');
+    await page.evaluate(() => { window.__natif.choisirDossier = window.__natif.dossier = { nom: 'Mes sauvegardes' }; });
+    await page.evaluate(() => setView('reglages'));
+    await page.click('#rg-btns button:has-text("Choisir un dossier")');
+    await page.locator('#rg-dossier:has-text("Mes sauvegardes")').waitFor();
+
+    await ajouterOperation(page, { dest: 'Boulangerie du coin', montant: '4,50', date: '05/01/26', cat: 'Alimentation' });
+    await page.click('button[onclick="sauvegarder()"]');
+    await page.locator('#status-txt:has-text("À jour")').waitFor();
+    assert.equal((await appels(page, 'enregistrer'))[0].dossier, true);
+    assert.match(await texteToast(page), /dans « Mes sauvegardes »/);
+
+    // Android refuse (autorisation retirée…) : on propose Téléchargements.
+    await page.evaluate(() => {
+      const avant = window.Capacitor.nativePromise;
+      window.Capacitor.nativePromise = (p, m, o) => m === 'enregistrer' && o.dossier ? Promise.reject(new Error('le dossier choisi n’est plus autorisé')) : avant(p, m, o);
+    });
+    await ajouterOperation(page, { dest: 'Pharmacie', montant: '12', date: '06/01/26', cat: 'Santé' });
+    await page.click('button[onclick="sauvegarder()"]');
+    await page.click('#dlgFoot button:has-text("Enregistrer dans Téléchargements")');
+    await page.locator('#status-txt:has-text("À jour")').waitFor();
+    const derniere = (await appels(page, 'enregistrer')).at(-1);
+    assert.equal(derniere.dossier, undefined);
+    assert.match(await texteToast(page), /dans « Téléchargements »/);
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
 /* ---------- PDF minimal (une page, une ligne de texte par élément) ---------- */
 function pdfMinimal(lignes) {
   const flux = 'BT /F1 11 Tf ' + lignes.map((l, i) => `1 0 0 1 40 ${700 - i * 20} Tm (${l}) Tj`).join(' ') + ' ET';

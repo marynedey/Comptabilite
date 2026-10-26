@@ -9,6 +9,16 @@ nulle part, et le dépôt ne contient que le code.
 Sur téléphone ou tablette : ouvrir l'adresse dans Chrome, puis menu ⋮ → « Ajouter à l'écran d'accueil »
 (ou « Installer l'application »). Elle s'ouvre ensuite comme une appli, même sans réseau.
 
+## Réglages (propres à chaque appareil)
+
+Menu **Réglages** : réglages gardés sur l'appareil, hors de la base (ils ne voyagent pas avec les fichiers
+de sauvegarde).
+- **Dossier de sauvegarde** : par défaut Téléchargements. « Choisir un dossier… » existe dans Chrome/Edge sur
+  PC (le dossier est gardé dans IndexedDB ; le navigateur peut redemander l'autorisation au moment de
+  sauvegarder) et dans l'appli Android. Ailleurs (Firefox, Chrome sur téléphone), la rubrique l'explique et
+  les sauvegardes vont dans Téléchargements. Si le dossier n'est plus accessible, l'app propose
+  d'enregistrer dans Téléchargements. Le message après la sauvegarde indique le fichier et le dossier.
+
 ## Appli Android
 
 Sur Android, « Mes comptes » existe aussi en vraie appli (dossier `mobile/`, faite avec Capacitor) :
@@ -19,7 +29,8 @@ lancement, sans barre de navigateur.
   (page d'installation : bouton de téléchargement de `mes-comptes-X.Y.Z.apk` et marche à suivre).
 - **Reprendre ses comptes** (une fois) : l'appli a son propre stockage. Dans Chrome, **Sauvegarder** ;
   dans l'appli, **Charger une sauvegarde**. L'appli le propose à sa première ouverture.
-- **Sauvegarder** dans l'appli : le fichier `comptes_….sqlite` va dans **Téléchargements**.
+- **Sauvegarder** dans l'appli : le fichier `comptes_….sqlite` va dans **Téléchargements**, ou dans le dossier
+  choisi dans **Réglages** (fenêtre d'Android).
 - **Mises à jour** : à chaque version publiée, l'appli affiche « Nouvelle version · Mettre à jour /
   Plus tard ». « Mettre à jour » télécharge la nouvelle version et Android demande confirmation ;
   les données sont gardées. « Plus tard » : elle sera reproposée au prochain lancement. La première fois,
