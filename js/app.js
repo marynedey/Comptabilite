@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.2.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.2.1'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -398,7 +398,39 @@ let anGroups=[];
 /* ============================================================
    Démarrage
    ============================================================ */
+/* ---------- une seule fenêtre à la fois (PC) ----------
+   Chaque fenêtre garde sa copie de la base en mémoire et la réécrit en entier : deux fenêtres (ou onglets)
+   ouvertes en même temps s'écraseraient. La 2e n'ouvre pas la base : elle dit « déjà ouvert », peut faire
+   signe à la 1re, et démarre d'elle-même quand la 1re est fermée. (L'appli Android n'a qu'une fenêtre.) */
+const VERROU_FENETRE='mescomptes-fenetre';
+const canalFenetre=typeof BroadcastChannel==='function'?new BroadcastChannel(VERROU_FENETRE):null;
+function prendreLaFenetre(){
+  if(enAppli()||!navigator.locks)return Promise.resolve(true);
+  return new Promise(res=>navigator.locks.request(VERROU_FENETRE,{ifAvailable:true},verrou=>{
+    res(!!verrou);
+    if(verrou)return new Promise(()=>{}); // gardé jusqu'à la fermeture de la fenêtre
+  }));
+}
+function dejaOuvert(){
+  document.getElementById('deja-ouvert').hidden=false;
+  // dès que l'autre fenêtre est fermée, cette page démarre normalement
+  navigator.locks.request(VERROU_FENETRE,()=>{}).then(()=>location.reload());
+}
+function montrerFenetreOuverte(){
+  if(canalFenetre)canalFenetre.postMessage('montre-toi');
+  toast('L’autre fenêtre clignote dans la barre des tâches');
+}
+let _clignote=null;
+function repondreAuSigne(){ // fenêtre active : se mettre au premier plan si le navigateur le permet, sinon clignoter
+  try{window.focus();}catch(e){}
+  clearInterval(_clignote);const titre='Mes comptes';let n=1;
+  document.title='● Mes comptes est ici';
+  _clignote=setInterval(()=>{document.title=(n++%2)?titre:'● Mes comptes est ici';
+    if(n>12||document.hasFocus()){clearInterval(_clignote);document.title=titre;}},700);
+}
 async function boot(){
+  if(!(await prendreLaFenetre())){dejaOuvert();return;}
+  if(canalFenetre)canalFenetre.onmessage=e=>{if(e.data==='montre-toi')repondreAuSigne();};
   busy('Démarrage du moteur…');
   try{
     const rep=await fetch('vendor/sql-wasm.wasm');if(!rep.ok)throw new Error('vendor/sql-wasm.wasm : '+rep.status);

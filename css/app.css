@@ -108,6 +108,13 @@
 
   .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;margin-bottom:18px}
   .card h3{margin:0 0 6px;font-size:0.93rem;font-weight:600}
+  /* « déjà ouvert » (une seule fenêtre à la fois) : recouvre tout, la base n'est pas chargée */
+  .deja-ouvert{position:fixed;inset:0;z-index:70;background:var(--paper);display:flex;align-items:center;justify-content:center;padding:16px}
+  .deja-ouvert[hidden]{display:none}
+  .deja-ouvert-carte{max-width:440px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:22px 24px}
+  .deja-ouvert-carte h2{margin:0 0 8px;font-size:1.15rem}
+  .deja-ouvert-carte p{color:var(--ink-2);font-size:.92rem;margin:0 0 16px}
+  .deja-ouvert-carte .meta{font-size:.82rem;margin:14px 0 0}
   /* Réglages */
   .reglage{max-width:640px}
   .reglage .meta{font-size:.86rem;color:var(--ink-2)}

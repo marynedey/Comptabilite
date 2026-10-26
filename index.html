@@ -343,6 +343,12 @@
 <div class="busy" id="busy"><div class="bx"><div class="spin"></div><div class="bt" id="busyTxt">Traitement…</div></div></div>
 <div class="toast" id="toast"></div>
 <div class="maj" id="maj" role="status" hidden>Nouvelle version de l’application <button onclick="installerMaj()">Mettre à jour</button></div>
+<div class="deja-ouvert" id="deja-ouvert" hidden><div class="deja-ouvert-carte">
+  <h2>Mes comptes est déjà ouvert</h2>
+  <p>L’app est ouverte dans une autre fenêtre ou un autre onglet de ce navigateur. Pour ne jamais mélanger tes modifications, elle ne s’ouvre qu’une fois.</p>
+  <button class="primary" onclick="montrerFenetreOuverte()">Afficher la fenêtre ouverte</button>
+  <p class="meta">Si tu fermes l’autre fenêtre, celle-ci s’ouvrira d’elle-même.</p>
+</div></div>
 <div class="maj-appli" id="maj-appli" role="status" hidden>
   <div class="maj-appli-txt"><b>Nouvelle version <span id="maj-appli-v"></span></b><span>Tes données sont gardées.</span></div>
   <div class="maj-appli-btns"><button class="plus-tard" onclick="plusTardMajAppli()">Plus tard</button><button class="primary" onclick="installerMajAppli()">Mettre à jour</button></div>

@@ -257,6 +257,26 @@ test('appli Android : sauvegarde refusée par Android → pas comptée comme fai
   } finally { await navigateur.close(); }
 });
 
+test('deux fenêtres : la 2e dit « déjà ouvert », fait signe à la 1re, et démarre quand la 1re se ferme', async () => {
+  const { navigateur, contexte, page } = await ouvrir();
+  try {
+    const autre = await contexte.newPage();
+    autre.erreurs = [];
+    autre.on('pageerror', e => autre.erreurs.push(e.message));
+    await autre.goto(BASE);
+    await autre.locator('#deja-ouvert:has-text("déjà ouvert")').waitFor();
+    assert.doesNotMatch(await autre.textContent('#brandver'), /opérations/); // la base n'est pas ouverte ici
+
+    await autre.click('#deja-ouvert button:has-text("Afficher la fenêtre ouverte")');
+    await page.waitForFunction(() => document.title.includes('est ici'), null, { polling: 'raf' });
+
+    await page.close();
+    await demarree(autre); // l'autre fenêtre est fermée : celle-ci démarre
+    assert.equal(await autre.isVisible('#deja-ouvert'), false);
+    assert.deepEqual(autre.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
 /* ---------- Réglages : dossier de sauvegarde ---------- */
 // Le choix de dossier du navigateur est simulé par un dossier de l'espace privé du site (vrai
 // FileSystemDirectoryHandle, gardé dans IndexedDB comme le vrai).
