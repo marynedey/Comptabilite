@@ -81,9 +81,9 @@
         <span class="schip on" data-s="annule" onclick="toggleStatut(this)">Annulé</span>
       </div>
       <select id="f-horizon" onchange="goPage(1)" title="Jusqu’où voir les opérations prévisionnelles à venir">
-        <option value="tout">Prévisionnel : tout</option>
         <option value="3">Prévisionnel : 3 jours</option>
-        <option value="finmois">Prévisionnel : fin du mois</option>
+        <option value="finmois" selected>Prévisionnel : fin du mois</option>
+        <option value="finmoisprochain">Prévisionnel : fin du mois prochain</option>
         <option value="masque">Prévisionnel : masqué</option>
       </select>
       <span class="periode" id="f-periode-wrap">
@@ -296,9 +296,9 @@
     <label class="ventchk"><input type="checkbox" id="i-vent" onchange="ventToggle(this.checked)"> Répartir sur plusieurs catégories</label>
     <div id="cat-simple">
       <div class="row3">
-        <div class="field"><label>Catégorie</label><input id="i-cat0" list="dl0" placeholder="Alimentation" oninput="majSousCats()"></div>
-        <div class="field"><label>Sous-catégorie</label><input id="i-cat1" list="dl1" placeholder="Supermarché" oninput="majSousCats()"></div>
-        <div class="field"><label>Sous-sous-catégorie</label><input id="i-cat2" list="dl2" placeholder="facultatif"></div>
+        <div class="field"><label>Catégorie</label><input id="i-cat0" list="dl0" placeholder="Alimentation" oninput="majSousCats()" onchange="catChangee(0)" onpointerdown="catOuvrir(this)" onblur="catFermer(this)"></div>
+        <div class="field"><label>Sous-catégorie</label><input id="i-cat1" list="dl1" placeholder="Supermarché" oninput="majSousCats()" onchange="catChangee(1)" onpointerdown="catOuvrir(this)" onblur="catFermer(this)"></div>
+        <div class="field"><label>Sous-sous-catégorie</label><input id="i-cat2" list="dl2" placeholder="facultatif" onpointerdown="catOuvrir(this)" onblur="catFermer(this)"></div>
       </div>
     </div>
     <div id="vent-box" style="display:none">

@@ -55,9 +55,15 @@ async function allerA(page) {
 const demarree = page => page.waitForFunction(() => /opérations/.test(document.getElementById('brandver')?.textContent || ''), null, { timeout: 30000 });
 const swActif = page => page.evaluate(async () => { await navigator.serviceWorker.ready; return !!navigator.serviceWorker.controller; });
 
+// La fenêtre place le curseur dans « Destinataire » 30 ms après s'être ouverte (PC) : attendre ce moment,
+// sinon ce placement peut arriver en pleine saisie et le texte part dans le mauvais champ.
+async function fenetreOperationPrete(page) {
+  await page.locator('#overlay #i-dest').waitFor({ state: 'visible' });
+  await page.waitForFunction(() => ecranTactile() || document.activeElement === document.getElementById('i-dest'));
+}
 async function ajouterOperation(page, { dest, montant, date, cat }) {
   await page.keyboard.press('a');
-  await page.locator('#overlay #i-dest').waitFor({ state: 'visible' });
+  await fenetreOperationPrete(page);
   await page.fill('#i-dest', dest);
   await page.fill('#i-cat0', cat);
   await page.click('#i-date', { clickCount: 3 });
@@ -254,6 +260,45 @@ test('appli Android : sauvegarde refusée par Android → pas comptée comme fai
     await page.click('button[onclick="sauvegarder()"]');
     await page.locator('#dlgBack.show #dlgMsg:has-text("disque plein")').waitFor();
     assert.match(await page.textContent('#status-txt'), /1 modification non sauvegardée/);
+  } finally { await navigateur.close(); }
+});
+
+test('catégories : en changeant de catégorie, l\'ancienne sous-catégorie est vidée ; toucher le champ montre toute la liste', async () => {
+  const { navigateur, page } = await ouvrir();
+  try {
+    await ajouterOperation(page, { dest: 'Supermarché', montant: '10', date: '05/01/26', cat: 'Alimentation' });
+    await page.evaluate(() => { upsertCategorie('Alimentation : Courses'); upsertCategorie('Loisirs : Cinéma'); });
+    await page.keyboard.press('a');
+    await fenetreOperationPrete(page);
+    await page.fill('#i-cat0', 'Alimentation');
+    await page.fill('#i-cat1', 'Courses');
+    // toucher la catégorie : le champ se vide (la liste entière s'affiche), l'ancien texte reste en indication
+    await page.click('#i-cat0');
+    assert.equal(await page.inputValue('#i-cat0'), '');
+    assert.equal(await page.getAttribute('#i-cat0', 'placeholder'), 'Alimentation');
+    await page.keyboard.type('Loisirs');
+    await page.click('#i-montant');
+    assert.equal(await page.inputValue('#i-cat1'), '', 'Courses n\'est pas une sous-catégorie de Loisirs');
+    // toucher puis repartir sans rien choisir : rien ne change
+    await page.click('#i-cat0');
+    await page.click('#i-montant');
+    assert.equal(await page.inputValue('#i-cat0'), 'Loisirs');
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
+test('analyse « Cette année » : moyenne = total ÷ nombre de mois depuis janvier (le 26 octobre : 10 mois)', async () => {
+  const { navigateur, page } = await ouvrir({ preparer: c => c.clock.setFixedTime(new Date('2026-10-26T10:00:00')) });
+  try {
+    const texte = await page.evaluate(() => {
+      for (let m = 1; m <= 10; m++)
+        run("INSERT INTO operation(compte_id,date_operation,montant,cat_path,statut,supprime,previsionnel) VALUES(?,?,?,?,'pointe',0,0)",
+          [state.acc, '2026-' + String(m).padStart(2, '0') + '-01', -100000, 'Test']);
+      setView('analyse'); setPeriode('an', 'annee');
+      return document.getElementById('v-analyse').innerText;
+    });
+    assert.match(texte, /Moyenne 1\s000,00\s€ \/ mois/);
+    assert.match(texte, /Toutes les dépenses/);
   } finally { await navigateur.close(); }
 });
 

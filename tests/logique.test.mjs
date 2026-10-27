@@ -171,3 +171,28 @@ test('sauvegarde : nom du fichier et message (dossier où il a été mis)', () =
   assert.equal(app.messageSauvegarde('Comptes', 'comptes_2026-10-05_08h03m09.sqlite'),
     'Sauvegarde enregistrée dans « Comptes » : comptes_2026-10-05_08h03m09.sqlite');
 });
+
+test('prévisionnel : 3 jours, fin du mois, fin du mois prochain, masqué ; « tout » n\'existe plus', () => {
+  const d = new Date(2026, 9, 26); // 26 octobre 2026
+  assert.equal(app.borneHorizon('3', d), '2026-10-29');
+  assert.equal(app.borneHorizon('finmois', d), '2026-10-31');
+  assert.equal(app.borneHorizon('finmoisprochain', d), '2026-11-30');
+  assert.equal(app.borneHorizon('finmoisprochain', new Date(2026, 11, 15)), '2027-01-31'); // décembre → fin janvier
+  assert.equal(app.borneHorizon('masque', d), 'MASQUE');
+  assert.equal(app.borneHorizon('tout', d), '2026-10-31'); // ancien réglage enregistré
+});
+
+test('moyenne par mois : mois du calendrier (janvier → octobre = 10 mois, pas 9,8)', () => {
+  assert.equal(app.nbMoisCalendaires(new Date(2026, 0, 1), new Date(2026, 9, 26)), 10);
+  assert.equal(app.nbMoisCalendaires(new Date(2026, 6, 1), new Date(2026, 8, 30)), 3);
+  assert.equal(app.nbMoisCalendaires(new Date(2025, 10, 15), new Date(2026, 1, 2)), 4);
+});
+
+test('catégories : une sous-catégorie n\'est gardée que si elle appartient à la catégorie', () => {
+  app.upsertCategorie('Alimentation : Courses');
+  app.upsertCategorie('Loisirs : Cinéma');
+  assert.equal(app.sousCatValide('Alimentation', 'Courses'), true);
+  assert.equal(app.sousCatValide('Alimentation', 'courses'), true);
+  assert.equal(app.sousCatValide('Loisirs', 'Courses'), false);
+  assert.equal(app.sousCatValide('Loisirs', ''), true);
+});
