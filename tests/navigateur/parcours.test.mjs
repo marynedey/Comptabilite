@@ -308,6 +308,7 @@ test('dupliquer une opération : mêmes informations, datée d\'aujourd\'hui, l\
     await ajouterOperation(page, { dest: 'Loyer', montant: '650', date: '05/10/26', cat: 'Logement' });
     const id = await page.evaluate(() => scal("SELECT id FROM operation WHERE supprime=0"));
     await page.evaluate(i => openModal(i), id);
+    await fenetreOperationPrete(page);
     await page.fill('#i-comm', 'octobre');
     await page.click('#overlay button:has-text("Dupliquer")');
     assert.match(await page.textContent('#modal-title'), /copie/);
