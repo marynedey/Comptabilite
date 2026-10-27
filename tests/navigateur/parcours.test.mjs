@@ -269,7 +269,7 @@ test('catégories : en changeant de catégorie, l\'ancienne sous-catégorie est 
     await ajouterOperation(page, { dest: 'Supermarché', montant: '10', date: '05/01/26', cat: 'Alimentation' });
     await page.evaluate(() => { upsertCategorie('Alimentation : Courses'); upsertCategorie('Loisirs : Cinéma'); });
     await page.keyboard.press('a');
-    await page.locator('#overlay #i-dest').waitFor({ state: 'visible' });
+    await fenetreOperationPrete(page);
     await page.fill('#i-cat0', 'Alimentation');
     await page.fill('#i-cat1', 'Courses');
     // toucher la catégorie : le champ se vide (la liste entière s'affiche), l'ancien texte reste en indication
