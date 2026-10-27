@@ -22,6 +22,8 @@ App web de comptes personnels, en français, hors ligne. Publiée sur https://ma
   Dossier de sauvegarde : `idbPutKey('dossierSauvegarde', handle)` sur PC, SharedPreferences côté natif dans l'appli.
   Chrome 153 de la session cloud plante en relisant un FileSystemHandle depuis IndexedDB (bogue du navigateur) :
   le parcours « réglages (PC) » passe sur GitHub (Chromium de Playwright).
+- Une seule fenêtre à la fois sur PC (`prendreLaFenetre`, verrou `navigator.locks`) : chaque fenêtre réécrit toute
+  la base, deux fenêtres s'écraseraient. La 2e affiche « déjà ouvert » sans ouvrir la base.
 - `vendor/` : sql.js 1.10.3 et pdf.js 3.11.174, tels quels (ne pas modifier).
 
 ## Versions
