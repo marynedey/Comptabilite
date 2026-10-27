@@ -115,6 +115,56 @@
   .deja-ouvert-carte h2{margin:0 0 8px;font-size:1.15rem}
   .deja-ouvert-carte p{color:var(--ink-2);font-size:.92rem;margin:0 0 16px}
   .deja-ouvert-carte .meta{font-size:.82rem;margin:14px 0 0}
+  /* ===== téléphone (appli Android, ou téléphone à écran tactile) : body.mobile =====
+     onglets en bas, en-tête avec le choix du compte ; la barre latérale et la barre d'outils du PC disparaissent */
+  .m-entete,.m-onglets,#v-plus{display:none}
+  body.mobile{grid-template-columns:1fr}
+  body.mobile aside,body.mobile .menu-backdrop,body.mobile .topbar{display:none}
+  body.mobile main{padding-top:0;padding-bottom:calc(84px + env(safe-area-inset-bottom, 0px))}
+  body.mobile .view .top h1{display:none} /* le titre est dans l'en-tête */
+  body.mobile .m-entete{display:flex;align-items:center;gap:6px;position:sticky;top:0;z-index:12;background:var(--paper);
+       margin:0 -14px 8px;padding:8px 6px 8px 14px;min-height:56px}
+  .m-compte{position:relative;flex:1;min-width:0}
+  .m-compte-btn{border:0;background:none;padding:8px 0;min-height:44px;font-size:1.3rem;font-weight:700;color:var(--ink);gap:6px;max-width:100%}
+  .m-compte-btn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .m-compte-btn svg{width:20px;height:20px;flex:none}
+  .m-comptes{position:absolute;top:100%;left:0;min-width:280px;max-width:calc(100vw - 28px);background:var(--card);border:1px solid var(--line);
+       border-radius:14px;box-shadow:0 12px 32px rgba(0,0,0,.18);padding:6px;z-index:30}
+  .m-comptes[hidden]{display:none}
+  .m-comptes button{display:flex;align-items:center;gap:10px;width:100%;min-height:52px;border:0;border-radius:10px;background:none;
+       padding:6px 12px;text-align:left;font-size:1rem;color:var(--ink)}
+  .m-comptes button.on{background:var(--brand-soft);font-weight:600}
+  .m-comptes .mc-nom{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .m-comptes .mc-solde{font-size:.9rem;color:var(--ink-2)}
+  .m-comptes hr{border:0;border-top:1px solid var(--line);margin:6px 4px}
+  .m-comptes .mc-action{color:var(--brand);font-weight:600;min-height:48px}
+  .m-titre{flex:1;margin:0;font-size:1.3rem;font-weight:700}
+  .m-titre[hidden],.m-compte[hidden]{display:none}
+  .m-icone{position:relative;width:44px;height:44px;border:0;border-radius:22px;background:none;color:var(--ink);justify-content:center;padding:0}
+  .m-icone svg{width:22px;height:22px}
+  .m-point{position:absolute;top:9px;right:9px;width:10px;height:10px;border-radius:5px;background:var(--st-non);border:2px solid var(--paper)}
+  .m-point[hidden]{display:none}
+  body.mobile .m-onglets{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));position:fixed;left:0;right:0;bottom:0;z-index:15;
+       background:var(--card);border-top:1px solid var(--line);padding:6px 4px calc(10px + env(safe-area-inset-bottom, 0px))}
+  .m-onglets button{flex-direction:column;gap:3px;border:0;background:none;color:var(--ink-2);font-size:.75rem;padding:2px 0;min-height:52px;justify-content:center}
+  .m-onglets button svg{width:56px;height:30px;padding:4px 17px;border-radius:15px;box-sizing:border-box}
+  .m-onglets button.on{color:var(--brand);font-weight:600}
+  .m-onglets button.on svg{background:var(--brand-soft)}
+  body.mobile #v-plus.on{display:block}
+  .m-sauvegarde{display:flex;align-items:center;gap:12px;border-radius:14px;padding:14px 16px;margin-bottom:6px;background:var(--brand-soft)}
+  .m-sauvegarde.attente{background:#FBEFD9;color:#5E3D00}
+  .m-sauvegarde .ms-txt{flex:1;font-size:.92rem}
+  .m-sauvegarde .ms-txt b{display:block;font-size:1rem}
+  .m-groupe-h{font-size:.82rem;font-weight:600;color:var(--ink-2);margin:18px 2px 6px}
+  .m-liste{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .m-liste button{display:flex;align-items:center;gap:14px;width:100%;min-height:56px;border:0;border-bottom:1px solid var(--line);border-radius:0;
+       background:none;padding:6px 14px;text-align:left;color:var(--ink);font-size:1rem}
+  .m-liste button:last-child{border-bottom:0}
+  .m-liste button>svg{width:22px;height:22px;color:var(--brand);flex:none}
+  .m-liste .ml-txt{flex:1;min-width:0}
+  .m-liste .ml-txt small{display:block;font-size:.8rem;color:var(--ink-2)}
+  .m-version{text-align:center;font-size:.8rem;color:var(--ink-2);margin:18px 0 0}
+
   /* Réglages */
   .reglage{max-width:640px}
   .reglage .meta{font-size:.86rem;color:var(--ink-2)}

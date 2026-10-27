@@ -24,6 +24,9 @@ App web de comptes personnels, en français, hors ligne. Publiée sur https://ma
   le parcours « réglages (PC) » passe sur GitHub (Chromium de Playwright).
 - Une seule fenêtre à la fois sur PC (`prendreLaFenetre`, verrou `navigator.locks`) : chaque fenêtre réécrit toute
   la base, deux fenêtres s'écraseraient. La 2e affiche « déjà ouvert » sans ouvrir la base.
+- Interface téléphone (`body.mobile`, `estTelephone()` : appli Android, ou écran tactile < 600 px) : en-tête
+  `#m-entete` (liste déroulante des comptes), onglets `#m-onglets` (Opérations, Analyse, Échéances, Plus), vue `plus`.
+  Le PC et la tablette gardent la barre latérale. Les écrans sont refaits pour le téléphone un par un (une PR chacun).
 - `vendor/` : sql.js 1.10.3 et pdf.js 3.11.174, tels quels (ne pas modifier).
 
 ## Versions

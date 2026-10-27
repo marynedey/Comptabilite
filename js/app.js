@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.3.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.4.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -233,6 +233,8 @@ function updateStatus(){
   if(idbErr){el.classList.add('err');tx.textContent='Stockage local en échec — sauvegarde le fichier !';return;}
   if(dirty>0){el.classList.add('dirty');tx.textContent=dirty+' modification'+(dirty>1?'s':'')+' non sauvegardée'+(dirty>1?'s':'')+' — voir';}
   else tx.textContent='À jour';
+  const pt=document.getElementById('m-point');if(pt)pt.hidden=!(dirty>0);
+  if(state.view==='plus'&&db)renderPlus(); // carte « à sauvegarder » à jour
 }
 
 /* ---------- dialogues maison ---------- */
@@ -398,6 +400,75 @@ let anGroups=[];
 /* ============================================================
    Démarrage
    ============================================================ */
+/* ---------- téléphone : onglets en bas, en-tête avec le choix du compte, écran « Plus » ----------
+   Actif dans l'appli Android et sur un téléphone (écran tactile, moins de 600 px de large) ; le PC et la tablette
+   gardent la barre latérale. Les écrans existants s'affichent dans ce cadre. */
+const estTelephone=()=>enAppli()||(typeof matchMedia==='function'&&matchMedia('(pointer: coarse)').matches
+  &&typeof screen!=='undefined'&&Math.min(screen.width,screen.height)<=600);
+/* onglet du bas allumé pour chaque écran : ce qui n'a pas d'onglet passe par « Plus » */
+function ongletDeVue(v){return {registre:'registre',analyse:'analyse',graphiques:'analyse',recurrences:'recurrences'}[v]||'plus';}
+const TITRES_MOBILE={recurrences:'Échéances',plus:'Plus',tiers:'Tiers',categories:'Catégories',corbeille:'Corbeille',reglages:'Réglages',releve:'Relevé en cours'};
+function ongletMobile(o){fermerListeComptes();setView(o);}
+function majMobile(){
+  if(!document.body.classList.contains('mobile'))return;
+  const o=ongletDeVue(state.view);
+  document.querySelectorAll('#m-onglets button').forEach(b=>{b.classList.toggle('on',b.dataset.o===o);
+    if(b.dataset.o===o)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');});
+  const avecCompte=['registre','analyse','graphiques'].indexOf(state.view)>=0; // écrans qui dépendent du compte choisi
+  document.getElementById('m-compte-wrap').hidden=!avecCompte;
+  const t=document.getElementById('m-titre');t.hidden=avecCompte;t.textContent=TITRES_MOBILE[state.view]||'';
+  const c=state.acc?qy('SELECT nom FROM compte WHERE id=?',[state.acc])[0]:null;
+  document.getElementById('m-compte-nom').textContent=c?c.nom:'—';
+  document.getElementById('m-point').hidden=!(dirty>0);
+}
+/* liste déroulante des comptes, sous le nom du compte */
+function basculerListeComptes(){if(document.getElementById('m-comptes').hidden)ouvrirListeComptes();else fermerListeComptes();}
+function ouvrirListeComptes(){
+  const l=document.getElementById('m-comptes');
+  l.innerHTML=qy('SELECT id,nom FROM compte WHERE actif=1 ORDER BY ordre_affichage,id').map(c=>
+      '<button role="option" aria-selected="'+(c.id===state.acc)+'"'+(c.id===state.acc?' class="on"':'')+' onclick="choisirCompteMobile('+c.id+')">'+
+      '<span class="mc-nom">'+esc(c.nom)+'</span><span class="mc-solde num">'+eur(soldeReel(c.id))+'</span></button>').join('')+
+    '<hr><button class="mc-action" onclick="fermerListeComptes();editCompte(state.acc)">Modifier ce compte</button>'+
+    '<button class="mc-action" onclick="fermerListeComptes();ajouterCompte()">+ Nouveau compte</button>';
+  l.hidden=false;document.getElementById('m-compte-btn').setAttribute('aria-expanded','true');
+  setTimeout(()=>document.addEventListener('pointerdown',fermerSiDehors,true),0);
+}
+function fermerSiDehors(e){if(!document.getElementById('m-compte-wrap').contains(e.target))fermerListeComptes();}
+function fermerListeComptes(){
+  const l=document.getElementById('m-comptes');if(!l||l.hidden)return;
+  l.hidden=true;document.getElementById('m-compte-btn').setAttribute('aria-expanded','false');
+  document.removeEventListener('pointerdown',fermerSiDehors,true);}
+function choisirCompteMobile(id){fermerListeComptes();state.acc=id;state.page=1;state.anPath=[];render();remonterEnHaut();}
+/* écran « Plus » : sauvegarde, outils et gestion (ce qui était dans la barre latérale et la barre d'outils du PC) */
+function icoPlus(d){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="'+d+'"/></svg>';}
+function renderPlus(){
+  const n=dirty,sv=document.getElementById('plus-sauvegarde');
+  sv.className='m-sauvegarde'+(n>0?' attente':'');
+  sv.innerHTML='<div class="ms-txt"><b>'+(n>0?n+' modification'+(n>1?'s':'')+' non sauvegardée'+(n>1?'s':''):'Tout est sauvegardé')+'</b>'+
+    (n>0?'<a onclick="voirModifications()">Voir le détail</a>':'Données révision '+esc(String(getMeta('rev',0))))+'</div>'+
+    '<button class="primary" onclick="sauvegarder()">Sauvegarder</button>';
+  const it=(nom,detail,action,d)=>'<button onclick="'+action+'">'+icoPlus(d)+'<span class="ml-txt">'+nom+(detail?'<small>'+detail+'</small>':'')+'</span>'+
+    icoPlus('M9 6l6 6-6 6')+'</button>';
+  const nb=(sql,mot)=>{const k=scal(sql)||0;return k+' '+mot+(k>1?'s':'');};
+  const e=UNDO[UNDO.length-1];
+  const groupes=[
+    ['Pointer et importer',[
+      REL&&REL.res?it('Relevé en cours','Reprendre la comparaison',"setView('releve')",'M6 3h9l4 4v14H6zM9 14l2 2 4-4'):'',
+      it('Pointer avec un relevé PDF','Compare le relevé de la banque à tes opérations',"document.getElementById('filePdf').click()",'M6 3h9l4 4v14H6zM9 14l2 2 4-4'),
+      it('Importer un fichier QIF','Opérations exportées par la banque',"document.getElementById('fileQif').click()",'M12 3v12M7 10l5 5 5-5M5 21h14')]],
+    ['Organiser',[
+      it('Évolution du solde','Graphiques du compte et du patrimoine',"setView('graphiques')",'M4 19h16M4 15l5-5 4 3 7-7'),
+      it('Catégories',nb('SELECT COUNT(*) FROM categorie','catégorie'),"setView('categories')",'M3 7l9-4 9 4v10l-9 4-9-4zM3 7l9 4 9-4M12 11v10'),
+      it('Tiers',nb('SELECT COUNT(*) FROM tiers','destinataire'),"setView('tiers')",'M9 11a3 3 0 100-6 3 3 0 000 6zM3 20a6 6 0 0112 0M16 6a3 3 0 010 6'),
+      it('Corbeille',nb('SELECT COUNT(*) FROM operation WHERE supprime=1','opération'),"setView('corbeille')",'M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13')]],
+    ['Données et appli',[
+      e?it('Annuler la dernière modification',esc('n°'+e.jid+' '+e.label),'annulerDerniere()','M9 14L4 9l5-5M4 9h10a6 6 0 010 12h-3'):'',
+      it('Charger une sauvegarde','Remplace les données de cet appareil',"document.getElementById('fileDb').click()",'M12 21V9M7 14l5-5 5 5M5 3h14'),
+      it('Réglages','Dossier de sauvegarde…',"setView('reglages')",'M12 15a3 3 0 100-6 3 3 0 000 6zM19 12h2M3 12h2M12 3v2M12 19v2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4')]],
+  ];
+  document.getElementById('plus-groupes').innerHTML=groupes.map(([h,l])=>'<h2 class="m-groupe-h">'+h+'</h2><div class="m-liste">'+l.join('')+'</div>').join('');
+  document.getElementById('plus-version').textContent='Mes comptes · version '+VERSION;
+}
 /* ---------- une seule fenêtre à la fois (PC) ----------
    Chaque fenêtre garde sa copie de la base en mémoire et la réécrit en entier : deux fenêtres (ou onglets)
    ouvertes en même temps s'écraseraient. La 2e n'ouvre pas la base : elle dit « déjà ouvert », peut faire
@@ -429,6 +500,7 @@ function repondreAuSigne(){ // fenêtre active : se mettre au premier plan si le
     if(n>12||document.hasFocus()){clearInterval(_clignote);document.title=titre;}},700);
 }
 async function boot(){
+  if(estTelephone())document.body.classList.add('mobile');
   if(!(await prendreLaFenetre())){dejaOuvert();return;}
   if(canalFenetre)canalFenetre.onmessage=e=>{if(e.data==='montre-toi')repondreAuSigne();};
   busy('Démarrage du moteur…');
@@ -451,6 +523,7 @@ async function boot(){
   remplirMois();brancherMasqueDates();setTimeout(()=>setHauteurRegistre(+getMeta('regRows',12)),0);setTimeout(appliquerLargeurs,0);
   setTimeout(()=>{try{const nav=getMeta('nav');if(nav){const s=JSON.parse(nav);
     if(s.view==='releve'&&!(REL&&REL.res))s.view='registre';
+    if(s.view==='plus'&&!document.body.classList.contains('mobile'))s.view='registre'; // « Plus » n'existe que sur téléphone
     _navSuppress=true;restoreNav(s);_navSuppress=false;}}catch(e){}syncHist();installerGardeRetour();},0);
   try{const _n=genererRecurrences();if(_n){touch('Échéances récurrentes',_n+' opération(s) générée(s)');}}catch(e){console.error('récurrences',e);}
   unbusy();refreshDirty();undoReset();majBoutonPleinEcran();render();
@@ -539,6 +612,7 @@ function render(){
   else if(state.view==='categories')renderCategories();
   else if(state.view==='corbeille')renderCorbeille();
   else if(state.view==='reglages')renderReglages();
+  else if(state.view==='plus')renderPlus();
 
   else if(state.view==='recurrences')renderRecurrences();
   else if(state.view==='releve')renderReleve();
@@ -546,6 +620,7 @@ function render(){
   const n=scal('SELECT COUNT(*) FROM operation WHERE supprime=1');
   document.getElementById('nav-trash-n').textContent=n?n:'';
   showVersion();
+  majMobile();
 }
 /* solde réel = opérations effectives datées jusqu'à aujourd'hui inclus (débits comme crédits) */
 function soldeReel(id){return scal(`SELECT (SELECT solde_initial FROM compte WHERE id=$i)

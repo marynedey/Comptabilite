@@ -52,6 +52,8 @@ async function allerA(page) {
   await page.goto(BASE);
   await demarree(page);
 }
+// « À jour » : l'indicateur est caché sur téléphone, on lit son texte
+const aJour = page => page.waitForFunction(() => /À jour/.test(document.getElementById('status-txt').textContent));
 const demarree = page => page.waitForFunction(() => /opérations/.test(document.getElementById('brandver')?.textContent || ''), null, { timeout: 30000 });
 const swActif = page => page.evaluate(async () => { await navigator.serviceWorker.ready; return !!navigator.serviceWorker.controller; });
 
@@ -98,7 +100,7 @@ test('saisie d\'une opération : visible, gardée après rechargement, sauvegard
     assert.match(await page.textContent('#brandver'), /1 opérations/);
 
     // Sauvegarde : fichier .sqlite téléchargé.
-    const [telechargement] = await Promise.all([page.waitForEvent('download'), page.click('button[onclick="sauvegarder()"]')]);
+    const [telechargement] = await Promise.all([page.waitForEvent('download'), page.click('button[onclick="sauvegarder()"]:visible')]);
     assert.match(telechargement.suggestedFilename(), /^comptes_\d{4}-\d{2}-\d{2}_\d{2}h\d{2}m\d{2}s?\.sqlite$/);
     const fichier = await telechargement.path();
     assert.match(await page.textContent('#status-txt'), /À jour/);
@@ -180,7 +182,7 @@ test('nouvelle version publiée : bandeau, mise à jour sans perdre la saisie', 
 test('téléphone : rien ne dépasse en largeur', async () => {
   const { navigateur, page } = await ouvrir({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
   try {
-    for (const vue of ['registre', 'analyse', 'graphiques', 'tiers', 'categories', 'recurrences', 'corbeille']) {
+    for (const vue of ['registre', 'analyse', 'graphiques', 'tiers', 'categories', 'recurrences', 'corbeille', 'plus', 'reglages']) {
       await page.evaluate(v => setView(v), vue);
       const deborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       assert.ok(deborde <= 0, `${vue} : ${deborde}px de trop en largeur`);
@@ -236,8 +238,8 @@ test('appli Android : bienvenue, pas de service worker, sauvegarde native, mise 
 
     // Sauvegarde : le fichier part au module natif (Téléchargements), pas en téléchargement.
     await ajouterOperation(page, { dest: 'Boulangerie du coin', montant: '4,50', date: '05/01/26', cat: 'Alimentation' });
-    await page.click('button[onclick="sauvegarder()"]');
-    await page.locator('#status-txt:has-text("À jour")').waitFor();
+    await page.click('button[onclick="sauvegarder()"]:visible');
+    await aJour(page);
     const [sauvegarde] = await appels(page, 'enregistrer');
     assert.match(sauvegarde.nom, /^comptes_\d{4}-\d{2}-\d{2}_\d{2}h\d{2}m\d{2}s?\.sqlite$/);
     assert.equal(Buffer.from(sauvegarde.donnees, 'base64').subarray(0, 15).toString(), 'SQLite format 3');
@@ -257,7 +259,7 @@ test('appli Android : sauvegarde refusée par Android → pas comptée comme fai
     await page.click('#dlgFoot button:has-text("Plus tard")');
     await page.evaluate(() => { window.Capacitor.nativePromise = (p, m) => m === 'enregistrer' ? Promise.reject(new Error('disque plein')) : Promise.resolve({}); });
     await ajouterOperation(page, { dest: 'Pharmacie', montant: '12', date: '06/01/26', cat: 'Santé' });
-    await page.click('button[onclick="sauvegarder()"]');
+    await page.click('button[onclick="sauvegarder()"]:visible');
     await page.locator('#dlgBack.show #dlgMsg:has-text("disque plein")').waitFor();
     assert.match(await page.textContent('#status-txt'), /1 modification non sauvegardée/);
   } finally { await navigateur.close(); }
@@ -326,6 +328,74 @@ test('dupliquer une opération : mêmes informations, datée d\'aujourd\'hui, l\
   } finally { await navigateur.close(); }
 });
 
+/* ---------- téléphone : onglets en bas, liste des comptes, écran Plus ---------- */
+const TELEPHONE = { viewport: { width: 390, height: 844 }, screen: { width: 390, height: 844 }, isMobile: true, hasTouch: true };
+
+test('téléphone : 4 onglets en bas, plus de barre latérale ; chaque écran allume son onglet', async () => {
+  const { navigateur, page } = await ouvrir(TELEPHONE);
+  try {
+    assert.equal(await page.evaluate(() => document.body.classList.contains('mobile')), true);
+    assert.equal(await page.isVisible('aside'), false);
+    assert.equal(await page.isVisible('.topbar'), false);
+    const onglet = () => page.textContent('#m-onglets button.on');
+    assert.match(await onglet(), /Opérations/);
+    for (const [o, vue, nom] of [['analyse', 'v-analyse', 'Analyse'], ['recurrences', 'v-recurrences', 'Échéances'], ['plus', 'v-plus', 'Plus'], ['registre', 'v-registre', 'Opérations']]) {
+      await page.click(`#m-onglets button[data-o="${o}"]`);
+      assert.equal(await page.isVisible('#' + vue), true, vue);
+      assert.match(await onglet(), new RegExp(nom));
+    }
+    // un écran sans onglet (Catégories, depuis Plus) garde « Plus » allumé, avec son titre en haut
+    await page.click('#m-onglets button[data-o="plus"]');
+    await page.click('#plus-groupes button:has-text("Catégories")');
+    assert.equal(await page.isVisible('#v-categories'), true);
+    assert.match(await onglet(), /Plus/);
+    assert.equal(await page.textContent('#m-titre'), 'Catégories');
+    // « Retour » revient à Plus
+    await page.goBack();
+    assert.equal(await page.isVisible('#v-plus'), true);
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
+test('téléphone : la petite flèche ouvre la liste déroulante des comptes', async () => {
+  const { navigateur, page } = await ouvrir(TELEPHONE);
+  try {
+    await page.evaluate(() => { run("INSERT INTO compte(nom,type,solde_initial,date_ouverture) VALUES('Livret A','epargne',420000,'2026-01-01')"); render(); });
+    assert.equal(await page.textContent('#m-compte-nom'), 'Compte courant');
+    await page.click('#m-compte-btn');
+    assert.equal(await page.isVisible('#m-comptes'), true);
+    assert.match(await page.textContent('#m-comptes button:has-text("Livret A")'), /4\s200,00\s€/);
+    await page.click('#m-comptes button:has-text("Livret A")');
+    assert.equal(await page.isVisible('#m-comptes'), false);
+    assert.equal(await page.textContent('#m-compte-nom'), 'Livret A');
+    assert.equal(await page.evaluate(() => scal('SELECT nom FROM compte WHERE id=?', [state.acc])), 'Livret A');
+    // un toucher ailleurs referme la liste
+    await page.click('#m-compte-btn');
+    await page.click('#m-onglets button[data-o="analyse"]');
+    assert.equal(await page.isVisible('#m-comptes'), false);
+    assert.equal(await page.textContent('#m-compte-nom'), 'Livret A'); // l'analyse suit le compte choisi
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
+test('téléphone : écran Plus — sauvegarde en attente, sauvegarder, outils', async () => {
+  const { navigateur, page } = await ouvrir(TELEPHONE);
+  try {
+    await ajouterOperation(page, { dest: 'Boulangerie du coin', montant: '4,50', date: '05/01/26', cat: 'Alimentation' });
+    assert.equal(await page.isVisible('#m-point'), true); // point orange sur le bouton Sauvegarder
+    await page.click('#m-onglets button[data-o="plus"]');
+    assert.match(await page.textContent('#plus-sauvegarde'), /1 modification non sauvegardée/);
+    const [telechargement] = await Promise.all([page.waitForEvent('download'), page.click('#plus-sauvegarde button:has-text("Sauvegarder")')]);
+    assert.match(telechargement.suggestedFilename(), /^comptes_.*\.sqlite$/);
+    await page.locator('#plus-sauvegarde:has-text("Tout est sauvegardé")').waitFor();
+    assert.equal(await page.isVisible('#m-point'), false);
+    for (const nom of ['Pointer avec un relevé PDF', 'Importer un fichier QIF', 'Évolution du solde', 'Tiers', 'Corbeille', 'Charger une sauvegarde', 'Réglages', 'Annuler la dernière modification'])
+      assert.equal(await page.isVisible(`#plus-groupes button:has-text("${nom}")`), true, nom);
+    assert.match(await page.textContent('#plus-version'), new RegExp(VERSION.replaceAll('.', '\\.')));
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
 test('deux fenêtres : la 2e dit « déjà ouvert », fait signe à la 1re, et démarre quand la 1re se ferme', async () => {
   const { navigateur, contexte, page } = await ouvrir();
   try {
@@ -370,8 +440,8 @@ test('réglages (PC) : sauvegarde dans le dossier choisi, gardé après recharge
 
     await allerA(page); // le choix est gardé sur l'appareil
     await ajouterOperation(page, { dest: 'Boulangerie du coin', montant: '4,50', date: '05/01/26', cat: 'Alimentation' });
-    await page.click('button[onclick="sauvegarder()"]');
-    await page.locator('#status-txt:has-text("À jour")').waitFor();
+    await page.click('button[onclick="sauvegarder()"]:visible');
+    await aJour(page);
     assert.match(await texteToast(page), /^Sauvegarde enregistrée dans « Comptes » : comptes_.*\.sqlite$/);
     const [fichier] = await fichiersDuDossier(page);
     assert.match(fichier, /^comptes_.*\.sqlite$/);
@@ -379,11 +449,11 @@ test('réglages (PC) : sauvegarde dans le dossier choisi, gardé après recharge
     // Le dossier n'existe plus : l'app propose Téléchargements.
     await page.evaluate(async () => (await navigator.storage.getDirectory()).removeEntry('Comptes', { recursive: true }));
     await ajouterOperation(page, { dest: 'Pharmacie', montant: '12', date: '06/01/26', cat: 'Santé' });
-    await page.click('button[onclick="sauvegarder()"]');
+    await page.click('button[onclick="sauvegarder()"]:visible');
     await page.locator('#dlgBack.show #dlgMsg:has-text("« Comptes » n’est pas accessible")').waitFor();
     const [telechargement] = await Promise.all([page.waitForEvent('download'), page.click('#dlgFoot button:has-text("Enregistrer dans Téléchargements")')]);
     assert.match(telechargement.suggestedFilename(), /^comptes_.*\.sqlite$/);
-    await page.locator('#status-txt:has-text("À jour")').waitFor();
+    await aJour(page);
     assert.match(await texteToast(page), /dans « Téléchargements »/);
 
     // Revenir à Téléchargements.
@@ -415,8 +485,8 @@ test('réglages (appli Android) : dossier choisi par Android, sauvegarde dedans,
     await page.locator('#rg-dossier:has-text("Mes sauvegardes")').waitFor();
 
     await ajouterOperation(page, { dest: 'Boulangerie du coin', montant: '4,50', date: '05/01/26', cat: 'Alimentation' });
-    await page.click('button[onclick="sauvegarder()"]');
-    await page.locator('#status-txt:has-text("À jour")').waitFor();
+    await page.click('button[onclick="sauvegarder()"]:visible');
+    await aJour(page);
     assert.equal((await appels(page, 'enregistrer'))[0].dossier, true);
     assert.match(await texteToast(page), /dans « Mes sauvegardes »/);
 
@@ -426,9 +496,9 @@ test('réglages (appli Android) : dossier choisi par Android, sauvegarde dedans,
       window.Capacitor.nativePromise = (p, m, o) => m === 'enregistrer' && o.dossier ? Promise.reject(new Error('le dossier choisi n’est plus autorisé')) : avant(p, m, o);
     });
     await ajouterOperation(page, { dest: 'Pharmacie', montant: '12', date: '06/01/26', cat: 'Santé' });
-    await page.click('button[onclick="sauvegarder()"]');
+    await page.click('button[onclick="sauvegarder()"]:visible');
     await page.click('#dlgFoot button:has-text("Enregistrer dans Téléchargements")');
-    await page.locator('#status-txt:has-text("À jour")').waitFor();
+    await aJour(page);
     const derniere = (await appels(page, 'enregistrer')).at(-1);
     assert.equal(derniere.dossier, undefined);
     assert.match(await texteToast(page), /dans « Téléchargements »/);
