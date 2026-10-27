@@ -55,9 +55,15 @@ async function allerA(page) {
 const demarree = page => page.waitForFunction(() => /opérations/.test(document.getElementById('brandver')?.textContent || ''), null, { timeout: 30000 });
 const swActif = page => page.evaluate(async () => { await navigator.serviceWorker.ready; return !!navigator.serviceWorker.controller; });
 
+// La fenêtre place le curseur dans « Destinataire » 30 ms après s'être ouverte (PC) : attendre ce moment,
+// sinon ce placement peut arriver en pleine saisie et le texte part dans le mauvais champ.
+async function fenetreOperationPrete(page) {
+  await page.locator('#overlay #i-dest').waitFor({ state: 'visible' });
+  await page.waitForFunction(() => ecranTactile() || document.activeElement === document.getElementById('i-dest'));
+}
 async function ajouterOperation(page, { dest, montant, date, cat }) {
   await page.keyboard.press('a');
-  await page.locator('#overlay #i-dest').waitFor({ state: 'visible' });
+  await fenetreOperationPrete(page);
   await page.fill('#i-dest', dest);
   await page.fill('#i-cat0', cat);
   await page.click('#i-date', { clickCount: 3 });
