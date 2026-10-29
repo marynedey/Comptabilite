@@ -133,8 +133,10 @@
   body.mobile aside,body.mobile .menu-backdrop,body.mobile .topbar{display:none}
   body.mobile main{padding-top:0;padding-bottom:calc(84px + env(safe-area-inset-bottom, 0px))}
   body.mobile .view .top h1{display:none} /* le titre est dans l'en-tête */
+  /* l'appli dessine sous la barre d'état d'Android (viewport-fit=cover) : l'en-tête la recouvre de la couleur du thème */
+  body.mobile main{padding-top:0}
   body.mobile .m-entete{display:flex;align-items:center;gap:6px;position:sticky;top:0;z-index:12;background:var(--paper);
-       margin:0 -14px 8px;padding:8px 6px 8px 14px;min-height:56px}
+       margin:0 -14px 8px;padding:calc(8px + env(safe-area-inset-top, 0px)) 6px 8px 14px;min-height:56px}
   .m-compte{position:relative;flex:1;min-width:0}
   .m-compte-btn{border:0;background:none;padding:8px 0;min-height:44px;font-size:1.3rem;font-weight:700;color:var(--ink);gap:6px;max-width:100%}
   .m-compte-btn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -206,6 +208,8 @@
   .m-puce{display:inline-flex;align-items:center;gap:2px;min-height:34px;padding:0 4px 0 12px;border-radius:17px;background:var(--brand-soft);color:var(--brand);font-size:.85rem;font-weight:600;border:0}
   .m-puce span{display:inline-flex;width:28px;height:28px;align-items:center;justify-content:center}
   .m-filtrer{margin-left:auto;min-height:40px;border-radius:20px;font-weight:600}
+  .m-nb-ops{margin-left:auto;font-size:.85rem;color:var(--ink-2)}
+  .m-nb-ops+.m-filtrer{margin-left:0}
   body.mobile .m-ops{display:block;padding-bottom:76px} /* la dernière ligne passe au-dessus du bouton + */
   .m-jour{display:flex;justify-content:space-between;font-size:.82rem;font-weight:600;color:var(--ink-2);padding:14px 2px 6px}
   .m-jour .num{font-weight:500}
@@ -250,7 +254,7 @@
   body.mobile .m-voir{display:flex;justify-content:center;min-height:52px;font-size:1rem;margin-top:8px;border-radius:14px}
   /* fiche d'une opération (téléphone) : montant en grand, statut en information, Modifier / Dupliquer / Corbeille */
   .m-fiche{position:fixed;inset:0;z-index:36;background:var(--paper);overflow-y:auto;display:flex;flex-direction:column;
-       padding:0 16px calc(20px + env(safe-area-inset-bottom, 0px))}
+       padding:env(safe-area-inset-top, 0px) 16px calc(20px + env(safe-area-inset-bottom, 0px))}
   .m-fiche[hidden]{display:none}
   .mf-tete{display:flex;align-items:center;justify-content:space-between;min-height:56px;margin:0 -8px}
   .mf-tete button{min-height:44px;border:0;background:none;font-weight:600;font-size:1rem}
@@ -266,8 +270,18 @@
        min-height:50px;font-size:.95rem;margin-bottom:12px;padding:6px 12px;text-align:center}
   .mf-statut i{width:12px;height:12px;border-radius:6px;flex:none}
   .mf-infos{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:0 14px}
-  .mf-infos div{display:flex;justify-content:space-between;gap:14px;min-height:48px;align-items:center;border-bottom:1px solid var(--line);font-size:.95rem}
-  .mf-infos div:last-child{border-bottom:0}
+  .mf-infos>div,.mf-infos>button{display:flex;justify-content:space-between;gap:14px;min-height:48px;align-items:center;border-bottom:1px solid var(--line);font-size:.95rem}
+  .mf-infos>button{width:100%;border:0;border-bottom:1px solid var(--line);border-radius:0;background:none;padding:0;color:var(--ink);text-align:left}
+  .mf-infos>:last-child{border-bottom:0}
+  .mf-infos em{font-style:normal;color:var(--ink-3)}
+  /* fiche : chaque élément se touche pour être modifié */
+  .mf-champ{border:0;background:none;padding:2px 10px;min-height:0;border-radius:10px;color:inherit;justify-content:center;font:inherit}
+  .mf-champ.mf-dest{font-size:1.25rem;font-weight:700}
+  .mf-champ.mf-montant{font-size:2.3rem;font-weight:700}
+  .mf-champ.mf-quand{font-size:.9rem;color:var(--ink-2)}
+  .mf-champ:active,.mf-infos>button:active{background:var(--brand-soft)}
+  button.mf-statut{width:100%;flex-wrap:wrap;color:var(--ink)}
+  .mf-statut small{flex-basis:100%;font-size:.75rem;color:var(--ink-2)}
   .mf-infos span:first-child{color:var(--ink-2);flex:none}
   .mf-infos span:last-child{text-align:right;overflow-wrap:anywhere}
   .mf-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:auto;padding-top:18px}
@@ -310,12 +324,13 @@
   .ma-tete>button svg{width:24px;height:24px}
   .ma-tete small{display:block;font-size:.78rem;color:var(--ink-2)}
   .ma-tete h2{margin:0;font-size:1.25rem}
-  .ma-total{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin:4px 0 12px}
+  .ma-total{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;column-gap:10px;margin:4px 0 12px}
+  .ma-total b,.ma-centre b,.ev-solde b,.mf-montant,.ms-reel{white-space:nowrap}
   .ma-total b{font-size:1.8rem;letter-spacing:-.02em}
   .ma-barres{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;align-items:end;height:110px;background:var(--card-alt);border-radius:14px;padding:12px 14px 8px}
-  .ma-barres div{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:6px;height:100%}
+  .ma-barres>button{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:6px;height:100%;min-height:0;border:0;background:none;padding:0;border-radius:6px}
   .ma-barres span{display:block;width:100%;border-radius:6px 6px 2px 2px;background:var(--line-2);min-height:2px}
-  .ma-barres div.actuel span{background:var(--st-prev)}
+  .ma-barres .actuel span{background:var(--st-prev)}
   .ma-barres small{font-size:.7rem;color:var(--ink-2)}
   /* Évolution (téléphone) : courbe du solde, ce compte ou patrimoine, barres par mois */
   .ev-outils{display:flex;align-items:center;gap:8px;margin:4px 0 14px}
@@ -425,7 +440,7 @@
      (les rangées .row2 s'effacent : chaque champ se place par « order ») ; « Enregistrer » reste en bas */
   .m-fermer,.m-statut{display:none}
   body.mobile .overlay{padding:0;align-items:stretch;background:var(--paper)}
-  body.mobile .modal{width:100%;max-height:none;height:100%;border:0;border-radius:0;background:var(--paper);padding:0 16px;
+  body.mobile .modal{width:100%;max-height:none;height:100%;border:0;border-radius:0;background:var(--paper);padding:env(safe-area-inset-top, 0px) 16px 0;
     display:flex;flex-wrap:wrap;align-content:flex-start;column-gap:12px;row-gap:12px}
   body.mobile .modal>*{width:100%;order:20;margin:0}
   body.mobile .modal .row2{display:contents}
@@ -471,6 +486,32 @@
   body.mobile .vent-l input{height:44px;border-radius:10px}
   body.mobile .vent-l .vx{min-height:44px;justify-content:center}
   body.mobile .ventfoot{flex-wrap:wrap;gap:6px}
+  /* liste des catégories proposées (téléphone) : au-dessus du champ, jamais sur le clavier */
+  body.mobile #cat-simple .row3{position:relative}
+  .cat-sugg{position:absolute;left:8px;right:8px;z-index:5;overflow:auto;background:var(--card);border:1px solid var(--line-2);
+    border-radius:12px;box-shadow:0 -6px 20px rgba(0,0,0,.18);padding:4px}
+  .cat-sugg[hidden]{display:none}
+  .cat-sugg button{display:block;width:100%;min-height:44px;border:0;border-radius:8px;background:none;text-align:left;padding:0 12px;font-size:.95rem;color:var(--ink);justify-content:flex-start}
+  .cat-sugg button:active{background:var(--brand-soft)}
+  /* une feuille ou une fenêtre ouverte : l'écran derrière ne défile plus (le doigt fait défiler la feuille seulement) */
+  body.mobile.filtres-ouverts main,body.mobile:has(#overlay.show) main,body.mobile:has(#m-fiche:not([hidden])) main,
+  body.mobile:has(#dlgBack.show) main,body.mobile:has(#m-comptes:not([hidden])) main{overflow:hidden}
+  body.mobile #v-registre .bar,body.mobile .modal,.m-fiche,.dlg,.m-comptes,.cat-sugg{overscroll-behavior:contain}
+  /* tablette : l'interface du téléphone, centrée sur une largeur lisible */
+  @media (min-width:760px){
+    body.mobile main>.view{max-width:720px;margin-left:auto;margin-right:auto}
+    body.mobile #v-registre .bar{max-width:720px;margin:0 auto}
+    body.mobile .modal{max-width:720px;margin:0 auto}
+  }
+  .m-logo{display:none}
+  body.mobile .m-logo{display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:9px;background:var(--brand);color:#fff;flex:none}
+  body.mobile .m-logo svg{width:20px;height:20px}
+  .mc-aide{margin:4px 14px 2px;font-size:.78rem;color:var(--ink-2)}
+  .m-comptes button[data-id]{-webkit-touch-callout:none;user-select:none}
+  .mg-tiers{display:flex;align-items:center;border-bottom:1px solid var(--line)}
+  .mg-tiers:last-child{border-bottom:0}
+  .mg-tiers .me-item{flex:1;min-width:0;border-bottom:0}
+  .mg-plus{font-size:1.2rem}
   .ma-h{font-size:.85rem;font-weight:600;color:var(--ink-2);margin:16px 2px 4px}
   .m-version{text-align:center;font-size:.8rem;color:var(--ink-2);margin:18px 0 0}
 
@@ -478,7 +519,10 @@
   /* Réglages : rubriques repliables (une ligne : titre + résumé + flèche ; le détail se déroule) */
   .rg-liste{display:flex;flex-direction:column;gap:10px;max-width:640px}
   .reglage{background:var(--card);border:1px solid var(--line);border-radius:var(--radius)}
-  .reglage summary{display:flex;align-items:center;gap:14px;min-height:64px;padding:10px 16px;cursor:pointer;list-style:none}
+  .reglage summary{display:flex;align-items:center;gap:14px;min-height:64px;padding:10px 16px;cursor:pointer;list-style:none;
+    border-radius:var(--radius);-webkit-tap-highlight-color:transparent}
+  .reglage summary:active{background:var(--brand-soft)}
+  .reglage[open] summary{border-radius:var(--radius) var(--radius) 0 0}
   .reglage summary::-webkit-details-marker{display:none}
   .reglage .rg-ic{width:22px;height:22px;color:var(--brand);flex:none}
   .reglage summary>span{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
@@ -804,6 +848,7 @@
   kbd{display:inline-block;padding:2px 7px;border:1px solid var(--line-2);border-bottom-width:2px;border-radius:6px;background:var(--card-alt);font-family:inherit;font-size:.82rem;font-weight:600;color:var(--ink)}
   .periode{display:inline-flex;gap:4px;flex-wrap:wrap;align-items:center}
   .pchip{padding:5px 10px;border:1px solid var(--line);border-radius:14px;font-size:.82rem;cursor:pointer;background:var(--card,#fff);color:var(--ink-2);white-space:nowrap}
+  .pchip:disabled{opacity:.4;cursor:not-allowed}
   .pchip.on{background:var(--accent,#2563EB);border-color:var(--accent,#2563EB);color:#fff}
   .reg-sums{display:grid;grid-template-columns:auto auto;justify-content:end;column-gap:28px;row-gap:3px;margin-top:8px;padding:10px 14px;
             border:1px solid var(--line);border-radius:var(--radius);font-size:.88rem;background:var(--card)}

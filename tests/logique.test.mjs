@@ -306,3 +306,51 @@ test('catégories (téléphone) : arbre replié par défaut, flèche pour dépli
   assert.deepEqual(noms([], 'bio', false), ['Alimentation', '  Courses', '    Bio']);
   assert.deepEqual(noms([], '', true), ['Logement']);   // seulement les vides
 });
+
+test('tiers : renommer, ou fusionner avec un doublon (opérations, échéances et recherche suivent)', () => {
+  app.run("INSERT INTO compte(nom,type,solde_initial) VALUES('Tiers','courant',0)");
+  const c = app.lastId();
+  const op = (dest, m) => { const t = app.upsertTiers(dest); app.run("INSERT INTO operation(compte_id,date_operation,montant,tiers_id,cat_path,supprime,hay) VALUES(?,?,?,?,?,0,?)", [c, '2026-10-01', m, t, 'Divers', app.makeHay(dest, 'Divers', null, '', m, '2026-10-01')]); return t; };
+  const a = op('Amazone', -1000), b = op('Amazon', -2000);
+  app.run("INSERT INTO recurrence(compte_id,type,montant,tiers,cat_path,frequence,intervalle,jour,date_debut,prochaine,creer_en) VALUES(?,'debit',-500,'Amazone','Divers','mensuelle',1,1,'2026-01-01','2026-11-01','previsionnel')", [c]);
+  const r = app.renommerTiersDb(a, 'Amazon');                      // nom d'un autre = fusion
+  assert.equal(r.action, 'fusionne'); assert.equal(r.n, 1);
+  assert.equal(app.scal("SELECT COUNT(*) FROM tiers WHERE nom='Amazone'"), 0);
+  assert.equal(app.scal('SELECT COUNT(*) FROM operation WHERE tiers_id=?', [b]), 2);
+  assert.equal(app.scal("SELECT tiers FROM recurrence WHERE compte_id=?", [c]), 'Amazon');
+  assert.equal(app.scal('SELECT COUNT(*) FROM operation WHERE tiers_id=? AND hay LIKE ?', [b, 'amazon %']), 2);
+  assert.equal(app.renommerTiersDb(b, 'Amazon Prime').action, 'renomme');
+  assert.equal(app.scal("SELECT COUNT(*) FROM operation WHERE hay LIKE 'amazon prime%'"), 2);
+});
+
+test('catégories : renommer (chemins des opérations et échéances suivent), fusionner, limite de 3 niveaux', () => {
+  app.run("INSERT INTO compte(nom,type,solde_initial) VALUES('Cats','courant',0)");
+  const c = app.lastId();
+  const op = cat => { const cid = app.upsertCategorie(cat); app.run("INSERT INTO operation(compte_id,date_operation,montant,cat_path,supprime) VALUES(?,?,?,?,0)", [c, '2026-10-02', -100, cat]);
+    const id = app.lastId(); app.run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)', [id, cid, -100]); return id; };
+  const o1 = op('Maison : Équipement : Aspirateur'), o2 = op('Logement : Équipement');
+  app.run("INSERT INTO recurrence(compte_id,type,montant,tiers,cat_path,frequence,intervalle,jour,date_debut,prochaine,creer_en) VALUES(?,'debit',-500,'X','Maison : Équipement','mensuelle',1,1,'2026-01-01','2026-11-01','previsionnel')", [c]);
+  const maison = app.upsertCategorieLecture('Maison');
+  assert.equal(app.renommerCategorieDb(maison, 'Habitat').chemin, 'Habitat');
+  assert.equal(app.scal('SELECT cat_path FROM operation WHERE id=?', [o1]), 'Habitat : Équipement : Aspirateur');
+  assert.equal(app.scal('SELECT cat_path FROM recurrence WHERE compte_id=?', [c]), 'Habitat : Équipement');
+  // fusion : « Habitat » dans « Logement » ; les deux « Équipement » se rejoignent
+  const r = app.fusionnerCategoriesDb(app.upsertCategorieLecture('Habitat'), app.upsertCategorieLecture('Logement'));
+  assert.equal(r.chemin, 'Logement');
+  assert.equal(app.scal('SELECT cat_path FROM operation WHERE id=?', [o1]), 'Logement : Équipement : Aspirateur');
+  assert.equal(app.scal('SELECT cat_path FROM operation WHERE id=?', [o2]), 'Logement : Équipement');
+  assert.equal(app.upsertCategorieLecture('Habitat'), null);
+  assert.equal(app.scal("SELECT COUNT(*) FROM categorie WHERE libelle='Équipement'"), 1);
+  // pas plus de 3 niveaux
+  assert.throws(() => app.fusionnerCategoriesDb(app.upsertCategorieLecture('Logement'), app.upsertCategorieLecture('Logement : Équipement : Aspirateur')));
+});
+
+test('analyse à l\'année : l\'année en cours s\'arrête au dernier mois entier (et l\'année comparée aux mêmes mois)', () => {
+  const auj = new Date(2026, 9, 29);
+  assert.equal(app.limiteAnneeEnCours('2026', auj), '09-30');
+  assert.equal(app.limiteAnneeEnCours('2025', auj), null);
+  assert.equal(app.limiteAnneeEnCours('2026-10', auj), null);
+  assert.equal(app.limiteAnneeEnCours('2026', new Date(2026, 0, 15)), null);   // en janvier : pas encore de mois entier
+  assert.deepEqual({ ...app.bornesPeriodeAna('2025', '09-30') }, { f: '2025-01-01', t: '2025-09-30' });
+  assert.equal(app.libellePeriodeAna('2026', '09-30'), '2026 (janv. → sept.)');
+});

@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Mes comptes</title>
 <meta name="theme-color" content="#18221E">
 <link rel="manifest" href="manifest.webmanifest">
@@ -37,6 +37,7 @@
 
 <main>
   <header class="m-entete" id="m-entete">
+    <span class="m-logo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M8 5v14"/></svg></span>
     <div class="m-compte" id="m-compte-wrap">
       <button class="m-compte-btn" id="m-compte-btn" onclick="basculerListeComptes()" aria-haspopup="listbox" aria-expanded="false"><span id="m-compte-nom">—</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
       <div class="m-comptes" id="m-comptes" role="listbox" hidden></div>
@@ -98,7 +99,7 @@
         <span class="schip on" data-s="annule" onclick="toggleStatut(this)">Annulé</span>
       </div>
       <div class="m-feuille-h">Prévisionnel affiché</div>
-      <select id="f-horizon" onchange="goPage(1)" title="Jusqu’où voir les opérations prévisionnelles à venir">
+      <select id="f-horizon" onchange="horizonChange()" title="Jusqu’où voir les opérations prévisionnelles à venir">
         <option value="3">Prévisionnel : 3 jours</option>
         <option value="finmois" selected>Prévisionnel : fin du mois</option>
         <option value="finmoisprochain">Prévisionnel : fin du mois prochain</option>
@@ -431,7 +432,7 @@
   <p class="meta">Si tu fermes l’autre fenêtre, celle-ci s’ouvrira d’elle-même.</p>
 </div></div>
 <div class="maj-appli" id="maj-appli" role="status" hidden>
-  <div class="maj-appli-txt"><b>Nouvelle version <span id="maj-appli-v"></span></b><span>Tes données sont gardées.</span></div>
+  <div class="maj-appli-txt"><b>Nouvelle version <span id="maj-appli-v"></span></b><span id="maj-appli-info">Tes données sont gardées.</span></div>
   <div class="maj-appli-btns"><button class="plus-tard" onclick="plusTardMajAppli()">Plus tard</button><button class="primary" onclick="installerMajAppli()">Mettre à jour</button></div>
 </div>
 

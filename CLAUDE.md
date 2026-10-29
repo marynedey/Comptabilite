@@ -24,9 +24,14 @@ App web de comptes personnels, en français, hors ligne. Publiée sur https://ma
   le parcours « réglages (PC) » passe sur GitHub (Chromium de Playwright).
 - Une seule fenêtre à la fois sur PC (`prendreLaFenetre`, verrou `navigator.locks`) : chaque fenêtre réécrit toute
   la base, deux fenêtres s'écraseraient. La 2e affiche « déjà ouvert » sans ouvrir la base.
-- Interface téléphone (`body.mobile`, `estTelephone()` : appli Android, ou écran tactile < 600 px) : en-tête
+- Interface téléphone (`body.mobile`, `estTelephone()` : appli Android, ou écran tactile sans souris) : en-tête
   `#m-entete` (liste déroulante des comptes), onglets `#m-onglets` (Opérations, Analyse, Échéances, Plus), vue `plus`.
-  Le PC et la tablette gardent la barre latérale. Les écrans sont refaits pour le téléphone un par un (une PR chacun).
+  Le PC (souris ou pavé tactile) garde la barre latérale ; la tablette prend l'interface du téléphone (centrée,
+  720 px max). L'appli dessine sous la barre d'état d'Android (`viewport-fit=cover`) : tout élément fixé en haut
+  ajoute `env(safe-area-inset-top)`. Retour (Android ou navigateur) ferme d'abord fenêtre / feuille ouverte (`fermerFeuilles`,
+  aussi sur `popstate`). Feuille ou fenêtre ouverte : `main` ne défile plus derrière.
+- Tiers et catégories se renomment ou se fusionnent (`renommerTiersDb`, `fusionnerTiersDb`, `renommerCategorieDb`,
+  `fusionnerCategoriesDb`) : `cat_path`, `hay` des opérations et échéances suivent ; jamais plus de 3 niveaux.
 - Réglages d'affichage (`REGLAGES` : thème auto/clair/sombre, barres de recherche en haut/bas, montants masqués à
   l'ouverture) : `localStorage` `mc.reglages` de l'appareil. Thème forcé = `html[data-theme]` ; toute couleur sombre
   ajoutée au CSS doit l'être pour `@media (prefers-color-scheme: dark){:root:not([data-theme="clair"])…}` ET

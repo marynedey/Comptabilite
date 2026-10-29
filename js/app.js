@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.13.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.14.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -112,6 +112,17 @@ async function verifierMajAppli(){
   if(!majAppli||majAppliPlusTard===majAppli.version){b.hidden=true;document.body.classList.remove('maj-appli-visible');return;}
   document.getElementById('maj-appli-v').textContent=majAppli.version;b.hidden=false;
   document.body.classList.add('maj-appli-visible'); // sur téléphone, le bouton + remonte au-dessus du bandeau
+  // le message « N opérations chargées » de l'ouverture passe dans le bandeau au lieu de le chevaucher
+  if(msgChargement&&Date.now()-msgChargement.t<6000){document.getElementById('toast').classList.remove('show');}
+  document.getElementById('maj-appli-info').textContent=(msgChargement?msgChargement.texte+' · ':'')+'Tes données sont gardées.';
+}
+/* ouverture : « N opérations chargées », dans le bandeau de mise à jour s'il est affiché, sinon en message bref */
+let msgChargement=null;
+function texteChargement(n){return n.toLocaleString('fr-FR')+' opération'+(n>1?'s':'')+' '+(enAppli()?'retrouvée'+(n>1?'s':'')+' sur ce téléphone':'chargée'+(n>1?'s':'')+' depuis ce navigateur');}
+function annoncerChargement(n){
+  msgChargement={texte:texteChargement(n),t:Date.now()};
+  if(document.body.classList.contains('maj-appli-visible'))document.getElementById('maj-appli-info').textContent=msgChargement.texte+' · Tes données sont gardées.';
+  else toast(msgChargement.texte);
 }
 function plusTardMajAppli(){ // reproposée au prochain lancement de l'appli
   if(majAppli)majAppliPlusTard=majAppli.version;document.getElementById('maj-appli').hidden=true;
@@ -404,10 +415,10 @@ let anGroups=[];
    Démarrage
    ============================================================ */
 /* ---------- téléphone : onglets en bas, en-tête avec le choix du compte, écran « Plus » ----------
-   Actif dans l'appli Android et sur un téléphone (écran tactile, moins de 600 px de large) ; le PC et la tablette
-   gardent la barre latérale. Les écrans existants s'affichent dans ce cadre. */
+   Actif dans l'appli Android, sur un téléphone et sur une tablette (écran tactile sans souris ni pavé tactile) ;
+   le PC garde la barre latérale. Les écrans existants s'affichent dans ce cadre. */
 const estTelephone=()=>enAppli()||(typeof matchMedia==='function'&&matchMedia('(pointer: coarse)').matches
-  &&typeof screen!=='undefined'&&Math.min(screen.width,screen.height)<=600);
+  &&!matchMedia('(any-pointer: fine)').matches);
 /* onglet du bas allumé pour chaque écran : ce qui n'a pas d'onglet passe par « Plus » */
 function ongletDeVue(v){return {registre:'registre',analyse:'analyse',graphiques:'analyse',recurrences:'recurrences'}[v]||'plus';}
 const TITRES_MOBILE={recurrences:'Échéances',plus:'Plus',tiers:'Tiers',categories:'Catégories',corbeille:'Corbeille',reglages:'Réglages',releve:'Relevé en cours'};
@@ -429,12 +440,24 @@ function basculerListeComptes(){if(document.getElementById('m-comptes').hidden)o
 function ouvrirListeComptes(){
   const l=document.getElementById('m-comptes');
   l.innerHTML=qy('SELECT id,nom FROM compte WHERE actif=1 ORDER BY ordre_affichage,id').map(c=>
-      '<button role="option" aria-selected="'+(c.id===state.acc)+'"'+(c.id===state.acc?' class="on"':'')+' onclick="choisirCompteMobile('+c.id+')">'+
+      '<button role="option" aria-selected="'+(c.id===state.acc)+'"'+(c.id===state.acc?' class="on"':'')+' data-id="'+c.id+'" onclick="choisirCompteMobile('+c.id+')">'+
       '<span class="mc-nom">'+esc(c.nom)+'</span><span class="mc-solde num">'+eur(soldeReel(c.id))+'</span></button>').join('')+
-    '<hr><button class="mc-action" onclick="fermerListeComptes();editCompte(state.acc)">Modifier ce compte</button>'+
+    '<p class="mc-aide">Appui long sur un compte pour le modifier</p>'+
+    '<hr>'+
     '<button class="mc-action" onclick="fermerListeComptes();ajouterCompte()">+ Nouveau compte</button>';
+  l.querySelectorAll('button[data-id]').forEach(b=>appuiLong(b,()=>{fermerListeComptes();editCompte(+b.dataset.id);}));
   l.hidden=false;document.getElementById('m-compte-btn').setAttribute('aria-expanded','true');
   setTimeout(()=>document.addEventListener('pointerdown',fermerSiDehors,true),0);
+}
+/* appui long (½ s sans bouger) : action ; le clic qui suit le relâchement est alors ignoré */
+function appuiLong(el,action){
+  let t=null,x=0,y=0,fait=false;
+  const stop=()=>{clearTimeout(t);t=null;};
+  el.addEventListener('pointerdown',e=>{fait=false;x=e.clientX;y=e.clientY;stop();t=setTimeout(()=>{fait=true;t=null;action();},500);});
+  el.addEventListener('pointermove',e=>{if(t&&Math.hypot(e.clientX-x,e.clientY-y)>10)stop();});
+  ['pointerup','pointercancel','pointerleave'].forEach(n=>el.addEventListener(n,stop));
+  el.addEventListener('click',e=>{if(fait){e.preventDefault();e.stopImmediatePropagation();fait=false;}},true);
+  el.addEventListener('contextmenu',e=>e.preventDefault());
 }
 function fermerSiDehors(e){if(!document.getElementById('m-compte-wrap').contains(e.target))fermerListeComptes();}
 function fermerListeComptes(){
@@ -544,12 +567,13 @@ function renderOperationsMobile(){
       '<button onclick="filtreAttente()" aria-label="Afficher les opérations à pointer"><small>À pointer</small><span style="color:var(--st-non)">'+r.npt+'</span></button>'+
     '</div>';
   const actifs=filtresActifsMobile();
-  document.getElementById('m-filtres-actifs').innerHTML=actifs.map(([t,f])=>
-      '<span class="m-puce">'+esc(t)+'<button class="ghost" style="padding:0;min-height:0;border:0;background:none;color:inherit" aria-label="Retirer le filtre '+esc(t)+'" onclick="'+f+'"><span>✕</span></button></span>').join('')+
-    '<button class="m-filtrer" onclick="ouvrirFiltres()">Filtrer'+(actifs.length?' · '+actifs.length:'')+'</button>';
   // la liste
   const p={};const w=buildWhere(p);
   const total=scal('SELECT COUNT(*) FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id'+w,p)||0;
+  document.getElementById('m-filtres-actifs').innerHTML=actifs.map(([t,f])=>
+      '<span class="m-puce">'+esc(t)+'<button class="ghost" style="padding:0;min-height:0;border:0;background:none;color:inherit" aria-label="Retirer le filtre '+esc(t)+'" onclick="'+f+'"><span>✕</span></button></span>').join('')+
+    '<span class="m-nb-ops" id="m-nb-ops">'+total.toLocaleString('fr-FR')+' opération'+(total>1?'s':'')+'</span>'+
+    '<button class="m-filtrer" onclick="ouvrirFiltres()">Filtrer'+(actifs.length?' · '+actifs.length:'')+'</button>';
   const lim=state.mLimite||MOBILE_PAR_LOT;
   const rows=qy(`WITH bal AS (SELECT id, SUM(montant) OVER (ORDER BY date_operation,id) cum
       FROM operation WHERE compte_id=$acc AND supprime=0 AND statut<>'annule')
@@ -597,34 +621,42 @@ function ouvrirFiche(id){
   const o=qy(`SELECT o.*,t.nom dest,c.nom compte,(SELECT c2.nom FROM operation m JOIN compte c2 ON c2.id=m.compte_id WHERE m.id=o.miroir_id) lie
     FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id LEFT JOIN compte c ON c.id=o.compte_id WHERE o.id=?`,[id])[0];
   if(!o)return;
+  if(state.exPrev&&state.exPrev!==id)state.exPrev=null; // une autre opération : la précédente perd son 3e état
   ficheId=id;
   const stt=o.statut==='annule'?'annule':(o.previsionnel?'previsionnel':o.statut),m=META[stt]||META.non_pointe;
   const d=new Date(o.date_operation+'T00:00:00');
   const quand=majuscule(JOURS_FR[d.getDay()])+' '+d.getDate()+' '+MOIS_FR[d.getMonth()]+' '+d.getFullYear()+' · '+esc(o.compte||'');
   const vent=lignesVentilation(id);
-  const infos=[];
-  if(isVirCat(o.cat_path))infos.push(['Virement',(o.montant<0?'vers ':'reçu de ')+esc(o.lie||'un autre compte')]);
-  else if(vent.length>1)vent.forEach(l=>infos.push([esc(l.cat||'Divers'),eur(l.m)]));
-  else infos.push(['Catégorie',esc((o.cat_path||'Divers').replace(/\s*:\s*/g,' › '))]);
-  if(o.numero)infos.push(['N° (chèque…)',esc(String(o.numero))]);
-  if(o.commentaire)infos.push(['Commentaire',esc(o.commentaire)]);
+  const infos=[]; // [libellé, valeur, champ du formulaire à ouvrir en touchant la ligne]
+  if(isVirCat(o.cat_path))infos.push(['Virement',(o.montant<0?'vers ':'reçu de ')+esc(o.lie||'un autre compte'),'dest']);
+  else if(vent.length>1)vent.forEach(l=>infos.push([esc(l.cat||'Divers'),eur(l.m),'vent']));
+  else catParts(o.cat_path||'Divers').forEach((c,i)=>infos.push([['Catégorie','Sous-catégorie','Sous-sous-catégorie'][i]||'Catégorie',esc(c),'cat'+i]));
+  infos.push(['N° (chèque…)',o.numero?esc(String(o.numero)):'<em>ajouter</em>','num']);
+  infos.push(['Commentaire',o.commentaire?esc(o.commentaire):'<em>ajouter</em>','comm']);
   const rapp=o.statut==='rapproche',ann=o.statut==='annule';
+  // toucher un élément : le formulaire s'ouvre directement sur ce champ (pas sur une opération rapprochée)
+  const statutTouche=!rapp&&!ann;
   const fi=document.getElementById('m-fiche');
   fi.innerHTML='<div class="mf-tete"><button class="mf-retour" onclick="fermerFiche()" aria-label="Retour">'+icoPlus('M15 6l-6 6 6 6')+'</button>'+
       (rapp?'':'<button class="mf-modifier" onclick="modifierDepuisFiche()">Modifier</button>')+'</div>'+
     '<div class="mf-haut"><div class="mf-lettre" aria-hidden="true">'+esc((o.dest||'?').charAt(0).toUpperCase())+'</div>'+
-      '<h2 class="mf-dest">'+esc(o.dest||'(sans destinataire)')+'</h2>'+
-      '<div class="mf-montant num '+(o.montant>0?'credit':'')+'">'+(o.montant>0?'+':'')+eur(o.montant)+'</div>'+
-      '<div class="mf-quand">'+quand+'</div></div>'+
-    '<div class="mf-statut"><i style="background:'+m.col+'"></i>'+m.label+
-      (rapp?' — elle ne peut plus être modifiée':stt==='previsionnel'?' — prévue, pas encore effective':'')+'</div>'+
-    '<div class="mf-infos">'+infos.map(([k,v])=>'<div><span>'+k+'</span><span>'+v+'</span></div>').join('')+'</div>'+
+      (rapp?'<h2 class="mf-dest">'+esc(o.dest||'(sans destinataire)')+'</h2>':'<button class="mf-champ mf-dest" onclick="modifierDepuisFiche(\'dest\')">'+esc(o.dest||'(sans destinataire)')+'</button>')+
+      (rapp?'<div class="mf-montant num '+(o.montant>0?'credit':'')+'">'+(o.montant>0?'+':'')+eur(o.montant)+'</div>'
+        :'<button class="mf-champ mf-montant num '+(o.montant>0?'credit':'')+'" onclick="modifierDepuisFiche(\'montant\')">'+(o.montant>0?'+':'')+eur(o.montant)+'</button>')+
+      (rapp?'<div class="mf-quand">'+quand+'</div>':'<button class="mf-champ mf-quand" onclick="modifierDepuisFiche(\'date\')">'+quand+'</button>')+'</div>'+
+    // le statut se change ici d'un toucher, comme avec la barre de couleur de la liste
+    (statutTouche?'<button class="mf-statut" onclick="togglePointe('+id+')" aria-label="'+m.label+' — toucher pour changer">':'<div class="mf-statut">')+
+      '<i style="background:'+m.col+'"></i>'+m.label+
+      (rapp?' — elle ne peut plus être modifiée':stt==='previsionnel'?' — prévue, pas encore effective':'')+
+      (statutTouche?'<small>Toucher pour changer</small></button>':'</div>')+
+    '<div class="mf-infos">'+infos.map(([k,v,f])=>rapp?'<div><span>'+k+'</span><span>'+v+'</span></div>'
+      :'<button onclick="modifierDepuisFiche(\''+f+'\')"><span>'+k+'</span><span>'+v+'</span></button>').join('')+'</div>'+
     '<div class="mf-actions"><button onclick="dupliquerDepuisFiche()">Dupliquer</button>'+
       (rapp||ann?'':'<button class="danger" onclick="corbeilleDepuisFiche()">Mettre à la corbeille</button>')+'</div>';
   fi.hidden=false;fi.scrollTop=0;
 }
 function fermerFiche(){const fi=document.getElementById('m-fiche');if(fi)fi.hidden=true;ficheId=null;}
-function modifierDepuisFiche(){const id=ficheId;fermerFiche();openModal(id);}
+function modifierDepuisFiche(champ){const id=ficheId;fermerFiche();openModal(id,champ);}
 function dupliquerDepuisFiche(){const id=ficheId;fermerFiche();openModal(id);dupliquerOp();}
 async function corbeilleDepuisFiche(){
   const id=ficheId;state.editing=id;await deleteOp();
@@ -637,8 +669,15 @@ async function corbeilleDepuisFiche(){
 const MA={sens:'debit',unite:'mois',debut:null,comp:null,vir:false,chemin:[]}; // debut/comp : 'AAAA-MM' ou 'AAAA'
 const clefMois=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
 /* bornes ISO d'un mois 'AAAA-MM' ou d'une année 'AAAA' */
-function bornesPeriodeAna(cle){
-  if(cle.length===4)return {f:cle+'-01-01',t:cle+'-12-31'};
+/* une année : du 1er janvier au 31 décembre ; l'année en cours s'arrête au dernier mois entier (fin du mois
+   précédent), et l'année comparée aux mêmes mois : pas de mois commencé qui fausse les totaux ou les moyennes.
+   limite = 'MM-JJ' de fin (null = année entière) */
+function limiteAnneeEnCours(cle,auj){
+  if(cle.length!==4||+cle!==auj.getFullYear()||auj.getMonth()===0)return null;
+  return isoDe(new Date(auj.getFullYear(),auj.getMonth(),0)).slice(5);
+}
+function bornesPeriodeAna(cle,limite){
+  if(cle.length===4)return {f:cle+'-01-01',t:cle+'-'+(limite||'12-31')};
   const [y,m]=cle.split('-').map(Number);return {f:cle+'-01',t:isoDe(new Date(y,m,0))};
 }
 /* période précédente : le mois (ou l'année) d'avant */
@@ -646,13 +685,13 @@ function periodeDecalee(cle,delta){
   if(cle.length===4)return String(+cle+delta);
   const [y,m]=cle.split('-').map(Number);return clefMois(new Date(y,m-1+delta,1));
 }
-function libellePeriodeAna(cle){
-  if(cle.length===4)return cle;
+function libellePeriodeAna(cle,limite){
+  if(cle.length===4)return cle+(limite?' (janv. → '+MOIS_COURT[+limite.slice(0,2)-1]+')':'');
   const [y,m]=cle.split('-').map(Number);return majuscule(MOIS_FR[m-1])+' '+y;
 }
 /* lignes de l'analyse sur une période (hors annulées et prévisionnelles, répartitions comprises) */
-function lignesAnalyse(acc,cle){
-  const b=bornesPeriodeAna(cle),p={$acc:acc,$f:b.f,$t:b.t};
+function lignesAnalyse(acc,cle,limite){
+  const b=bornesPeriodeAna(cle,limite),p={$acc:acc,$f:b.f,$t:b.t};
   return lignesOps(" WHERE o.compte_id=$acc AND o.supprime=0 AND o.statut<>'annule' AND o.previsionnel=0 AND o.date_operation>=$f AND o.date_operation<=$t",p);
 }
 /* lignes retenues pour un sens (dépenses en positif), avec ou sans virements, sous une catégorie */
@@ -678,6 +717,7 @@ function totalAnalyse(lignes,sens,vir,chemin){return lignesSens(lignes,sens,vir,
 /* écart avec la période de comparaison : texte « +8 % » / « −12 % » / « = », null sans base */
 function ecartPct(a,b){if(!b)return null;const p=Math.round((a-b)/b*100);return p>0?'+'+p+' %':p<0?'−'+(-p)+' %':'=';}
 function anaMobileSens(s){MA.sens=s;MA.chemin=[];if(state.view!=='analyse')setView('analyse');else renderAnalyseMobile();}
+function anaMobileAller(k){MA.debut=k;MA.comp=null;renderAnalyseMobile();}
 function anaMobileDecaler(d){MA.debut=periodeDecalee(MA.debut,d);MA.comp=null;renderAnalyseMobile();}
 function anaMobileUnite(u){const auj=new Date();MA.unite=u;MA.debut=u==='annee'?String(auj.getFullYear()):clefMois(auj);MA.comp=null;MA.chemin=[];renderAnalyseMobile();}
 function anaMobileDescendre(nom){MA.chemin.push(nom);renderAnalyseMobile();document.querySelector('main').scrollTop=0;}
@@ -791,11 +831,11 @@ function renderAnalyseMobile(){
   const acc=state.acc,auj=new Date();if(!acc)return;
   if(MA.sens==='evolution'){renderEvolutionMobile(acc,auj);return;}
   if(!MA.debut)MA.debut=clefMois(auj);
-  const comp=MA.comp||periodeDecalee(MA.debut,-1);
-  const L=lignesAnalyse(acc,MA.debut),LC=lignesAnalyse(acc,comp);
+  const comp=MA.comp||periodeDecalee(MA.debut,-1),lim=limiteAnneeEnCours(MA.debut,auj);
+  const L=lignesAnalyse(acc,MA.debut,lim),LC=lignesAnalyse(acc,comp,lim);
   const tot=totalAnalyse(L,MA.sens,MA.vir,MA.chemin),totC=totalAnalyse(LC,MA.sens,MA.vir,MA.chemin);
   const groupes=regrouperAnalyse(L,MA.sens,MA.vir,MA.chemin),grC=new Map(regrouperAnalyse(LC,MA.sens,MA.vir,MA.chemin).map(g=>[g.nom,g.total]));
-  const motSens=MA.sens==='debit'?'Dépenses':'Revenus',nomP=libellePeriodeAna(MA.debut),nomC=libellePeriodeAna(comp);
+  const motSens=MA.sens==='debit'?'Dépenses':'Revenus',nomP=libellePeriodeAna(MA.debut,lim),nomC=libellePeriodeAna(comp,lim);
   const ec=ecartPct(tot,totC),classeEc=ec&&ec!=='='?((ec[0]==='+')===(MA.sens==='debit')?'hausse':'baisse'):'';
   const fl=d=>icoPlus(d);
   const optsComp=periodesDuCompte(acc,MA.unite,auj).filter(k=>k!==MA.debut);
@@ -833,10 +873,11 @@ function renderAnalyseMobile(){
     h+='<div class="ma-total"><b class="num">'+eur(tot).replace('-','')+'</b><span class="ma-ecart '+classeEc+'">'+ecartLigne(tot,totC)+'</span></div>';
     // 6 derniers mois (ou années) de cette catégorie
     const ps=[];for(let i=5;i>=0;i--)ps.push(periodeDecalee(MA.debut,-i));
-    const vals=ps.map(k=>totalAnalyse(lignesAnalyse(acc,k),MA.sens,MA.vir,MA.chemin)),max=Math.max(1,...vals);
-    h+='<div class="ma-barres" role="img" aria-label="'+esc(ps.map((k,i)=>libellePeriodeAna(k)+' '+eur(vals[i]).replace('-','')).join(', '))+'">'+
-      ps.map((k,i)=>'<div'+(k===MA.debut?' class="actuel"':'')+'><span style="height:'+Math.round(vals[i]/max*100)+'%"></span><small>'+
-        (k.length===4?k:MOIS_COURT[+k.slice(5)-1])+'</small></div>').join('')+'</div>';
+    const vals=ps.map(k=>totalAnalyse(lignesAnalyse(acc,k,lim),MA.sens,MA.vir,MA.chemin)),max=Math.max(1,...vals);
+    // toucher une barre : le détail de ce mois (ou de cette année), dans la même catégorie
+    h+='<div class="ma-barres">'+
+      ps.map((k,i)=>'<button'+(k===MA.debut?' class="actuel" aria-current="true"':'')+' onclick="anaMobileAller(\''+k+'\')" aria-label="'+esc(libellePeriodeAna(k)+' : '+eur(vals[i]).replace('-',''))+'">'+
+        '<span style="height:'+Math.round(vals[i]/max*100)+'%"></span><small>'+(k.length===4?k:MOIS_COURT[+k.slice(5)-1])+'</small></button>').join('')+'</div>';
     if(groupes.some(g=>!(g.nom==='Sans sous-catégorie'&&g.feuille)||groupes.length>1))
       h+='<h3 class="ma-h">Sous-catégories</h3><div class="ma-liste">'+groupes.map(g=>'<button class="ma-ligne" onclick="anaMobileDescendre('+esc(JSON.stringify(g.nom))+')">'+
         '<span class="ma-nom">'+esc(g.nom)+'<small>'+Math.round(tot?g.total/tot*100:0)+' %</small></span><span class="num">'+eur(g.total).replace('-','')+'</span>'+fl('M9 6l6 6-6 6')+'</button>').join('')+'</div>';
@@ -883,6 +924,11 @@ async function boot(){
     // la recherche des opérations est directement dans l'écran (pas dans la feuille des filtres)
     const rch=document.getElementById('f-search');document.getElementById('m-recherche').appendChild(rch.parentElement);
     rch.placeholder='Rechercher (destinataire, catégorie, montant…)';
+    brancherListeCategories();
+    // « Entrée » / « OK » du clavier dans une recherche : le clavier se ferme pour laisser voir les résultats
+    ['f-search','ti-search','cat-search'].forEach(id=>{const el=document.getElementById(id);if(!el)return;
+      el.setAttribute('enterkeyhint','search');
+      el.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();el.blur();}});});
   }
   if(!(await prendreLaFenetre())){dejaOuvert();return;}
   if(canalFenetre)canalFenetre.onmessage=e=>{if(e.data==='montre-toi')repondreAuSigne();};
@@ -917,7 +963,7 @@ async function boot(){
   setInterval(verifierJour,60000);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)verifierJour();});
   if(restored){const n=scal('SELECT COUNT(*) FROM operation WHERE supprime=0');
-    if(n)toast(n.toLocaleString('fr-FR')+' opérations chargées depuis ce navigateur');}
+    if(n)annoncerChargement(n);}
   if(!idbOK)dlgAlert("Le stockage local de ce navigateur n'est pas disponible ici.\nL'application fonctionne, mais pense à Sauvegarder avant de fermer.",'Attention');
   if(enAppli())demarrerAppli();
 }
@@ -1129,7 +1175,26 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','
 /* ============================================================
    Registre
    ============================================================ */
+/* filtre « prévisionnel affiché » et période vont ensemble : fin du mois → « Ce mois » ; fin du mois prochain →
+   dates jusqu'au dernier jour du mois prochain. « Ce mois » et « fin du mois prochain » ne vont pas ensemble. */
+function horizonChange(){
+  const hz=document.getElementById('f-horizon').value,auj=new Date();
+  if(hz==='finmois'){setPeriode('f','mois');return;}
+  if(hz==='finmoisprochain'){
+    const from=document.getElementById('f-from'),to=document.getElementById('f-to');
+    const d=scal('SELECT MIN(date_operation) FROM operation WHERE compte_id=? AND supprime=0',[state.acc]);
+    from.value=isoToShort(d||todayISO());to.value=isoToShort(borneHorizon('finmoisprochain',auj));
+    state.sansFocusDates=true;setPeriode('f','perso');return;}
+  majCompatHorizon();goPage(1);
+}
+function majCompatHorizon(){
+  const hz=document.getElementById('f-horizon'),per=document.getElementById('f-periode').value;
+  if(per==='mois'&&hz.value==='finmoisprochain')hz.value='finmois';
+  const opt=hz.querySelector('option[value="finmoisprochain"]');if(opt)opt.disabled=per==='mois';
+  const ch=document.querySelector('#f-periode-wrap .pchip[data-m="mois"]');if(ch)ch.disabled=hz.value==='finmoisprochain';
+}
 function periodeChanged(pfx){
+  if(pfx==='f')majCompatHorizon();
   const mode=document.getElementById(pfx+'-periode').value,show=mode==='perso'?'':'none';
   const from=document.getElementById(pfx+'-from'),to=document.getElementById(pfx+'-to'),sep=document.getElementById(pfx+'-sep');
   from.style.display=show;to.style.display=show;if(sep)sep.style.display=show;
@@ -1138,7 +1203,8 @@ function periodeChanged(pfx){
     if(!from.value){const d=scal('SELECT MIN(date_operation) FROM operation WHERE compte_id=? AND supprime=0',[state.acc]);
       from.value=isoToShort(d||todayISO());}
     if(!to.value)to.value=isoToShort(todayISO());
-    setTimeout(()=>{if(from){from.focus();from.select&&from.select();}},0);
+    if(state.sansFocusDates)state.sansFocusDates=false;
+    else setTimeout(()=>{if(from){from.focus();from.select&&from.select();}},0);
   }
   pfx==='f'?goPage(1):pfx==='gr'?renderGraphiques():renderAnalyse();}
 /* solde du compte à la fin d'une journée (comme la colonne Solde : opérations non annulées,
@@ -1180,7 +1246,7 @@ function periodBounds(pfx){
   if(mode==='mois')return {f:isoDe(new Date(y,mo,1)),t:isoDe(new Date(y,mo+1,0))};
   if(mode==='moisdernier')return {f:isoDe(new Date(y,mo-1,1)),t:isoDe(new Date(y,mo,0))};
   if(mode==='3mois')return {f:isoDe(new Date(y,mo-3,1)),t:isoDe(new Date(y,mo,0))};
-  if(mode==='annee')return {f:y+'-01-01',t:isoDe(now)};
+  if(mode==='annee')return {f:y+'-01-01',t:pfx==='an'&&mo>0?isoDe(new Date(y,mo,0)):isoDe(now)}; // analyse : derniers mois entiers
   if(mode==='perso'){const f=frToISO(document.getElementById(pfx+'-from').value),t=frToISO(document.getElementById(pfx+'-to').value);
     return (f||t)?{f:f||null,t:t||null}:null;}
   return null;
@@ -1442,18 +1508,26 @@ function togglePointe(id,ev){
   if(ev)ev.stopPropagation();
   const o=qy('SELECT statut,previsionnel FROM operation WHERE id=?',[id])[0];
   if(!o)return;
+  // une opération prévisionnelle qu'on vient de confirmer garde 3 états tant qu'on reste dessus :
+  // prévisionnelle → non pointée → pointée → prévisionnelle… Toucher une autre opération (ou en ouvrir une autre) l'oublie.
+  if(state.exPrev!==id)state.exPrev=null;
   if(o.previsionnel){
     run('UPDATE operation SET previsionnel=0,date_modification=? WHERE id=?',[nowTS(),id]);
-    touch('Confirmation',libOp(id));
-    toast('Opération confirmée : elle compte maintenant dans ton solde. Clique encore pour la pointer.');
-    renderRegistre();return;
+    touch('Confirmation',libOp(id));state.exPrev=id;
+    toast('Opération confirmée : elle compte maintenant dans ton solde. Touche encore pour la pointer.');
+    majApresStatut(id);return;
   }
   if(o.statut==='rapproche'){toast('Opération déjà rapprochée (verrouillée)');return;}
   if(o.statut==='annule'){toast('Opération annulée');return;}
+  if(o.statut==='pointe'&&state.exPrev===id){
+    run("UPDATE operation SET statut='non_pointe',previsionnel=1,date_modification=? WHERE id=?",[nowTS(),id]);
+    touch('Retour en prévisionnel',libOp(id));toast('Opération de nouveau prévisionnelle');majApresStatut(id);return;
+  }
   const nv=o.statut==='pointe'?'non_pointe':'pointe';
   run('UPDATE operation SET statut=?,date_modification=? WHERE id=?',[nv,nowTS(),id]);
-  touch(nv==='pointe'?'Pointage':'Dépointage',libOp(id));renderRegistre();
+  touch(nv==='pointe'?'Pointage':'Dépointage',libOp(id));majApresStatut(id);
 }
+function majApresStatut(id){renderRegistre();if(ficheId===id&&!document.getElementById('m-fiche').hidden)ouvrirFiche(id);}
 async function ouvrirRapprochement(){
   const r=qy(`SELECT COUNT(*) n,COALESCE(SUM(montant),0) s FROM operation
     WHERE compte_id=? AND supprime=0 AND statut='pointe' AND previsionnel=0`,[state.acc])[0];
@@ -1545,16 +1619,16 @@ function renderTiers(){
   const cols=[['Destinataire','dest'],['Catégorie habituelle','cat'],['Ajouté le','first'],['Dernier paiement','last'],['Opér.','n']];
   document.getElementById('ti-head').innerHTML=cols.map(c=>{const r=c[1]==='n'?' class="r"':'';
     const arr=state.tiSort===c[1]?(state.tiDir===1?' ↑':' ↓'):'';
-    return '<th'+r+' onclick="setTiSort(\''+c[1]+'\')">'+c[0]+arr+'</th>';}).join('');
+    return '<th'+r+' onclick="setTiSort(\''+c[1]+'\')">'+c[0]+arr+'</th>';}).join('')+'<th></th>';
   document.getElementById('ti-rows').innerHTML=rowsF.map(t=>'<tr>'+
     '<td>'+esc(t.dest)+'</td><td style="color:var(--ink-2)">'+esc(t.cat||'')+'</td>'+
     '<td class="num">'+(t.first?isoToFr(t.first):'—')+'</td>'+
     '<td class="num">'+(t.last?isoToFr(t.last):'—')+'</td>'+
-    '<td class="r num">'+t.n+'</td></tr>').join('');
+    '<td class="r num">'+t.n+'</td><td class="r"><button class="ghost" style="padding:2px 8px;font-size:.75rem" onclick="modifierTiers('+esc(JSON.stringify(t.dest))+')">Renommer / fusionner</button></td></tr>').join('');
 }
 /* Tiers sur téléphone : une ligne par destinataire (initiale, nombre d'opérations, catégorie habituelle, total),
    tri « les plus utilisés » / A → Z / montant total ; toucher → ses opérations */
-const TRIS_TIERS=[['n','Les plus utilisés'],['az','A → Z'],['total','Montant total']];
+const TRIS_TIERS=[['n','Les plus utilisés'],['az','A → Z'],['total','Montant le plus élevé']];
 function trierTiersMobile(rows,tri){
   const r=rows.slice();
   if(tri==='az')r.sort((a,b)=>(a.dest||'').localeCompare(b.dest||'','fr'));
@@ -1569,12 +1643,13 @@ function renderTiersMobile(rows){
   const tri=state.tiMTri||'n',liste=trierTiersMobile(rows,tri);
   document.getElementById('m-tiers').innerHTML=
     '<div class="ma-puces mg-tris">'+TRIS_TIERS.map(([k,t])=>'<button aria-pressed="'+(k===tri)+'" onclick="state.tiMTri=\''+k+'\';renderTiers()">'+t+'</button>').join('')+'</div>'+
-    (liste.length?'<div class="me-liste">'+liste.map(t=>'<button class="me-item" onclick="voirTiers('+esc(JSON.stringify(t.dest))+')">'+
+    (liste.length?'<div class="me-liste">'+liste.map(t=>'<div class="mg-tiers"><button class="me-item" onclick="voirTiers('+esc(JSON.stringify(t.dest))+')">'+
       '<span class="mg-lettre" aria-hidden="true">'+esc((t.dest||'?').charAt(0).toUpperCase())+'</span>'+
       '<span class="me-nom">'+esc(t.dest)+'<small>'+t.n+' op.'+(t.cat?' · '+esc(t.cat):'')+'</small></span>'+
-      '<span class="num" style="color:'+(t.total<0?'var(--ink)':'var(--credit)')+'">'+(t.total>0?'+':'')+eur(t.total)+'</span></button>').join('')+'</div>'
+      '<span class="num" style="color:'+(t.total<0?'var(--ink)':'var(--credit)')+'">'+(t.total>0?'+':'')+eur(t.total)+'</span></button>'+
+      '<button class="ghost mg-icone mg-plus" aria-label="Renommer ou fusionner '+esc(t.dest)+'" onclick="modifierTiers('+esc(JSON.stringify(t.dest))+')">⋯</button></div>').join('')+'</div>'
       :'<div class="m-vide">Aucun destinataire ne correspond.</div>')+
-    '<p class="me-aide" style="margin-top:12px">Touche un destinataire pour voir ses opérations.</p>';
+    '<p class="me-aide" style="margin-top:12px">Touche un destinataire pour voir ses opérations ; « ⋯ » pour le renommer ou le fusionner avec un doublon.</p>';
 }
 // un destinataire -> registre filtré par la recherche sur son nom
 function voirTiers(nom){
@@ -1587,6 +1662,139 @@ function cheminCategorie(id){
   const parts=[];let x=id;while(x!=null){const z=by[x];if(!z)break;parts.unshift(z.libelle);x=z.parent_id;}
   return parts.join(' : ');
 }
+/* ---------- renommer / fusionner des tiers et des catégories ----------
+   Tout ce qui garde le nom en texte suit : chemin de catégorie des opérations (cat_path), texte de recherche
+   (hay), échéances. Donner à un tiers (ou à une catégorie, au même niveau) le nom d'un autre = les fusionner. */
+function descendantsCategorie(id){
+  const tous=qy('SELECT id,parent_id FROM categorie'),ids=[id];
+  for(let i=0;i<ids.length;i++)tous.forEach(c=>{if(c.parent_id===ids[i])ids.push(c.id);});
+  return ids;
+}
+function profondeurCategorie(id){let n=0,x=id;while(x!=null&&n<10){n++;x=scal('SELECT parent_id FROM categorie WHERE id=?',[x]);}return n;}
+function hauteurCategorie(id){const k=qy('SELECT id FROM categorie WHERE parent_id=?',[id]);return 1+(k.length?Math.max(...k.map(c=>hauteurCategorie(c.id))):0);}
+// chemin de catégorie et texte de recherche de ces opérations, d'après leurs lignes de ventilation
+function recalculerCatEtHay(ids){
+  const path=_catPathFn();
+  [...new Set(ids)].forEach(id=>{
+    const o=qy('SELECT o.*,t.nom dest FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id WHERE o.id=?',[id])[0];if(!o)return;
+    const v=qy('SELECT categorie_id c FROM ventilation WHERE operation_id=? ORDER BY id',[id]).map(r=>path(r.c));
+    let cat=o.cat_path,catHay=o.cat_path;
+    if(v.length===1){cat=v[0];catHay=cat;}
+    else if(v.length>1){const tetes=[...new Set(v.map(c=>catParts(c)[0]))];
+      cat=tetes.slice(0,2).join(' + ')+(tetes.length>2?' + …':'');catHay=v.join(' ')+' '+cat;}
+    run('UPDATE operation SET cat_path=?,hay=? WHERE id=?',[cat,makeHay(o.dest,catHay,o.numero,o.commentaire,o.montant,o.date_operation),id]);
+  });
+}
+// un chemin qui change (« A : B » → « A : C ») : échéances et opérations sans ventilation (anciennes données)
+function remplacerCheminCategorie(ancien,nouveau){
+  const a=catParts(ancien),b=catParts(nouveau);
+  const conv=c=>{const p=catParts(c);if(p.length<a.length||a.some((x,i)=>p[i]!==x))return null;return b.concat(p.slice(a.length)).join(' : ');};
+  qy('SELECT id,cat_path FROM recurrence').forEach(r=>{const n=conv(r.cat_path);if(n!=null)run('UPDATE recurrence SET cat_path=? WHERE id=?',[n,r.id]);});
+  const ops=qy('SELECT id,cat_path FROM operation o WHERE NOT EXISTS (SELECT 1 FROM ventilation v WHERE v.operation_id=o.id)').filter(o=>conv(o.cat_path)!=null);
+  ops.forEach(o=>run('UPDATE operation SET cat_path=? WHERE id=?',[conv(o.cat_path),o.id]));
+  recalculerCatEtHay(ops.map(o=>o.id));
+}
+function opsDesCategories(ids){return ids.length?qy('SELECT DISTINCT operation_id id FROM ventilation WHERE categorie_id IN ('+ids.map(Number).join(',')+')').map(r=>r.id):[];}
+function fusionnerTiersDb(src,dst){
+  const a=qy('SELECT * FROM tiers WHERE id=?',[src])[0],b=qy('SELECT * FROM tiers WHERE id=?',[dst])[0];
+  if(!a||!b||src===dst)throw new Error('destinataire introuvable');
+  const n=scal('SELECT COUNT(*) FROM operation WHERE tiers_id=?',[src]);
+  run('UPDATE operation SET tiers_id=? WHERE tiers_id=?',[dst,src]);
+  run(`UPDATE tiers SET date_creation=MIN(date_creation,?),date_dernier_paiement=NULLIF(MAX(COALESCE(date_dernier_paiement,''),?),''),
+    categorie_defaut_id=COALESCE(categorie_defaut_id,?) WHERE id=?`,[a.date_creation,a.date_dernier_paiement||'',a.categorie_defaut_id,dst]);
+  run('UPDATE recurrence SET tiers=? WHERE tiers=?',[b.nom,a.nom]);
+  run('DELETE FROM tiers WHERE id=?',[src]);
+  recalculerCatEtHay(qy('SELECT id FROM operation WHERE tiers_id=?',[dst]).map(r=>r.id));invalidateCaches();
+  return {action:'fusionne',nom:b.nom,n};
+}
+function renommerTiersDb(id,nom){
+  nom=(nom||'').trim();const a=qy('SELECT * FROM tiers WHERE id=?',[id])[0];
+  if(!a||!nom||nom===a.nom)return null;
+  const b=scal('SELECT id FROM tiers WHERE nom=? AND id<>?',[nom,id]);
+  if(b)return fusionnerTiersDb(id,b);
+  run('UPDATE tiers SET nom=? WHERE id=?',[nom,id]);run('UPDATE recurrence SET tiers=? WHERE tiers=?',[nom,a.nom]);
+  recalculerCatEtHay(qy('SELECT id FROM operation WHERE tiers_id=?',[id]).map(r=>r.id));invalidateCaches();
+  return {action:'renomme',nom};
+}
+function fusionnerCategoriesDb(src,dst){
+  if(src===dst||descendantsCategorie(src).indexOf(dst)>=0)throw new Error('une catégorie ne peut pas être fusionnée avec une de ses sous-catégories');
+  if(profondeurCategorie(dst)+hauteurCategorie(src)-1>3)throw new Error('cela ferait plus de 3 niveaux de catégories');
+  const ancien=cheminCategorie(src),nouveau=cheminCategorie(dst),n=opsDesCategories(descendantsCategorie(src)).length;
+  const fusion=(s,d)=>{
+    qy('SELECT id,libelle FROM categorie WHERE parent_id=?',[s]).forEach(k=>{
+      const meme=scal('SELECT id FROM categorie WHERE parent_id=? AND libelle=?',[d,k.libelle]);
+      if(meme)fusion(k.id,meme);else run('UPDATE categorie SET parent_id=? WHERE id=?',[d,k.id]);});
+    run('UPDATE ventilation SET categorie_id=? WHERE categorie_id=?',[d,s]);
+    run('UPDATE tiers SET categorie_defaut_id=? WHERE categorie_defaut_id=?',[d,s]);
+    run('DELETE FROM categorie WHERE id=?',[s]);
+  };
+  fusion(src,dst);
+  remplacerCheminCategorie(ancien,nouveau);
+  recalculerCatEtHay(opsDesCategories(descendantsCategorie(dst)));invalidateCaches();
+  return {action:'fusionne',chemin:nouveau,n};
+}
+function renommerCategorieDb(id,lib){
+  lib=(lib||'').trim();const c=qy('SELECT * FROM categorie WHERE id=?',[id])[0];
+  if(!c||!lib||lib===c.libelle)return null;
+  if(lib.indexOf(':')>=0||lib.indexOf('+')>=0)throw new Error('le nom ne peut pas contenir « : » ni « + »');
+  const frere=scal('SELECT id FROM categorie WHERE parent_id IS ? AND libelle=? AND id<>?',[c.parent_id,lib,id]);
+  if(frere)return fusionnerCategoriesDb(id,frere);
+  const ancien=cheminCategorie(id);
+  run('UPDATE categorie SET libelle=? WHERE id=?',[lib,id]);
+  remplacerCheminCategorie(ancien,cheminCategorie(id));
+  recalculerCatEtHay(opsDesCategories(descendantsCategorie(id)));invalidateCaches();
+  return {action:'renomme',chemin:cheminCategorie(id)};
+}
+/* fenêtres : un champ pour renommer, une liste pour fusionner avec un autre */
+async function modifierTiers(nom){
+  const t=qy('SELECT id,nom FROM tiers WHERE nom=?',[nom])[0];if(!t)return;
+  const n=scal('SELECT COUNT(*) FROM operation WHERE tiers_id=? AND supprime=0',[t.id]);
+  const autres=qy('SELECT id,nom FROM tiers WHERE id<>? ORDER BY nom COLLATE NOCASE',[t.id]);
+  const html='<div class="field"><label>Nouveau nom</label><input id="mt-nom" value="'+esc(t.nom)+'" autocomplete="off"></div>'+
+    '<div class="field"><label>Ou fusionner avec</label><select id="mt-avec"><option value="">— garder séparé —</option>'+
+    autres.map(a=>'<option value="'+a.id+'">'+esc(a.nom)+'</option>').join('')+'</select></div>'+
+    '<div class="meta">Fusionner : '+(n>1?'ses '+n+' opérations passent':'son opération passe')+' sous l’autre nom (pratique pour un doublon).</div>';
+  let avec=0,nv='';const lire=()=>{avec=+document.getElementById('mt-avec').value||0;nv=document.getElementById('mt-nom').value;}; // avant que la fenêtre se vide
+  const v=await dlgOpen({title:'Renommer ou fusionner « '+t.nom+' »',msg:'',html,fermeDehors:true,buttons:[{t:'Annuler',v:false},{t:'Enregistrer',v:'ok',p:true,before:lire}]});
+  if(v!=='ok')return;
+  try{
+    let r;
+    if(avec){const b=autres.find(a=>a.id===avec);
+      if(!await dlgConfirm('Fusionner « '+t.nom+' » avec « '+b.nom+' » ?\n\n'+(n>1?'Ses '+n+' opérations passeront':'Son opération passera')+' sous « '+b.nom+' ».','Fusionner','Fusionner'))return;
+      r=fusionnerTiersDb(t.id,avec);}
+    else r=renommerTiersDb(t.id,nv);
+    if(!r)return;
+    touch(r.action==='fusionne'?'Tiers fusionnés':'Tiers renommé',t.nom+' → '+r.nom);render();
+    toast(r.action==='fusionne'?'« '+t.nom+' » fusionné avec « '+r.nom+' »':'Renommé en « '+r.nom+' »');
+  }catch(e){dlgAlert('Impossible : '+(e.message||e),'Tiers');}
+}
+async function modifierCategorie(id){
+  const chemin=cheminCategorie(id);if(!chemin)return;
+  const c=qy('SELECT * FROM categorie WHERE id=?',[id])[0],exclus=descendantsCategorie(id),haut=hauteurCategorie(id);
+  const cibles=catCheminsComplets().map(p=>({p,id:upsertCategorieLecture(p)})).filter(x=>x.id&&exclus.indexOf(x.id)<0&&catParts(x.p).length+haut-1<=3);
+  const n=opsDesCategories(exclus).length;
+  const html='<div class="field"><label>Nouveau nom</label><input id="mc-nom" value="'+esc(c.libelle)+'" autocomplete="off"></div>'+
+    '<div class="field"><label>Ou fusionner avec</label><select id="mc-avec"><option value="">— garder séparée —</option>'+
+    cibles.map(x=>'<option value="'+x.id+'">'+esc(x.p)+'</option>').join('')+'</select></div>'+
+    '<div class="meta">Fusionner : '+(n>1?'ses '+n+' opérations':n?'son opération':'elle')+(haut>1?' et ses sous-catégories':'')+' rejoignent l’autre catégorie.</div>';
+  let avec=0,nv='';const lire=()=>{avec=+document.getElementById('mc-avec').value||0;nv=document.getElementById('mc-nom').value;};
+  const v=await dlgOpen({title:'Renommer ou fusionner « '+chemin+' »',msg:'',html,fermeDehors:true,buttons:[{t:'Annuler',v:false},{t:'Enregistrer',v:'ok',p:true,before:lire}]});
+  if(v!=='ok')return;
+  try{
+    let r;
+    if(avec){const b=cibles.find(x=>x.id===avec);
+      if(!await dlgConfirm('Fusionner « '+chemin+' » avec « '+b.p+' » ?\n\n'+(n>1?'Ses '+n+' opérations passeront':n?'Son opération passera':'Elle sera rangée')+' dans « '+b.p+' ».','Fusionner','Fusionner'))return;
+      r=fusionnerCategoriesDb(id,avec);}
+    else r=renommerCategorieDb(id,nv);
+    if(!r)return;
+    touch(r.action==='fusionne'?'Catégories fusionnées':'Catégorie renommée',chemin+' → '+r.chemin);render();
+    toast(r.action==='fusionne'?'Fusionnée avec « '+r.chemin+' »':'Renommée en « '+r.chemin+' »');
+  }catch(e){dlgAlert('Impossible : '+(e.message||e),'Catégorie');}
+}
+// id d'une catégorie d'après son chemin complet, sans rien créer
+function upsertCategorieLecture(chemin){let parent=null;
+  for(const p of catParts(chemin)){parent=scal('SELECT id FROM categorie WHERE libelle=? AND parent_id IS ?',[p,parent]);if(!parent)return null;}
+  return parent;}
 /* clique une catégorie -> registre filtré sur son chemin */
 function voirCategorieChemin(chemin){
   if(!chemin)return;
@@ -1622,6 +1830,7 @@ function renderCategories(){
     return '<div class="tnode d'+(depth+1)+'" style="padding-left:'+(depth*22)+'px">'+
       '<span class="tname" style="cursor:pointer" title="Voir les opérations" onclick="voirCategorie('+c.id+')">'+esc(c.libelle)+'</span>'+
       '<span class="tcount">'+t+'</span>'+
+      ' <button class="ghost" style="padding:2px 8px;font-size:.75rem" onclick="modifierCategorie('+c.id+')">Renommer / fusionner</button>'+
       (t===0?' <button class="ghost" style="padding:2px 8px;font-size:.75rem" onclick="supprCategorie('+c.id+')">Supprimer</button>':'')+
       '</div>';}
   function walk(pid,depth){const list=(kids[pid]||[]).slice().sort((a,b)=>a.libelle.localeCompare(b.libelle,'fr'));
@@ -1669,9 +1878,10 @@ function renderCategoriesMobile(cats,kids,totOf){
     '<div class="mg-cat d'+l.depth+'" style="padding-left:'+(6+l.depth*22)+'px">'+
       (l.enfants?'<button class="ghost mg-icone" aria-expanded="'+l.ouverte+'" aria-label="'+(l.ouverte?'Replier ':'Déplier ')+esc(l.c.libelle)+'" onclick="basculerCategorie('+l.c.id+')">'+fleche(l.ouverte)+'</button>':'<span class="mg-icone"></span>')+
       '<button class="mg-nom" onclick="voirCategorie('+l.c.id+')">'+esc(l.c.libelle)+'</button>'+
-      (l.n===0?'<button class="ghost mg-suppr" onclick="supprCategorie('+l.c.id+')">Supprimer</button>':'<span class="mg-nb">'+l.n+' op.</span>')+'</div>').join('')+'</div>'
+      (l.n===0?'<button class="ghost mg-suppr" onclick="supprCategorie('+l.c.id+')">Supprimer</button>':'<span class="mg-nb">'+l.n+' op.</span>')+
+      '<button class="ghost mg-icone mg-plus" aria-label="Renommer ou fusionner '+esc(l.c.libelle)+'" onclick="modifierCategorie('+l.c.id+')">⋯</button></div>').join('')+'</div>'
     :'<div class="m-vide">'+(q||state.catVides?'Aucune catégorie ne correspond.':'Aucune catégorie pour l’instant.')+'</div>')+
-    '<p class="me-aide" style="margin-top:12px">Touche une catégorie pour voir ses opérations ; la flèche montre ses sous-catégories.</p>';
+    '<p class="me-aide" style="margin-top:12px">Touche une catégorie pour voir ses opérations ; la flèche montre ses sous-catégories ; « ⋯ » pour la renommer ou la fusionner.</p>';
 }
 
 /* ============================================================
@@ -2064,20 +2274,21 @@ function grSvgSolde(el,D,sh){
     '<rect class="gr-hit" x="'+G.m.l+'" y="0" width="'+G.iw+'" height="'+G.h+'"/></svg>';
   el._gr={G,y,series};
 }
-/* barres : revenus vers le haut / dépenses vers le bas ; virements à côté (reçus en haut, envoyés en bas) */
+/* barres côte à côte : revenus, dépenses, puis virements reçus et envoyés */
 function grSvgFlux(el,D,sh){
   const G=grGeom(el,grH('flux',el)),n=D.tr.length,vir=sh.vir&&D.mode==='compte';
-  let mn=0,mx=0;
-  for(let i=0;i<n;i++){if(sh.rev)mx=Math.max(mx,D.rev[i]);if(sh.dep)mn=Math.min(mn,-D.dep[i]);
-    if(vir){mx=Math.max(mx,D.virIn[i]);mn=Math.min(mn,-D.virOut[i]);}}
-  const nice=grNice(mn,mx,Math.max(2,Math.round(G.ih/55))),y=v=>G.m.t+G.ih*(1-(v-nice.lo)/(nice.hi-nice.lo)),y0=y(0);
+  // barres côte à côte, toutes vers le haut (revenus | dépenses | virements reçus | envoyés) : on compare d'un coup d'œil
+  const series=[];
+  if(sh.rev)series.push([D.rev,GR_SERIES.rev.col]);
+  if(sh.dep)series.push([D.dep,GR_SERIES.dep.col]);
+  if(vir){series.push([D.virIn,GR_SERIES.vir.col]);series.push([D.virOut,GR_SERIES.vir.col]);}
+  let mx=0;for(let i=0;i<n;i++)series.forEach(([v])=>{mx=Math.max(mx,v[i]);});
+  const nice=grNice(0,mx,Math.max(2,Math.round(G.ih/55))),y=v=>G.m.t+G.ih*(1-(v-nice.lo)/(nice.hi-nice.lo)),y0=y(0);
   let s=grCadre(G,D,y,nice);
   for(let i=0;i<n;i++){
-    const T=grXT(G,D,i),bw=T.x1-T.x0,gap=Math.min(2,bw*0.1),lc=Math.min(bw*(vir?0.4:0.7),vir?28:40);
-    const cx=T.cx,x1=vir?cx-lc-gap/2:cx-lc/2;
-    if(sh.rev)s+=grBarre(x1,lc,y0,y(D.rev[i]),GR_SERIES.rev.col);
-    if(sh.dep)s+=grBarre(x1,lc,y0,y(-D.dep[i]),GR_SERIES.dep.col);
-    if(vir){s+=grBarre(cx+gap/2,lc,y0,y(D.virIn[i]),GR_SERIES.vir.col);s+=grBarre(cx+gap/2,lc,y0,y(-D.virOut[i]),GR_SERIES.vir.col);}
+    const T=grXT(G,D,i),bw=T.x1-T.x0,k=Math.max(1,series.length),gap=Math.min(2,bw*0.06);
+    const lc=Math.min((bw*0.8-gap*(k-1))/k,40),x0=T.cx-(lc*k+gap*(k-1))/2;
+    series.forEach(([v,col],j)=>{s+=grBarre(x0+j*(lc+gap),lc,y0,y(v[i]),col);});
   }
   s+='<line x1="'+G.m.l+'" x2="'+(G.w-G.m.r)+'" y1="'+y0.toFixed(1)+'" y2="'+y0.toFixed(1)+'" class="gr-zero"/>';
   el.innerHTML='<svg width="'+G.w+'" height="'+G.h+'" role="img" aria-label="Revenus, dépenses et virements">'+s+
@@ -2175,8 +2386,8 @@ function grAide(D,sh){
   if(sh.horsvir&&!patri)A.push([cle('horsvir'),'<b>Solde sans les virements</b> (pointillés) : le solde qu’aurait le compte si tu n’avais fait aucun virement avec tes autres comptes depuis le début de la période (seulement tes revenus et tes dépenses). L’écart entre les deux courbes = le total des virements.']);
   if(sh.parcompte&&patri)A.push(['<i class="k-l" style="border-color:var(--g1)"></i>','<b>Un trait par compte</b> : le solde de chaque compte (couleurs sous le graphique).']);
   if(sh.rev)A.push([cle('rev'),'<b>Revenus</b> (barres vers le haut) : l’argent gagné '+pd+' (salaire, remboursements…), virements entre tes comptes exclus.']);
-  if(sh.dep)A.push([cle('dep'),'<b>Dépenses</b> (barres vers le bas) : l’argent dépensé '+pd+', virements entre tes comptes exclus.']);
-  if(sh.vir&&!patri)A.push([cle('vir'),'<b>Virements</b> (barres à droite) : l’argent reçu de tes autres comptes (vers le haut) ou envoyé vers eux (vers le bas) '+pd+'. Ce n’est ni un revenu ni une dépense : il change juste de compte.']);
+  if(sh.dep)A.push([cle('dep'),'<b>Dépenses</b> (barres rouges, à côté des revenus) : l’argent dépensé '+pd+', virements entre tes comptes exclus.']);
+  if(sh.vir&&!patri)A.push([cle('vir'),'<b>Virements</b> (les deux barres de droite) : l’argent reçu de tes autres comptes, puis celui envoyé vers eux, '+pd+'. Ce n’est ni un revenu ni une dépense : il change juste de compte.']);
   return A.map(a=>'<div>'+a[0]+'<span>'+a[1]+'</span></div>').join('');
 }
 function renderGraphiques(){
@@ -2244,6 +2455,9 @@ function renderGraphiques(){
 window.addEventListener('resize',()=>{if(state.view==='registre'){syncHeadWidth();appliquerHauteurRegistre();}
   else if(state.view==='graphiques'){clearTimeout(window._grRsz);window._grRsz=setTimeout(renderGraphiques,120);}});
 window.addEventListener('popstate',e=>{
+  // Retour pendant qu'une fenêtre ou une feuille est ouverte (clavier ouvert dans l'appli, navigateur du téléphone) :
+  // on ferme la fenêtre et on reste sur l'écran derrière, au lieu de revenir en arrière sous la fenêtre
+  if(dlgResolve||fermerFeuilles()){if(dlgResolve)dlgClose(false);try{history.pushState(snapshotNav(),'');}catch(_){}return;}
   if(e.state&&e.state.__base){restoreNav(e.state);demanderQuitter();return;} // un « retour » de trop
   if(e.state)restoreNav(e.state);
   else{ _navSuppress=true;setView('registre',true);_navSuppress=false; } });
@@ -2375,6 +2589,42 @@ function catFermer(el){
   if(!el.value.trim())el.value=avant;
   else if(el.value.trim()!==avant)catChangee(+el.id.slice(-1));
 }
+/* téléphone : la liste des catégories proposées est la nôtre (pas celle du navigateur, qui chevauchait le champ
+   et passait parfois sur le clavier) : elle s'ouvre toujours AU-DESSUS du champ touché */
+function suggestionsCategorie(niveau,valeurs,tape){
+  const parent=valeurs.slice(0,niveau).filter(Boolean).join(' : ');
+  if(niveau>0&&!parent)return [];
+  const q=(tape||'').trim().toLowerCase();
+  return catEnfants(parent).filter(x=>!q||x.toLowerCase().includes(q)).slice(0,40);
+}
+function majListeCategories(el){
+  const box=document.getElementById('cat-sugg');if(!box)return;
+  const niveau=+el.id.slice(-1),vals=[0,1,2].map(i=>document.getElementById('i-cat'+i).value.trim());
+  const items=suggestionsCategorie(niveau,vals,el.value);
+  if(!items.length){box.hidden=true;return;}
+  box.innerHTML=items.map(x=>'<button type="button" data-v="'+esc(x)+'">'+esc(x)+'</button>').join('');
+  box.dataset.pour=el.id;box.hidden=false;
+  const carte=el.closest('.row3'),haut=el.closest('.field').offsetTop;
+  box.style.bottom=(carte.clientHeight-haut+4)+'px'; // le bas de la liste juste au-dessus du champ
+  box.style.maxHeight=Math.max(120,Math.min(260,haut+carte.getBoundingClientRect().top-90))+'px';
+}
+function brancherListeCategories(){
+  const carte=document.querySelector('#cat-simple .row3');if(!carte||document.getElementById('cat-sugg'))return;
+  const box=document.createElement('div');box.id='cat-sugg';box.className='cat-sugg';box.hidden=true;carte.appendChild(box);
+  box.addEventListener('pointerdown',e=>e.preventDefault()); // le champ garde le clavier
+  box.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+    const el=document.getElementById(box.dataset.pour);if(!el)return;
+    el.value=b.dataset.v;delete el.dataset.avant;if(el.dataset.indice!==undefined){el.placeholder=el.dataset.indice;delete el.dataset.indice;}
+    box.hidden=true;catChangee(+el.id.slice(-1));
+    const suivant=document.getElementById('i-cat'+(+el.id.slice(-1)+1));
+    if(suivant&&catEnfants([0,1,2].slice(0,+el.id.slice(-1)+1).map(i=>document.getElementById('i-cat'+i).value.trim()).join(' : ')).length)suivant.focus();
+    else el.blur();});
+  [0,1,2].forEach(i=>{const el=document.getElementById('i-cat'+i);
+    el.removeAttribute('list');
+    el.addEventListener('focus',()=>majListeCategories(el));
+    el.addEventListener('input',()=>majListeCategories(el));
+    el.addEventListener('blur',()=>setTimeout(()=>{if(document.activeElement!==el&&box.dataset.pour===el.id)box.hidden=true;},150));});
+}
 function getCat(){return ['i-cat0','i-cat1','i-cat2'].map(id=>document.getElementById(id).value.trim()).filter(Boolean).join(' : ')||'Divers';}
 function setType(t){state.addType=t;document.querySelectorAll('#seg button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
   const vir=(t==='virement');
@@ -2450,16 +2700,21 @@ function openModal(id,focus){
     else{del.style.display='inline-flex';ann.style.display='inline-flex';ann.textContent='Passer en annulé';}
   }
   closeAC();document.getElementById('overlay').classList.add('show');
+  document.querySelector('#overlay .modal').scrollTop=0; // toujours ouverte en haut
   setTimeout(()=>{
     // sur écran tactile, pas de placement automatique dans un champ : le clavier ne s'ouvre que si on touche un champ
-    if(ecranTactile()){if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();return;}
+    // (sauf si on a touché un champ précis, depuis la fiche de l'opération : on y va directement)
+    if(ecranTactile()&&!focus){if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();return;}
     const cible=focus==='montant'?document.getElementById('i-montant')
       :focus==='date'?document.getElementById('i-date')
       :focus==='num'?document.getElementById('i-num')
-      :focus==='cat'?document.getElementById('i-cat0')
+      :focus==='cat'||focus==='cat0'?document.getElementById('i-cat0')
+      :focus==='cat1'?document.getElementById('i-cat1')
+      :focus==='cat2'?document.getElementById('i-cat2')
+      :focus==='vent'?document.querySelector('#vent-list input')
       :focus==='comm'?document.getElementById('i-comm')
       :destEl();
-    if(cible){cible.focus();if(cible.select)cible.select();}
+    if(cible){cible.focus();if(cible.select)cible.select();if(ecranTactile()&&cible.scrollIntoView)cible.scrollIntoView({block:'center'});}
   },30);
 }
 /* Dupliquer : le formulaire devient une nouvelle opération avec les mêmes informations (destinataire,
@@ -2711,7 +2966,13 @@ function nomSauvegarde(d){
 function messageSauvegarde(dossier,nom){return 'Sauvegarde enregistrée dans « '+dossier+' » : '+nom;}
 /* Sauvegarder : dans le dossier choisi dans les Réglages, sinon dans Téléchargements. Si le dossier
    n'est plus accessible, on propose Téléchargements. Compté sauvegardé seulement si le fichier est écrit. */
+let sauvegardeEnCours=false;
 async function sauvegarder(){
+  if(sauvegardeEnCours)return;sauvegardeEnCours=true;
+  toastDurable('Sauvegarde en cours…');await nextFrame(); // affiché avant le travail (la base peut être grosse)
+  try{await sauvegarderMaintenant();}finally{sauvegardeEnCours=false;const t=document.getElementById('toast');if(t.dataset.durable){t.classList.remove('show');delete t.dataset.durable;}}
+}
+async function sauvegarderMaintenant(){
   let data,nom;
   try{setMeta('updated',nowTS());data=db.export();nom=nomSauvegarde(new Date());}
   catch(e){dlgAlert('Échec de la sauvegarde : '+e.message,'Erreur');return;}
@@ -4142,8 +4403,10 @@ async function relAppliquer(){
    Divers
    ============================================================ */
 let toastT;
-function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
+function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');delete t.dataset.durable;
   clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),2400);}
+// message qui reste affiché jusqu'au suivant (travail en cours)
+function toastDurable(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');t.dataset.durable='1';clearTimeout(toastT);}
 
 function syncClear(){const v=document.getElementById('f-search').value;
   document.getElementById('f-clear').style.display=v?'block':'none';}
