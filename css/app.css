@@ -421,6 +421,56 @@
   .mg-nom{flex:1;min-width:0;min-height:44px;border:0;background:none;padding:0 4px;text-align:left;justify-content:flex-start;font-size:.95rem;color:var(--ink);overflow-wrap:anywhere}
   .mg-nb{font-size:.82rem;color:var(--ink-2);white-space:nowrap}
   .mg-suppr{min-height:36px;font-size:.8rem;padding:0 10px}
+  /* Saisie / modification sur téléphone : plein écran, montant en grand en haut, mêmes champs que sur PC
+     (les rangées .row2 s'effacent : chaque champ se place par « order ») ; « Enregistrer » reste en bas */
+  .m-fermer,.m-statut{display:none}
+  body.mobile .overlay{padding:0;align-items:stretch;background:var(--paper)}
+  body.mobile .modal{width:100%;max-height:none;height:100%;border:0;border-radius:0;background:var(--paper);padding:0 16px;
+    display:flex;flex-wrap:wrap;align-content:flex-start;column-gap:12px;row-gap:12px}
+  body.mobile .modal>*{width:100%;order:20;margin:0}
+  body.mobile .modal .row2{display:contents}
+  body.mobile .modal .hint{display:none}
+  body.mobile .m-fermer{display:flex;order:0;width:44px;height:44px;min-height:0;padding:0;justify-content:center;border:0;margin:8px 0 0 -8px}
+  body.mobile #modal-title{order:0;width:auto;flex:1;margin:8px 0 0;align-self:center;font-size:1.1rem}
+  body.mobile .f-montant,body.mobile .f-comm{width:100%;margin:0}
+  body.mobile .f-montant{order:1;display:flex;flex-direction:column;align-items:center;gap:2px}
+  body.mobile .f-montant label{font-size:.82rem;font-weight:400;color:var(--ink-2);margin:0}
+  body.mobile #i-montant{width:240px;max-width:100%;border:0;border-bottom:2px solid var(--brand);border-radius:0;background:none;
+    font-size:2.4rem;font-weight:700;text-align:center;padding:0;height:auto;color:var(--debit)}
+  body.mobile .modal:has(#seg [data-t="credit"].on) #i-montant{color:var(--credit)}
+  body.mobile .modal:has(#seg [data-t="virement"].on) #i-montant{color:var(--ink)}
+  body.mobile #seg{order:2;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));background:var(--line);border-radius:12px;padding:3px;gap:0}
+  body.mobile #seg button{min-height:42px;border:0;border-radius:10px;background:transparent;justify-content:center;color:var(--ink-2)}
+  body.mobile #seg button.on{background:var(--brand);color:#fff;font-weight:600}
+  body.mobile .m-statut:not([hidden]){order:3;display:flex;align-items:center;justify-content:center;gap:8px;font-size:.88rem;color:var(--ink-2)}
+  .m-statut i{width:10px;height:10px;border-radius:5px;display:block}
+  body.mobile .f-dest{order:4}
+  body.mobile #vir-field{order:5}
+  body.mobile #cat-simple{order:6}
+  body.mobile .f-vent{order:7;min-height:44px;font-size:.92rem}
+  body.mobile #vent-box{order:8}
+  body.mobile .f-date{order:9;width:calc(50% - 6px);margin:0}
+  body.mobile .f-num{order:10;width:calc(50% - 6px);margin:0}
+  body.mobile .f-comm{order:11}
+  body.mobile .f-prev{order:12;min-height:56px;padding:0 14px;background:var(--card);border:1px solid var(--line);border-radius:14px;font-size:.95rem}
+  body.mobile .modal-foot{order:13;position:sticky;bottom:0;width:calc(100% + 32px);margin:auto -16px 0;padding:10px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+    background:var(--card);border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:8px}
+  body.mobile .modal-foot>span,body.mobile .m-annuler{display:none}
+  body.mobile .modal-foot .primary{order:9;width:100%;min-height:54px;border-radius:14px;justify-content:center;font-size:1rem}
+  body.mobile .modal-foot>button:not(.primary){flex:1;min-height:40px;justify-content:center;font-size:.85rem}
+  body.mobile .modal .field label{font-size:.82rem;font-weight:600;color:var(--ink-2)}
+  body.mobile .modal .field input:not(#i-montant),body.mobile .modal select{height:50px;border-radius:12px;font-size:1rem;padding:0 14px}
+  body.mobile .ventchk input{width:20px;height:20px}
+  body.mobile #cat-simple .row3{display:block;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:2px 14px}
+  body.mobile #cat-simple .field{display:flex;align-items:center;gap:10px;min-height:52px;margin:0;border-bottom:1px solid var(--line)}
+  body.mobile #cat-simple .field:last-child{border-bottom:0}
+  body.mobile #cat-simple .field label{width:110px;flex:none;font-weight:400;margin:0}
+  body.mobile #cat-simple .field input{flex:1;min-width:0;border:0;background:none;padding:0;height:44px}
+  body.mobile #vent-box{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:8px 12px}
+  body.mobile .venthead,body.mobile .vent-l{grid-template-columns:1fr 88px 40px}
+  body.mobile .vent-l input{height:44px;border-radius:10px}
+  body.mobile .vent-l .vx{min-height:44px;justify-content:center}
+  body.mobile .ventfoot{flex-wrap:wrap;gap:6px}
   .ma-h{font-size:.85rem;font-weight:600;color:var(--ink-2);margin:16px 2px 4px}
   .m-version{text-align:center;font-size:.8rem;color:var(--ink-2);margin:18px 0 0}
 

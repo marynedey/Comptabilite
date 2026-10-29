@@ -509,14 +509,14 @@ test('téléphone, fiche d\'une opération : montant en grand, statut en informa
     await fiche.locator('button:has-text("Modifier")').click();
     assert.equal(await page.isVisible('#m-fiche'), false);
     assert.equal(await page.inputValue('#i-dest'), 'Boulangerie');
-    await page.click('#overlay button:has-text("Annuler")');
+    await page.click('#overlay .m-fermer');
     // Dupliquer : une nouvelle opération, datée d'aujourd'hui
     await ligne(page, 'Pharmacie').locator('.m-op-corps').click();
     await fiche.locator('button:has-text("Dupliquer")').click();
     assert.match(await page.textContent('#modal-title'), /copie/);
     assert.equal(await page.inputValue('#i-dest'), 'Pharmacie');
     assert.equal(await page.inputValue('#i-date'), '26/10/26');
-    await page.click('#overlay button:has-text("Annuler")');
+    await page.click('#overlay .m-fermer');
     // Corbeille, après confirmation
     await ligne(page, 'Boulangerie').locator('.m-op-corps').click();
     await fiche.locator('button:has-text("Mettre à la corbeille")').click();
@@ -756,6 +756,33 @@ test('téléphone, gestion : tiers (tri, toucher → opérations), catégories (
     await b.locator('button:has-text("Vider la corbeille")').click();
     await page.click('#dlgFoot button:has-text("Tout supprimer")');
     await b.locator('.m-vide:has-text("vide")').waitFor();
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
+test('téléphone, saisie : plein écran, montant en grand en haut, statut rappelé en modification, Enregistrer en bas', async () => {
+  const { navigateur, page } = await ouvrirTelephone();
+  try {
+    await page.click('#m-ajouter');
+    await fenetreOperationPrete(page);
+    const y = async sel => (await page.locator(sel).boundingBox()).y;
+    assert.ok(await y('#i-montant') < await y('#seg'), 'montant au-dessus du type');
+    assert.ok(await y('#seg') < await y('#i-dest'), 'type au-dessus du destinataire');
+    assert.equal(await page.isVisible('#i-statut'), false);
+    const m = await page.locator('#i-montant').boundingBox();
+    assert.ok(Math.abs(m.x + m.width / 2 - 195) < 3, 'montant centré');
+    const enr = await page.locator('#overlay button.primary:has-text("Enregistrer")').boundingBox();
+    assert.ok(enr.y + enr.height <= 844 && enr.y > 700, 'Enregistrer en bas de l\'écran');
+    await page.fill('#i-montant', '4,50'); await page.fill('#i-dest', 'Boulangerie'); await page.fill('#i-cat0', 'Alimentation');
+    await page.click('#overlay button.primary:has-text("Enregistrer")');
+    await page.locator('#overlay.show').waitFor({ state: 'hidden' });
+    // modification : le statut est rappelé, pour information
+    await ligne(page, 'Boulangerie').locator('.m-op-corps').click();
+    await page.click('#m-fiche button:has-text("Modifier")');
+    await fenetreOperationPrete(page);
+    assert.equal(await page.textContent('#modal-title'), 'Modifier l’opération');
+    assert.equal(await page.textContent('#i-statut'), 'Non pointé');
+    await page.click('#overlay .m-fermer');
     assert.deepEqual(page.erreurs, []);
   } finally { await navigateur.close(); }
 });

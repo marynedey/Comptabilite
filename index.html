@@ -348,13 +348,15 @@
 <!-- modale opération (reprise v4) -->
 <div class="overlay" id="overlay">
   <div class="modal">
+    <button class="ghost m-fermer" onclick="closeModal()" aria-label="Fermer sans enregistrer"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     <h2 id="modal-title">Nouvelle opération</h2>
     <div class="seg" id="seg">
       <button data-t="debit" class="on" onclick="setType('debit')">Débit</button>
       <button data-t="credit" onclick="setType('credit')">Crédit</button>
       <button data-t="virement" onclick="setType('virement')">Virement</button>
     </div>
-    <div class="field">
+    <div class="m-statut" id="i-statut" hidden></div>
+    <div class="field f-dest">
       <label>Destinataire <span class="hint">tape un nom connu, les catégories se remplissent seules (Tab pour valider)</span></label>
       <input id="i-dest" autocomplete="off" placeholder="Carrefour, EDF…">
       <div class="ac-list" id="ac"></div>
@@ -363,7 +365,7 @@
       <label><span id="vir-label">Compte de destination</span> <span class="hint">le virement crée l’opération miroir dans l’autre compte</span></label>
       <select id="i-vircompte"></select>
     </div>
-    <label class="ventchk"><input type="checkbox" id="i-vent" onchange="ventToggle(this.checked)"> Répartir sur plusieurs catégories</label>
+    <label class="ventchk f-vent"><input type="checkbox" id="i-vent" onchange="ventToggle(this.checked)"> Répartir sur plusieurs catégories</label>
     <div id="cat-simple">
       <div class="row3">
         <div class="field"><label>Catégorie</label><input id="i-cat0" list="dl0" placeholder="Alimentation" oninput="majSousCats()" onchange="catChangee(0)" onpointerdown="catOuvrir(this)" onblur="catFermer(this)"></div>
@@ -382,21 +384,21 @@
     </div>
     <datalist id="dl0"></datalist><datalist id="dl1"></datalist><datalist id="dl2"></datalist>
     <div class="row2">
-      <div class="field"><label>Date</label><input id="i-date" class="dt datef" style="width:100%" type="text" inputmode="numeric" maxlength="8" placeholder="JJ/MM/AA" oninput="maskDate(this)" onblur="fixDate(this)"></div>
-      <div class="field"><label>Montant (€)</label><input id="i-montant" type="text" inputmode="decimal" placeholder="0,00" oninput="ventTotal&amp;&amp;document.getElementById(&#39;i-vent&#39;).checked&amp;&amp;ventTotal()">
+      <div class="field f-date"><label>Date</label><input id="i-date" class="dt datef" style="width:100%" type="text" inputmode="numeric" maxlength="8" placeholder="JJ/MM/AA" oninput="maskDate(this)" onblur="fixDate(this)"></div>
+      <div class="field f-montant"><label for="i-montant">Montant (€)</label><input id="i-montant" type="text" inputmode="decimal" placeholder="0,00" oninput="ventTotal&amp;&amp;document.getElementById(&#39;i-vent&#39;).checked&amp;&amp;ventTotal()">
         <div class="lock-hint" id="i-montant-hint" style="display:none">🔒 Opération rapprochée : montant non modifiable</div></div>
     </div>
     <div class="row2">
-      <div class="field"><label>Numéro (chèque…)</label><input id="i-num" placeholder="facultatif"></div>
-      <div class="field"><label>Commentaire</label><input id="i-comm" placeholder="facultatif"></div>
+      <div class="field f-num"><label>Numéro (chèque…)</label><input id="i-num" inputmode="numeric" placeholder="facultatif"></div>
+      <div class="field f-comm"><label>Commentaire</label><input id="i-comm" placeholder="facultatif"></div>
     </div>
-    <label class="ventchk"><input type="checkbox" id="i-prev"> Prévisionnelle <span class="hint">(prévue mais pas encore effective — ne compte pas dans le solde pointé)</span></label>
+    <label class="ventchk f-prev"><input type="checkbox" id="i-prev"> Prévisionnelle <span class="hint">(prévue mais pas encore effective — ne compte pas dans le solde pointé)</span></label>
     <div class="modal-foot">
       <button class="danger" id="btn-del" style="display:none" onclick="deleteOp()">Supprimer</button>
       <button class="danger" id="btn-ann" style="display:none" onclick="annulOp()">Passer en annulé</button>
       <button id="btn-dup" style="display:none" onclick="dupliquerOp()" title="Nouvelle opération avec les mêmes informations, datée d’aujourd’hui">Dupliquer</button>
       <span style="flex:1"></span>
-      <button onclick="closeModal()">Annuler</button>
+      <button class="m-annuler" onclick="closeModal()">Annuler</button>
       <button class="primary" onclick="saveOp()">Enregistrer</button>
     </div>
   </div>
