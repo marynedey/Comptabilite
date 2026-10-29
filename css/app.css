@@ -347,6 +347,29 @@
   .ev-b i{display:block;width:40%;max-width:12px;min-height:2px;border-radius:3px 3px 1px 1px}
   .ev-b .rev{background:var(--credit)}.ev-b .dep{background:var(--debit)}
   .ev-barres small{font-size:.62rem;color:var(--ink-2);text-align:center;white-space:nowrap}
+  /* Échéances (téléphone) */
+  .m-echeances{display:none}
+  body.mobile .m-echeances{display:block;padding-bottom:90px}
+  body.mobile #v-recurrences>.top,body.mobile #v-recurrences>.tablecard{display:none}
+  .me-aide{margin:0 2px 10px;font-size:.85rem;color:var(--ink-2)}
+  .me-totaux{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 16px}
+  .me-totaux small{display:block;font-size:.78rem;color:var(--ink-2)}
+  .me-totaux b{font-size:1.15rem}
+  .me-liste{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .me-item{display:flex;align-items:center;gap:12px;width:100%;min-height:62px;padding:8px 14px;border:0;border-bottom:1px solid var(--line);border-radius:0;background:none;text-align:left;color:var(--ink)}
+  .me-item:last-child{border-bottom:0}
+  .me-item.suspendue>*{opacity:.5}
+  .me-date{width:44px;flex:none;text-align:center}
+  .me-date b{display:block;font-size:1.15rem;line-height:1}
+  .me-date small{font-size:.7rem;color:var(--ink-2)}
+  .me-nom{flex:1;min-width:0;font-size:.95rem;font-weight:500;overflow-wrap:anywhere}
+  .me-nom small{display:block;font-size:.76rem;font-weight:400;color:var(--ink-2)}
+  .me-item .num{font-weight:600;white-space:nowrap}
+  .me-nouvelle{position:fixed;right:16px;bottom:calc(96px + env(safe-area-inset-bottom, 0px));z-index:14;display:flex;align-items:center;gap:8px;height:56px;padding:0 20px 0 16px;border-radius:18px;border:0;background:var(--brand);color:#fff;font-weight:600;box-shadow:0 6px 18px rgba(15,110,86,.35)}
+  body.mobile.maj-appli-visible .me-nouvelle{bottom:calc(220px + env(safe-area-inset-bottom, 0px))}
+  .me-info{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);font-size:.92rem}
+  .me-info span{color:var(--ink-2)}
+  .me-info b{text-align:right;overflow-wrap:anywhere}
   .ma-h{font-size:.85rem;font-weight:600;color:var(--ink-2);margin:16px 2px 4px}
   .m-version{text-align:center;font-size:.8rem;color:var(--ink-2);margin:18px 0 0}
 

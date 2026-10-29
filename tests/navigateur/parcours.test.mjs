@@ -659,6 +659,33 @@ test('téléphone, analyse : le mois en anneau, comparé au mois choisi ; une ca
   } finally { await navigateur.close(); }
 });
 
+test('téléphone, échéances : ce mois-ci / ensuite, reste à payer ; toucher → modifier, suspendre', async () => {
+  const { navigateur, page } = await ouvrirTelephone();
+  try {
+    await page.evaluate(() => {
+      const ins = (tiers, m, p, j) => run("INSERT INTO recurrence(compte_id,type,montant,tiers,cat_path,frequence,intervalle,jour,date_debut,prochaine,creer_en) VALUES(?,?,?,?,'Logement','mensuelle',1,?,?,?,'previsionnel')",
+        [state.acc, m < 0 ? 'debit' : 'credit', m, tiers, j, p, p]);
+      ins('Loyer', -60000, '2026-10-30', 30); ins('Électricité', -6200, '2026-10-28', 28); ins('Salaire', 200000, '2026-11-05', 5);
+    });
+    await page.click('#m-onglets button[data-o="recurrences"]');
+    const e = page.locator('#m-echeances');
+    assert.equal(await page.isVisible('#rec-rows'), false);   // le tableau du PC est caché
+    assert.deepEqual(await e.locator('.ma-h').allTextContents(), ['Ce mois-ci', 'Ensuite']);
+    assert.deepEqual(await e.locator('.me-liste').first().locator('.me-nom').evaluateAll(es => es.map(x => x.firstChild.textContent)), ['Électricité', 'Loyer']);
+    assert.match(await e.locator('.me-totaux').textContent(), /662,00\s€.*\+0,00\s€/);
+    // toucher une échéance : son détail, puis suspendre
+    await e.locator('.me-item', { hasText: 'Loyer' }).click();
+    await page.locator('#dlgBack.show #dlgBody:has-text("Chaque mois")').waitFor();
+    await page.click('#dlgFoot button:has-text("Suspendre")');
+    await e.locator('.ma-h:has-text("Suspendues")').waitFor();
+    assert.match(await e.locator('.me-totaux').textContent(), /62,00\s€/);
+    // nouvelle échéance : le formulaire habituel
+    await e.locator('.me-nouvelle').click();
+    await page.locator('#dlgBack.show').waitFor();
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
 test('deux fenêtres : la 2e dit « déjà ouvert », fait signe à la 1re, et démarre quand la 1re se ferme', async () => {
   const { navigateur, contexte, page } = await ouvrir();
   try {

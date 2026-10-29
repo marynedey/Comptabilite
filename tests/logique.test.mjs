@@ -269,3 +269,20 @@ test('évolution : solde réel à chaque fin de mois (sans prévisionnel ni annu
   assert.deepEqual({ ...flux.get('2026-08') }, { rev: 30000, dep: 0 });
   assert.deepEqual({ ...flux.get('2026-10') }, { rev: 0, dep: 5000 });
 });
+
+test('échéances (téléphone) : ce mois-ci / ensuite / suspendues ; reste à payer ce mois, hebdomadaires comptées à chaque passage', () => {
+  const r = (o) => Object.assign({ actif: 1, frequence: 'mensuelle', intervalle: 1, jour: null, date_fin: null, compte_cible: null }, o);
+  const recs = [
+    r({ id: 1, tiers: 'Loyer', montant: -60000, prochaine: '2026-10-30', jour: 30 }),
+    r({ id: 2, tiers: 'Salaire', montant: 200000, prochaine: '2026-11-05', jour: 5 }),
+    r({ id: 3, tiers: 'Marché', montant: -2000, prochaine: '2026-10-27', frequence: 'hebdomadaire' }),
+    r({ id: 4, tiers: 'Épargne', montant: -10000, prochaine: '2026-10-28', compte_cible: 9 }),
+    r({ id: 5, tiers: 'Gym', montant: -3000, prochaine: '2026-10-29', actif: 0 }),
+  ];
+  const E = app.echeancesMobile(recs, '2026-10-26');
+  assert.deepEqual([...E.mois.map(x => x.id)], [3, 4, 1]);
+  assert.deepEqual([...E.ensuite.map(x => x.id)], [2]);
+  assert.deepEqual([...E.suspendues.map(x => x.id)], [5]);
+  assert.equal(E.aPayer, -60000 - 2000);   // le virement ne compte pas, la suspendue non plus
+  assert.equal(E.aRecevoir, 0);
+});
