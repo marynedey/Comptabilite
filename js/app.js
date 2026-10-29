@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.10.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.11.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -3787,6 +3787,7 @@ function renderReleve(){
     '<button class="primary" style="margin-top:8px" onclick="detaillerAmex()">Charger le relevé Amex (CSV) et pointer</button></div>';}
   document.getElementById('rl-ctrl').innerHTML=ctrl;
 
+  if(document.body.classList.contains('mobile')){renderReleveMobile(r);return;}
   const secs=[['rapproches','Rapprochements proposés'],['deja','Déjà rapprochées'],
               ['proches','Montants proches — à trancher'],['aCreer','À créer'],['ignores','Absentes du relevé']];
   document.getElementById('rl-chips').innerHTML=
@@ -3869,6 +3870,45 @@ function renderReleve(){
   document.getElementById('rl-corps').innerHTML=h;
 }
 
+/* ---------- relevé PDF sur téléphone : trois tuiles qui filtrent (retrouvées / à vérifier / absentes),
+   une ligne par opération avec sa case, le reste des actions derrière « ⋯ », « Appliquer » en bas ---------- */
+const REL_TUILES=[['trouvees','retrouvée','retrouvées','ok'],['proches','à vérifier','à vérifier','verif'],['aCreer','absente','absentes','abs']];
+function relNbTuile(r,k){return k==='trouvees'?r.rapproches.length+r.deja.length:r[k].length;}
+function renderReleveMobile(r){
+  const f=REL.filtre;
+  document.getElementById('rl-chips').innerHTML='<div class="rm-tuiles">'+REL_TUILES.map(([k,s1,pl,c])=>{const n=relNbTuile(r,k);
+    return '<button class="rm-tuile '+c+'" aria-pressed="'+(f===k)+'" onclick="relFiltre(\''+k+'\')"><b>'+n+'</b><span>'+(n>1?pl:s1)+'</span></button>';}).join('')+'</div>'+
+    (f?'<button class="ghost rm-tout" onclick="relFiltre(null)">Tout afficher</button>':'');
+  const ligne=(sec,i,x,nom,sous,montant)=>'<div class="rm-ligne">'+
+    (sec&&sec!=='deja'?'<input type="checkbox" aria-label="Retenir '+esc(nom)+'" '+(x.on?'checked ':'')+'onchange="relTog(\''+sec+'\','+i+',this.checked);renderReleve()">':'<span class="rm-vide"></span>')+
+    '<span class="rm-nom">'+esc(nom)+'<small>'+sous+'</small></span><span class="num">'+eur(montant)+'</span>'+
+    (sec&&sec!=='deja'?'<button class="ghost rm-plus" aria-label="Autres actions" onclick="relActionsMobile(\''+sec+'\','+i+')">⋯</button>':'')+'</div>';
+  const jour=d=>d?(+d.slice(8,10))+' '+MOIS_COURT[+d.slice(5,7)-1]:'';
+  const bloc=(t,lignes)=>'<div class="ma-h">'+t+'</div><div class="rm-liste">'+(lignes.length?lignes.join(''):'<div class="m-vide">Aucune.</div>')+'</div>';
+  let h='';
+  if(!f||f==='proches')h+=bloc('À vérifier : montant ou date un peu différents',r.proches.map((x,i)=>ligne('proches',i,x,x.app.dest||x.rel.libelle,
+    'Relevé '+eur(x.rel.montant)+' le '+jour(x.rel.date)+' · noté '+eur(x.app.montant)+' le '+jour(x.app.date),x.rel.montant)));
+  if(!f||f==='aCreer')h+=bloc('Absentes de tes comptes',r.aCreer.map((x,i)=>ligne('aCreer',i,x,x.rel.libelle,
+    jour(x.rel.date)+' · sera ajoutée : '+esc(x.prop.tiers)+(x.prop.cat?' · '+esc(x.prop.cat):''),x.rel.montant)));
+  if(f==='trouvees')h+=bloc('Retrouvées dans tes comptes',r.rapproches.map((x,i)=>ligne('rapproches',i,x,x.app.dest||x.rel.libelle,
+      jour(x.rel.date)+' · '+esc(x.rel.libelle)+(x.ambigu?' · <b>plusieurs possibles</b>':''),x.rel.montant))
+    .concat(r.deja.map(x=>ligne('deja',0,x,x.app.dest||x.rel.libelle,jour(x.rel.date)+' · déjà rapprochée',x.rel.montant))));
+  else if(!f)h+='<button class="ghost rm-voir" onclick="relFiltre(\'trouvees\')">Voir les '+relNbTuile(r,'trouvees')+' opérations retrouvées</button>';
+  if(f==='trouvees'&&r.ignores.length)h+='<div class="ma-h">Dans tes comptes, absentes du relevé (aucune action)</div><div class="rm-liste">'+
+    r.ignores.map(x=>ligne(null,0,x,x.app.dest||'',jour(x.app.date)+' · '+((META[x.app.statut]||{}).label||''),x.app.montant)).join('')+'</div>';
+  const nP=r.rapproches.filter(x=>x.on).length+r.proches.filter(x=>x.on).length,nC=r.aCreer.filter(x=>x.on).length;
+  h+='<div class="rm-pied"><div class="rm-autres"><button class="ghost" onclick="relDiag()">Lignes lues</button>'+
+    '<button class="ghost" onclick="relSuivant(true)">Passer ce compte</button><button class="ghost" onclick="relAbandonner()">Abandonner</button></div>'+
+    '<button class="primary" onclick="relAppliquer()">Appliquer : '+nP+' pointée'+(nP>1?'s':'')+(nC?', '+nC+' créée'+(nC>1?'s':''):'')+'</button></div>';
+  document.getElementById('rl-corps').innerHTML=h;
+}
+async function relActionsMobile(sec,i){
+  const x=REL.res[sec][i];if(!x)return;
+  const btns=sec==='aCreer'?[{t:'Lier à une opération existante',v:'lier'},{t:'Modifier',v:'prop',p:true}]
+    :[{t:'Plutôt la créer',v:'creer'},{t:'Lier à une autre',v:'lier'}].concat(sec==='proches'?[{t:'Modifier l’opération',v:'modif',p:true}]:[]);
+  const v=await dlgOpen({title:x.rel.libelle,msg:isoToFr(x.rel.date)+' · '+eur(x.rel.montant),buttons:btns,fermeDehors:true});
+  if(v==='lier')relLier(sec,i);else if(v==='creer')relVersCreer(sec,i);else if(v==='prop')relEditProp(i);else if(v==='modif')openModal(x.app.id,'montant');
+}
 function relFiltre(k){if(!REL)return;REL.filtre=(REL.filtre===k)?null:k;renderReleve();}
 function relChoix(i,id){
   if(!REL||!REL.res)return;
