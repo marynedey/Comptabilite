@@ -225,3 +225,47 @@ test('réglages d\'affichage : valeurs par défaut et valeurs inconnues ignorée
   assert.deepEqual(js(app.lireReglages('{"theme":"violet","recherche":"gauche","masquer":"oui"}')), { theme: 'auto', recherche: 'haut', masquer: false });
   assert.deepEqual(js(app.lireReglages('pas du json')), { theme: 'auto', recherche: 'haut', masquer: false });
 });
+
+test('analyse (téléphone) : périodes, comparaison, regroupement par catégorie', () => {
+  assert.deepEqual(js(app.bornesPeriodeAna('2026-02')), { f: '2026-02-01', t: '2026-02-28' });
+  assert.deepEqual(js(app.bornesPeriodeAna('2026')), { f: '2026-01-01', t: '2026-12-31' });
+  assert.equal(app.periodeDecalee('2026-01', -1), '2025-12');
+  assert.equal(app.periodeDecalee('2025', 1), '2026');
+  assert.equal(app.libellePeriodeAna('2026-09'), 'Septembre 2026');
+  assert.equal(app.ecartPct(125, 100), '+25 %');
+  assert.equal(app.ecartPct(80, 100), '−20 %');
+  assert.equal(app.ecartPct(100, 100), '=');
+  assert.equal(app.ecartPct(50, 0), null);
+  // une dépense répartie, une simple, un revenu, un virement
+  const L = [
+    { m: -6000, cat: 'Alimentation : Courses', vir: false, ti: 'Super' },
+    { m: -1000, cat: 'Alimentation', vir: false, ti: 'Super' },
+    { m: -3000, cat: 'Logement', vir: false, ti: 'Loyer' },
+    { m: 200000, cat: 'Revenus', vir: false, ti: 'Salaire' },
+    { m: -20000, cat: 'Virement', vir: true, ti: 'Livret A' },
+  ];
+  assert.deepEqual(js(app.regrouperAnalyse(L, 'debit', false, [])).map(g => [g.nom, g.total]), [['Alimentation', 7000], ['Logement', 3000]]);
+  assert.deepEqual(js(app.regrouperAnalyse(L, 'debit', false, ['Alimentation'])).map(g => [g.nom, g.total]), [['Courses', 6000], ['Sans sous-catégorie', 1000]]);
+  assert.deepEqual(js(app.regrouperAnalyse(L, 'debit', true, [])).map(g => g.nom), ['Virements', 'Alimentation', 'Logement']);
+  assert.equal(app.totalAnalyse(L, 'credit', false, []), 200000);
+});
+
+test('évolution : solde réel à chaque fin de mois (sans prévisionnel ni annulées), du mois qui précède au jour même', () => {
+  app.run("INSERT INTO compte(nom,type,solde_initial) VALUES('Évolution','courant',50000)");
+  const c = app.scal("SELECT id FROM compte WHERE nom='Évolution'");
+  const ins = (d, m, st, pv) => app.run("INSERT INTO operation(compte_id,date_operation,montant,statut,supprime,previsionnel) VALUES(?,?,?,?,0,?)", [c, d, m, st, pv]);
+  ins('2026-06-15', -10000, 'pointe', 0); ins('2026-08-02', 30000, 'rapproche', 0);
+  ins('2026-08-20', -99999, 'annule', 0); ins('2026-10-10', -5000, 'non_pointe', 0);
+  ins('2026-10-20', -7000, 'pointe', 1);   // prévisionnelle
+  ins('2026-10-28', 2000, 'pointe', 0);    // après aujourd'hui
+  const auj = new Date(2026, 9, 26);
+  assert.equal(app.debutEvolution([c], '6', auj), '2026-05');
+  assert.equal(app.debutEvolution([c], 'annee', auj), '2026-01');
+  assert.equal(app.debutEvolution([c], 'tout', auj), '2026-06');
+  assert.deepEqual(JSON.parse(JSON.stringify(app.serieEvolution([c], '2026-06', auj))), [
+    { cle: '2026-05', v: 50000 }, { cle: '2026-06', v: 40000 }, { cle: '2026-07', v: 40000 },
+    { cle: '2026-08', v: 70000 }, { cle: '2026-09', v: 70000 }, { cle: '2026-10', v: 65000 }]);
+  const flux = app.fluxEvolution([c], '2026-06', auj);
+  assert.deepEqual({ ...flux.get('2026-08') }, { rev: 30000, dep: 0 });
+  assert.deepEqual({ ...flux.get('2026-10') }, { rev: 0, dep: 5000 });
+});
