@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.8.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.9.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -2709,7 +2709,13 @@ async function renderReglages(){
   [['rg-theme',REGLAGES.theme],['rg-recherche',REGLAGES.recherche]].forEach(([id,v])=>
     document.querySelectorAll('#'+id+' button').forEach(b=>b.setAttribute('aria-checked',String(b.dataset.v===v))));
   document.getElementById('rg-masquer').checked=REGLAGES.masquer;
+  // résumé d'une ligne sous le titre de chaque rubrique repliée
+  const resume=(id,t)=>{document.getElementById(id+'-resume').textContent=t;};
+  resume('rg-affichage',{auto:'Automatique',clair:'Clair',sombre:'Sombre'}[REGLAGES.theme]+(REGLAGES.masquer?' · montants masqués':''));
+  resume('rg-barres',REGLAGES.recherche==='bas'?'En bas':'En haut');
+  document.getElementById('rg-version').textContent='Mes comptes · version '+VERSION;
   const d=await dossierSauvegarde(),possible=choixDossierPossible();
+  resume('rg-sauvegarde',d?d.nom:'Téléchargements');
   document.getElementById('rg-dossier').textContent=d?d.nom:'Téléchargements';
   document.getElementById('rg-btns').hidden=!possible;
   document.getElementById('rg-defaut').hidden=!d;
