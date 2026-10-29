@@ -163,6 +163,68 @@
   .m-liste button>svg{width:22px;height:22px;color:var(--brand);flex:none}
   .m-liste .ml-txt{flex:1;min-width:0}
   .m-liste .ml-txt small{display:block;font-size:.8rem;color:var(--ink-2)}
+  /* Opérations sur téléphone : recherche, carte des soldes, filtres actifs, liste par jour, bouton +,
+     filtres dans une feuille qui monte du bas (ce sont les mêmes contrôles que sur PC) */
+  .m-recherche,.m-soldes,.m-filtres-actifs,.m-ops,.m-fab,.m-voile,.m-feuille-tete,.m-feuille-h,.m-mois,.m-voir{display:none}
+  body.mobile #v-registre .top,body.mobile #tiles,body.mobile .listhead,body.mobile #reg-head,body.mobile #reg-scroll,
+  body.mobile #reg-sums,body.mobile #reg-info,body.mobile #v-registre .foot,body.mobile .f-effacer{display:none}
+  body.mobile .m-recherche{display:flex;margin:0 0 10px}
+  body.mobile .m-recherche input.search{height:48px;border-radius:24px;padding-left:16px;font-size:1rem;width:100%}
+  body.mobile .m-soldes{display:block;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 16px}
+  .m-soldes .ms-k{font-size:.82rem;color:var(--ink-2)}
+  .m-soldes .ms-reel{font-size:2rem;font-weight:700;letter-spacing:-.02em;line-height:1.2}
+  .m-soldes .ms-grille{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+  .m-soldes .ms-grille>*{border:0;background:none;padding:0;text-align:left;display:block;color:var(--ink);font-size:.95rem;font-weight:600;min-height:0}
+  .m-soldes .ms-grille small{display:block;font-size:.75rem;font-weight:400;color:var(--ink-2)}
+  .m-soldes .ms-haut{display:flex;align-items:center;gap:12px}
+  .m-soldes .ms-haut>div{flex:1;min-width:0}
+  .m-soldes .ms-rapprocher{flex:none;min-height:44px;border-radius:22px;padding:0 16px;font-weight:600}
+  body.mobile .m-filtres-actifs{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 0 2px}
+  .m-puce{display:inline-flex;align-items:center;gap:2px;min-height:34px;padding:0 4px 0 12px;border-radius:17px;background:var(--brand-soft);color:var(--brand);font-size:.85rem;font-weight:600;border:0}
+  .m-puce span{display:inline-flex;width:28px;height:28px;align-items:center;justify-content:center}
+  .m-filtrer{margin-left:auto;min-height:40px;border-radius:20px;font-weight:600}
+  body.mobile .m-ops{display:block;padding-bottom:76px} /* la dernière ligne passe au-dessus du bouton + */
+  .m-jour{display:flex;justify-content:space-between;font-size:.82rem;font-weight:600;color:var(--ink-2);padding:14px 2px 6px}
+  .m-jour .num{font-weight:500}
+  .m-carte{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .m-op{display:flex;align-items:stretch;min-height:62px;border-bottom:1px solid var(--line)}
+  .m-op:last-child{border-bottom:0}
+  .m-st{flex:none;width:40px;border:0;border-radius:0;background:none;padding:8px 0 8px 10px;justify-content:flex-start;min-height:0}
+  .m-st::before{content:'';display:block;width:7px;height:100%;min-height:40px;border-radius:4px;background:var(--st)}
+  .m-op-corps{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:2px;border:0;border-radius:0;
+       background:none;padding:8px 8px 8px 4px;text-align:left;color:var(--ink);min-height:0}
+  .m-op-nom{font-size:1rem;font-weight:500;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .m-op-det{font-size:.78rem;color:var(--ink-2);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .m-op-mt{flex:none;align-self:center;padding:0 14px 0 4px;font-size:1rem;font-weight:600}
+  .m-op.ann .m-op-nom,.m-op.ann .m-op-mt{text-decoration:line-through;color:var(--ink-3)}
+  .m-op.prev .m-op-mt{color:var(--st)}
+  .m-vide{text-align:center;color:var(--ink-2);padding:28px 10px}
+  .m-plus-ops{display:flex;width:100%;justify-content:center;margin:12px 0;min-height:46px}
+  body.mobile #v-registre.on .m-fab{display:flex}
+  /* bandeau « Nouvelle version » : au-dessus des onglets, et le bouton + au-dessus du bandeau */
+  body.mobile .maj-appli{bottom:calc(84px + env(safe-area-inset-bottom, 0px))}
+  body.mobile.maj-appli-visible .m-fab{bottom:calc(220px + env(safe-area-inset-bottom, 0px))}
+  .m-fab{position:fixed;right:18px;bottom:calc(96px + env(safe-area-inset-bottom, 0px));z-index:14;width:60px;height:60px;border-radius:18px;border:0;
+       background:var(--brand);color:#fff;align-items:center;justify-content:center;box-shadow:0 6px 18px rgba(15,110,86,.35);padding:0}
+  body.mobile #v-registre .bar{position:fixed;left:0;right:0;bottom:0;z-index:38;margin:0;background:var(--card);border-radius:24px 24px 0 0;
+       padding:8px 20px calc(18px + env(safe-area-inset-bottom, 0px));max-height:88vh;overflow-y:auto;flex-direction:column;align-items:stretch;gap:10px;
+       box-shadow:0 -8px 30px rgba(0,0,0,.2);transform:translateY(105%);visibility:hidden;transition:transform .2s ease,visibility .2s}
+  body.mobile.filtres-ouverts #v-registre .bar{transform:none;visibility:visible}
+  body.mobile.filtres-ouverts .m-voile{display:block;position:fixed;inset:0;z-index:37;background:rgba(15,20,18,.45)}
+  body.mobile .m-feuille-tete{display:flex;align-items:center;justify-content:space-between;position:relative;padding-top:14px}
+  .m-feuille-tete h2{margin:0;font-size:1.25rem}
+  .m-poignee{position:absolute;top:0;left:50%;transform:translateX(-50%);width:36px;height:4px;border-radius:2px;background:var(--line-2)}
+  body.mobile .m-feuille-h{display:block;font-size:.82rem;font-weight:600;color:var(--ink-2);margin-top:6px}
+  body.mobile .m-mois{display:flex;align-items:center;gap:8px}
+  .m-mois button{width:48px;height:48px;border-radius:24px;justify-content:center;padding:0;flex:none}
+  .m-mois .m-mois-nom{flex:1;width:auto;border-radius:12px;font-size:1rem;font-weight:600}
+  .m-mois .m-mois-nom.on{background:var(--brand);border-color:var(--brand);color:#fff}
+  body.mobile #v-registre .fstatuts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  body.mobile #v-registre .schip{min-height:46px;display:flex;align-items:center;justify-content:center;font-size:.92rem;border-radius:12px}
+  body.mobile #f-horizon{height:48px;font-size:.95rem}
+  body.mobile #v-registre .periode{display:flex;flex-wrap:wrap;gap:8px}
+  body.mobile #v-registre .pchip{min-height:42px;padding:0 14px;font-size:.92rem;border-radius:21px}
+  body.mobile .m-voir{display:flex;justify-content:center;min-height:52px;font-size:1rem;margin-top:8px;border-radius:14px}
   .m-version{text-align:center;font-size:.8rem;color:var(--ink-2);margin:18px 0 0}
 
   /* Réglages */

@@ -196,3 +196,25 @@ test('catégories : une sous-catégorie n\'est gardée que si elle appartient à
   assert.equal(app.sousCatValide('Loisirs', 'Courses'), false);
   assert.equal(app.sousCatValide('Loisirs', ''), true);
 });
+
+test('téléphone : titres des jours de la liste', () => {
+  const auj = new Date(2026, 9, 26, 10);
+  assert.equal(app.libJour('2026-10-26', auj), 'Aujourd’hui');
+  assert.equal(app.libJour('2026-10-25', auj), 'Hier');
+  assert.equal(app.libJour('2026-10-27', auj), 'Demain');
+  assert.equal(app.libJour('2026-10-23', auj), 'Vendredi 23 octobre');
+  assert.equal(app.libJour('2025-12-31', auj), 'Mercredi 31 décembre 2025');
+});
+
+test('téléphone : mois du filtre, ‹ et ›', () => {
+  const auj = new Date(2026, 9, 26);
+  assert.equal(app.moisDecale('tout', -1, auj), 'moisdernier');   // depuis « Tout » : le mois avant celui en cours
+  assert.equal(app.moisDecale('tout', 0, auj), 'mois');
+  assert.equal(app.moisDecale('moisdernier', -1, auj), 'm:2026-08');
+  assert.equal(app.moisDecale('m:2026-08', 1, auj), 'moisdernier');
+  assert.equal(app.moisDecale('m:2026-01', -1, auj), 'm:2025-12');
+  assert.equal(app.moisDecale('mois', 1, auj), 'm:2026-11');
+  assert.equal(app.libellePeriode('m:2025-12', auj), 'Décembre 2025');
+  assert.equal(app.libellePeriode('mois', auj), 'Octobre 2026');
+  assert.equal(app.libellePeriode('annee', auj), 'Cette année');
+});

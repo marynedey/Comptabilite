@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.4.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.5.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -109,11 +109,13 @@ async function verifierMajAppli(){
   catch(e){majAppliVue=0;return;} // hors ligne : on réessaiera au prochain retour dans l'appli
   majAppli=majAppliDisponible(info,VERSION);
   const b=document.getElementById('maj-appli');
-  if(!majAppli||majAppliPlusTard===majAppli.version){b.hidden=true;return;}
+  if(!majAppli||majAppliPlusTard===majAppli.version){b.hidden=true;document.body.classList.remove('maj-appli-visible');return;}
   document.getElementById('maj-appli-v').textContent=majAppli.version;b.hidden=false;
+  document.body.classList.add('maj-appli-visible'); // sur téléphone, le bouton + remonte au-dessus du bandeau
 }
 function plusTardMajAppli(){ // reproposée au prochain lancement de l'appli
-  if(majAppli)majAppliPlusTard=majAppli.version;document.getElementById('maj-appli').hidden=true;}
+  if(majAppli)majAppliPlusTard=majAppli.version;document.getElementById('maj-appli').hidden=true;
+  document.body.classList.remove('maj-appli-visible');}
 async function installerMajAppli(){
   if(!majAppli)return;
   try{
@@ -136,6 +138,7 @@ async function demarrerAppli(){
   ['fileDb','fileQif','fileAmex'].forEach(id=>{const i=document.getElementById(id);if(i)i.removeAttribute('accept');});
   Capacitor.nativeCallback('App','addListener',{eventName:'backButton'},d=>{
     if(dlgResolve){dlgClose(false);return;}         // une fenêtre ouverte : Retour la ferme
+    if(fermerFeuilles())return;                     // filtres, liste des comptes, fiche d'une opération
     if(d&&d.canGoBack)history.back();else demanderQuitter();});
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)verifierMajAppli();});
   verifierMajAppli();
@@ -469,6 +472,115 @@ function renderPlus(){
   document.getElementById('plus-groupes').innerHTML=groupes.map(([h,l])=>'<h2 class="m-groupe-h">'+h+'</h2><div class="m-liste">'+l.join('')+'</div>').join('');
   document.getElementById('plus-version').textContent='Mes comptes · version '+VERSION;
 }
+/* ---------- Opérations sur téléphone ----------
+   Mêmes filtres que sur PC (barre #f-zone, présentée en feuille qui monte du bas) ; liste par jour avec,
+   à gauche, la barre de statut qu'on touche pour pointer / dépointer ; recherche directement dans l'écran. */
+const MOBILE_PAR_LOT=60;
+const JOURS_FR=['dimanche','lundi','mardi','mercredi','jeudi','vendredi','samedi'];
+const majuscule=t=>t.charAt(0).toUpperCase()+t.slice(1);
+/* titre d'un jour dans la liste : Aujourd'hui, Hier, Demain, ou « Jeudi 23 octobre » (+ l'année si ce n'est pas la même) */
+function libJour(iso,aujourdhui){
+  const d=new Date(iso+'T00:00:00'),a=new Date(aujourdhui.getFullYear(),aujourdhui.getMonth(),aujourdhui.getDate());
+  const ecart=Math.round((d-a)/86400000);
+  if(ecart===0)return 'Aujourd’hui';if(ecart===-1)return 'Hier';if(ecart===1)return 'Demain';
+  return majuscule(JOURS_FR[d.getDay()])+' '+d.getDate()+' '+MOIS_FR[d.getMonth()]+(d.getFullYear()!==a.getFullYear()?' '+d.getFullYear():'');
+}
+/* mois affiché par le sélecteur ‹ › du filtre : celui de la période choisie, sinon le mois en cours */
+function moisDePeriode(v,aujourdhui){
+  if(v&&v.indexOf('m:')===0){const p=v.slice(2).split('-');return new Date(+p[0],+p[1]-1,1);}
+  if(v==='moisdernier')return new Date(aujourdhui.getFullYear(),aujourdhui.getMonth()-1,1);
+  return new Date(aujourdhui.getFullYear(),aujourdhui.getMonth(),1);
+}
+const estPeriodeMois=v=>v==='mois'||v==='moisdernier'||(!!v&&v.indexOf('m:')===0);
+/* ‹ / › : mois précédent / suivant de celui affiché (0 = ce mois-là) ; le mois en cours et le précédent
+   gardent leurs puces « Ce mois » et « Mois −1 » */
+function moisDecale(v,delta,aujourdhui){
+  const b=moisDePeriode(v,aujourdhui),d=new Date(b.getFullYear(),b.getMonth()+delta,1);
+  const ecart=(d.getFullYear()-aujourdhui.getFullYear())*12+d.getMonth()-aujourdhui.getMonth();
+  if(ecart===0)return 'mois';if(ecart===-1)return 'moisdernier';
+  return 'm:'+d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+}
+const nomMois=d=>majuscule(MOIS_FR[d.getMonth()])+' '+d.getFullYear();
+/* texte de la puce de période */
+function libellePeriode(v,aujourdhui,du,au){
+  if(estPeriodeMois(v))return nomMois(moisDePeriode(v,aujourdhui));
+  return {'3mois':'3 derniers mois',annee:'Cette année',perso:'Du '+(du||'…')+' au '+(au||'…')}[v]||'';
+}
+function moisFiltre(delta){
+  const v=document.getElementById('f-periode').value;
+  setPeriode('f',moisDecale(v,delta,new Date()));
+}
+function ouvrirFiltres(){document.body.classList.add('filtres-ouverts');}
+function fermerFiltres(){document.body.classList.remove('filtres-ouverts');}
+/* Retour d'Android : ferme d'abord ce qui est ouvert par-dessus l'écran */
+function fermerFeuilles(){
+  if(document.body.classList.contains('filtres-ouverts')){fermerFiltres();return true;}
+  const l=document.getElementById('m-comptes');if(l&&!l.hidden){fermerListeComptes();return true;}
+  const ov=document.getElementById('overlay');if(ov&&ov.classList.contains('show')){closeModal();return true;}
+  return false;
+}
+/* puces des filtres actifs (✕ pour retirer) ; la recherche a sa propre barre */
+function filtresActifsMobile(){
+  const out=[],per=document.getElementById('f-periode').value;
+  if(per&&per!=='tout')out.push([libellePeriode(per,new Date(),document.getElementById('f-from').value,document.getElementById('f-to').value),"setPeriode('f','tout')"]);
+  const ch=statutsChips(),on=ch.filter(c=>c.classList.contains('on'));
+  if(on.length<ch.length)out.push([on.length?on.map(c=>c.textContent).join(', '):'Aucun statut','setStatutsTous();goPage(1)']);
+  const hz=document.getElementById('f-horizon').value;
+  if(hz!=='finmois')out.push([document.getElementById('f-horizon').selectedOptions[0].textContent,"document.getElementById('f-horizon').value='finmois';goPage(1)"]);
+  if(state.fSens)out.push([majuscule(SENS_LIB[state.fSens]),'setFSens(null)']);
+  if(state.fCat)out.push(['Catégorie : '+state.fCat,'retirerFiltreCat()']);
+  return out;
+}
+function renderOperationsMobile(){
+  const a=state.acc,r=soldesCompte(a),hz=document.getElementById('f-horizon').value;
+  document.getElementById('m-soldes').innerHTML=
+    '<div class="ms-haut"><div><div class="ms-k">Solde réel aujourd’hui</div><div class="ms-reel num">'+eur(r.reel)+'</div></div>'+
+      '<button class="ms-rapprocher" onclick="ouvrirRapprochement()" aria-label="Rapprocher les opérations pointées">Rapprocher</button></div>'+
+    '<div class="ms-grille">'+
+      '<div><small>Rapproché</small><span class="num">'+eur(r.rap)+'</span></div>'+
+      '<div><small>'+(hz==='masque'?'Sans prévisionnel':hz==='3'?'Dans 3 jours':hz==='finmoisprochain'?'Fin du mois prochain':'Fin du mois')+'</small>'+
+        '<span class="num" style="color:var(--st-prev)">'+eur(r.reel+r.prv)+'</span></div>'+
+      '<button onclick="filtreAttente()" aria-label="Afficher les opérations à pointer"><small>À pointer</small><span style="color:var(--st-non)">'+r.npt+'</span></button>'+
+    '</div>';
+  const actifs=filtresActifsMobile();
+  document.getElementById('m-filtres-actifs').innerHTML=actifs.map(([t,f])=>
+      '<span class="m-puce">'+esc(t)+'<button class="ghost" style="padding:0;min-height:0;border:0;background:none;color:inherit" aria-label="Retirer le filtre '+esc(t)+'" onclick="'+f+'"><span>✕</span></button></span>').join('')+
+    '<button class="m-filtrer" onclick="ouvrirFiltres()">Filtrer'+(actifs.length?' · '+actifs.length:'')+'</button>';
+  // la liste
+  const p={};const w=buildWhere(p);
+  const total=scal('SELECT COUNT(*) FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id'+w,p)||0;
+  const lim=state.mLimite||MOBILE_PAR_LOT;
+  const rows=qy(`WITH bal AS (SELECT id, SUM(montant) OVER (ORDER BY date_operation,id) cum
+      FROM operation WHERE compte_id=$acc AND supprime=0 AND statut<>'annule')
+    SELECT o.id,o.date_operation d,o.montant m,o.statut st,o.previsionnel pv,o.cat_path cat,t.nom dest,
+      (SELECT solde_initial FROM compte WHERE id=$acc)+b.cum solde
+    FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id LEFT JOIN bal b ON b.id=o.id
+    `+w+` ORDER BY `+orderClause()+` LIMIT $lim`,Object.assign({},p,{$lim:lim}));
+  const auj=new Date(),parJour=state.sort==='date';
+  let html='',jour=null;
+  rows.forEach(o=>{
+    const stt=o.st==='annule'?'annule':(o.pv?'previsionnel':o.st),m=META[stt]||META.non_pointe;
+    if(parJour&&o.d!==jour){
+      if(jour!==null)html+='</div>';
+      jour=o.d;
+      html+='<div class="m-jour"><span>'+libJour(o.d,auj)+'</span><span class="num">'+(o.solde==null||stt==='annule'?'':eur(o.solde))+'</span></div><div class="m-carte">';
+    }else if(!parJour&&jour===null){jour='';html+='<div class="m-carte">';}
+    const action=stt==='previsionnel'?'confirmer':o.st==='pointe'?'dépointer':o.st==='non_pointe'?'pointer':'';
+    html+='<div class="m-op'+(stt==='previsionnel'?' prev':stt==='annule'?' ann':'')+'" style="--st:'+m.col+'">'+
+      '<button class="m-st" onclick="togglePointe('+o.id+',event)" aria-label="'+m.label+(action?' — toucher pour '+action:'')+'"></button>'+
+      '<button class="m-op-corps" onclick="openModal('+o.id+')"><span class="m-op-nom">'+esc(o.dest||'(sans destinataire)')+'</span>'+
+        '<span class="m-op-det">'+(parJour?'':isoToFr(o.d)+' · ')+esc(o.cat||'')+' · '+m.label.toLowerCase()+'</span></button>'+
+      '<span class="m-op-mt num '+(o.m<0?'':'credit')+'">'+(o.m>0?'+':'')+eur(o.m)+'</span></div>';
+  });
+  if(rows.length)html+='</div>';
+  else html='<div class="m-vide">Aucune opération ne correspond à ces filtres.'+(actifs.length||document.getElementById('f-search').value?'<br><button class="ghost" style="margin-top:8px" onclick="resetFilters()">Effacer les filtres</button>':'')+'</div>';
+  if(total>rows.length)html+='<button class="m-plus-ops" onclick="state.mLimite=(state.mLimite||MOBILE_PAR_LOT)+MOBILE_PAR_LOT;renderRegistre()">Voir plus ('+(total-rows.length).toLocaleString('fr-FR')+' de plus)</button>';
+  document.getElementById('m-ops').innerHTML=html;
+  // feuille des filtres : mois choisi, nombre d'opérations
+  const per=document.getElementById('f-periode').value,mn=document.getElementById('m-mois-nom');
+  mn.textContent=nomMois(moisDePeriode(per,auj));mn.classList.toggle('on',estPeriodeMois(per));
+  document.getElementById('m-voir').textContent=total?'Voir '+total.toLocaleString('fr-FR')+' opération'+(total>1?'s':''):'Aucune opération';
+}
 /* ---------- une seule fenêtre à la fois (PC) ----------
    Chaque fenêtre garde sa copie de la base en mémoire et la réécrit en entier : deux fenêtres (ou onglets)
    ouvertes en même temps s'écraseraient. La 2e n'ouvre pas la base : elle dit « déjà ouvert », peut faire
@@ -500,7 +612,12 @@ function repondreAuSigne(){ // fenêtre active : se mettre au premier plan si le
     if(n>12||document.hasFocus()){clearInterval(_clignote);document.title=titre;}},700);
 }
 async function boot(){
-  if(estTelephone())document.body.classList.add('mobile');
+  if(estTelephone()){
+    document.body.classList.add('mobile');
+    // la recherche des opérations est directement dans l'écran (pas dans la feuille des filtres)
+    const rch=document.getElementById('f-search');document.getElementById('m-recherche').appendChild(rch.parentElement);
+    rch.placeholder='Rechercher (destinataire, catégorie, montant…)';
+  }
   if(!(await prendreLaFenetre())){dejaOuvert();return;}
   if(canalFenetre)canalFenetre.onmessage=e=>{if(e.data==='montre-toi')repondreAuSigne();};
   busy('Démarrage du moteur…');
@@ -841,7 +958,7 @@ function buildWhere(params){
   }
   return w;
 }
-function goPage(p){state.page=Math.max(1,p||1);renderRegistre();syncHist();}
+function goPage(p){state.page=Math.max(1,p||1);if(state.page===1)state.mLimite=MOBILE_PAR_LOT;renderRegistre();syncHist();}
 const COL_DEF=[18,120,100,null,150,150,160];
 const COL_DEST_MIN=180; // largeur minimale de la colonne Destinataire avant défilement horizontal
 function appliquerLargeurs(){
@@ -931,14 +1048,19 @@ function filtreAttente(){const chips=statutsChips();
 function setSort(k){if(state.sort===k)state.dir*=-1;else{state.sort=k;state.dir=k==='date'?-1:1;}goPage(1);}
 
 function _hmPrv(){const hm=horizonMax();return hm==='MASQUE'?'0000-00-00':hm;} // MASQUE -> aucune prévisionnelle
-function tiles(){
-  const a=state.acc;
-  const r=qy(`SELECT
+/* soldes d'un compte : rapproché, réel, en attente, prévisionnel à venir (jusqu'à l'horizon choisi), nombre à pointer */
+function soldesCompte(a){
+  return qy(`SELECT
     (SELECT solde_initial FROM compte WHERE id=$a)+COALESCE(SUM(CASE WHEN statut='rapproche' THEN montant END),0) rap,
     (SELECT solde_initial FROM compte WHERE id=$a)+COALESCE(SUM(CASE WHEN statut IN('non_pointe','pointe','rapproche') AND previsionnel=0 AND date_operation<=$t THEN montant END),0) reel,
     COALESCE(SUM(CASE WHEN statut IN('non_pointe','pointe') AND previsionnel=0 THEN montant END),0) att,
-    COALESCE(SUM(CASE WHEN statut<>'annule' AND (previsionnel=1 OR date_operation>$t) AND ($hm IS NULL OR date_operation<=$hm) THEN montant END),0) prv
+    COALESCE(SUM(CASE WHEN statut<>'annule' AND (previsionnel=1 OR date_operation>$t) AND ($hm IS NULL OR date_operation<=$hm) THEN montant END),0) prv,
+    COUNT(CASE WHEN statut='non_pointe' AND previsionnel=0 THEN 1 END) npt
     FROM operation o WHERE compte_id=$a AND supprime=0`,{$a:a,$hm:_hmPrv(),$t:todayISO()})[0];
+}
+function tiles(){
+  const a=state.acc;
+  const r=soldesCompte(a);
   const cards=[
     {k:'Solde rapproché',v:eur(r.rap),c:'var(--ink)',d:'Confirmé par la banque'},
     {k:'Solde réel',v:eur(r.reel),c:'var(--ink)',d:'Tout jusqu’à aujourd’hui'},
@@ -971,6 +1093,7 @@ function orderClause(){
 }
 function renderRegistre(){
   if(!state.acc)return;
+  if(document.body.classList.contains('mobile')){renderOperationsMobile();return;}
   tiles();head();
   const p={};const w=buildWhere(p);
   const total=scal('SELECT COUNT(*) FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id'+w,p)||0;

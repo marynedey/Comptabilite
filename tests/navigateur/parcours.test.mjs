@@ -57,8 +57,8 @@ const aJour = page => page.waitForFunction(() => /À jour/.test(document.getElem
 const demarree = page => page.waitForFunction(() => /opérations/.test(document.getElementById('brandver')?.textContent || ''), null, { timeout: 30000 });
 const swActif = page => page.evaluate(async () => { await navigator.serviceWorker.ready; return !!navigator.serviceWorker.controller; });
 
-// La fenêtre place le curseur dans « Destinataire » 30 ms après s'être ouverte (PC) : attendre ce moment,
-// sinon ce placement peut arriver en pleine saisie et le texte part dans le mauvais champ.
+/* La fenêtre d'opération place le curseur dans « Destinataire » 30 ms après son ouverture (sauf écran tactile) :
+   taper avant ferait atterrir le texte dans le mauvais champ (un humain n'est jamais aussi rapide). */
 async function fenetreOperationPrete(page) {
   await page.locator('#overlay #i-dest').waitFor({ state: 'visible' });
   await page.waitForFunction(() => ecranTactile() || document.activeElement === document.getElementById('i-dest'));
@@ -253,6 +253,23 @@ test('appli Android : bienvenue, pas de service worker, sauvegarde native, mise 
   } finally { await navigateur.close(); }
 });
 
+test('appli Android : Retour ferme d\'abord la feuille des filtres, puis la fiche d\'une opération', async () => {
+  const { navigateur, page } = await ouvrirAppli();
+  try {
+    await page.click('#dlgFoot button:has-text("Plus tard")');
+    await page.click('.m-filtrer');
+    await page.locator('#f-zone').waitFor({ state: 'visible' });
+    await page.evaluate(() => window.__retourAndroid({ canGoBack: true }));
+    await page.locator('#f-zone').waitFor({ state: 'hidden' });
+    await page.click('#m-ajouter');
+    await page.locator('#overlay #i-dest').waitFor({ state: 'visible' });
+    await page.evaluate(() => window.__retourAndroid({ canGoBack: true }));
+    await page.locator('#overlay #i-dest').waitFor({ state: 'hidden' });
+    assert.equal(await page.isVisible('#v-registre'), true);
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
 test('appli Android : sauvegarde refusée par Android → pas comptée comme faite', async () => {
   const { navigateur, page } = await ouvrirAppli();
   try {
@@ -392,6 +409,87 @@ test('téléphone : écran Plus — sauvegarde en attente, sauvegarder, outils',
     for (const nom of ['Pointer avec un relevé PDF', 'Importer un fichier QIF', 'Évolution du solde', 'Tiers', 'Corbeille', 'Charger une sauvegarde', 'Réglages', 'Annuler la dernière modification'])
       assert.equal(await page.isVisible(`#plus-groupes button:has-text("${nom}")`), true, nom);
     assert.match(await page.textContent('#plus-version'), new RegExp(VERSION.replaceAll('.', '\\.')));
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
+/* opérations d'exemple (le 26/10/2026) */
+async function opsExemple(page) {
+  await page.evaluate(() => {
+    const ins = (d, m, dest, cat, st, pv) => run("INSERT INTO operation(compte_id,date_operation,montant,cat_path,statut,supprime,previsionnel,tiers_id,hay) VALUES(?,?,?,?,?,0,?,?,?)",
+      [state.acc, d, m, cat, st, pv, upsertTiers(dest), makeHay(dest, cat, null, '', m, d)]);
+    ins('2026-10-26', -450, 'Boulangerie', 'Alimentation', 'non_pointe', 0);
+    ins('2026-10-26', 210000, 'Salaire', 'Revenus', 'pointe', 0);
+    ins('2026-10-25', -5830, 'Supermarché', 'Alimentation : Courses', 'rapproche', 0);
+    ins('2026-10-28', -6200, 'Électricité', 'Logement', 'non_pointe', 1);
+    ins('2026-09-20', -1200, 'Pharmacie', 'Santé', 'pointe', 0);
+    invalidateCaches(); render();
+  });
+}
+const ouvrirTelephone = () => ouvrir({ ...TELEPHONE, preparer: c => c.clock.setFixedTime(new Date('2026-10-26T10:00:00')) });
+const statutDe = (page, dest) => page.evaluate(n => qy("SELECT o.statut s,o.previsionnel pv FROM operation o JOIN tiers t ON t.id=o.tiers_id WHERE t.nom=?", [n])[0], dest);
+const ligne = (page, dest) => page.locator('#m-ops .m-op', { hasText: dest });
+
+test('téléphone, opérations : liste par jour, la barre de statut à gauche pointe / dépointe', async () => {
+  const { navigateur, page } = await ouvrirTelephone();
+  try {
+    await opsExemple(page);
+    assert.deepEqual(await page.locator('#m-ops .m-jour > span:first-child').allTextContents(),
+      ['Mercredi 28 octobre', 'Aujourd’hui', 'Hier', 'Dimanche 20 septembre']);
+    assert.match(await page.textContent('#m-soldes'), /2\s025,20\s€/); // solde réel
+    // « Rapprocher » à droite du solde réel, sur la même ligne
+    const solde = await page.locator('#m-soldes .ms-reel').boundingBox(), rap = await page.locator('#m-soldes .ms-rapprocher').boundingBox();
+    assert.ok(rap.x > solde.x + solde.width - 1 && rap.y < solde.y + solde.height && rap.y + rap.height > solde.y, 'Rapprocher à droite du solde');
+    await ligne(page, 'Boulangerie').locator('.m-st').click();
+    assert.equal((await statutDe(page, 'Boulangerie')).s, 'pointe');
+    await ligne(page, 'Boulangerie').locator('.m-st').click();
+    assert.equal((await statutDe(page, 'Boulangerie')).s, 'non_pointe');
+    await ligne(page, 'Supermarché').locator('.m-st').click(); // rapprochée : verrouillée
+    assert.equal((await statutDe(page, 'Supermarché')).s, 'rapproche');
+    assert.match(await page.textContent('#toast'), /déjà rapprochée/);
+    await ligne(page, 'Électricité').locator('.m-st').click(); // prévisionnelle : confirmée
+    assert.equal((await statutDe(page, 'Électricité')).pv, 0);
+    // toucher la ligne ouvre l'opération ; le bouton + en ajoute une
+    await ligne(page, 'Salaire').locator('.m-op-corps').click();
+    assert.equal(await page.inputValue('#i-dest'), 'Salaire');
+    await page.click('#overlay button:has-text("Annuler")');
+    await page.click('#m-ajouter');
+    assert.equal(await page.textContent('#modal-title'), 'Nouvelle opération');
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
+test('téléphone, opérations : recherche dans l\'écran, filtres dans la feuille du bas, mois ‹ ›', async () => {
+  const { navigateur, page } = await ouvrirTelephone();
+  try {
+    await opsExemple(page);
+    assert.equal(await page.isVisible('#m-recherche #f-search'), true);
+    await page.click('#f-search');                     // un vrai toucher (sans lui, l'app retire le clavier)
+    await page.keyboard.type('boul');
+    await page.waitForFunction(() => document.querySelectorAll('#m-ops .m-op').length === 1);
+    assert.match(await page.textContent('#m-ops'), /Boulangerie/);
+    await page.click('#f-clear');                      // × : effacer la recherche
+    await page.waitForFunction(() => document.querySelectorAll('#m-ops .m-op').length === 5);
+
+    assert.equal(await page.isVisible('#f-zone'), false);
+    await page.click('.m-filtrer');
+    await page.locator('#f-zone').waitFor({ state: 'visible' });
+    await page.click('#f-zone .schip[data-s="pointe"]');           // décocher « Pointé »
+    assert.match(await page.textContent('#m-voir'), /Voir 3 opérations/);
+    assert.ok((await page.locator('#m-mois').boundingBox()).y > (await page.locator('#f-statuts').boundingBox()).y, 'mois avec la période, sous les statuts');
+    await page.click('#m-mois button[aria-label="Mois précédent"]'); // septembre
+    assert.match(await page.textContent('#m-mois-nom'), /Septembre 2026/);
+    await page.click('#f-zone .schip[data-s="pointe"]');           // recocher
+    await page.click('#m-voir');
+    await page.locator('#f-zone').waitFor({ state: 'hidden' });
+    assert.deepEqual(await page.locator('#m-filtres-actifs .m-puce').allTextContents(), ['Septembre 2026✕']);
+    assert.match(await page.textContent('.m-filtrer'), /Filtrer · 1/);
+    assert.deepEqual(await page.locator('#m-ops .m-op-nom').allTextContents(), ['Pharmacie']);
+    await page.click('#m-filtres-actifs button[aria-label="Retirer le filtre Septembre 2026"]');
+    assert.equal(await page.locator('#m-ops .m-op').count(), 5);
+    // « À pointer » de la carte des soldes : seulement les non pointées
+    await page.click('#m-soldes button[aria-label="Afficher les opérations à pointer"]');
+    assert.deepEqual(await page.locator('#m-ops .m-op-nom').allTextContents(), ['Boulangerie']);
     assert.deepEqual(page.erreurs, []);
   } finally { await navigateur.close(); }
 });

@@ -75,12 +75,19 @@
       </div>
     </div>
     <div class="tiles" id="tiles"></div>
-    <div class="bar">
+    <div class="m-recherche" id="m-recherche"></div>
+    <div class="m-soldes" id="m-soldes"></div>
+    <div class="m-filtres-actifs" id="m-filtres-actifs"></div>
+    <div class="m-ops" id="m-ops"></div>
+    <button class="m-fab" id="m-ajouter" onclick="openModal(null)" aria-label="Ajouter une opération"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+    <div class="bar" id="f-zone" role="dialog" aria-label="Filtrer les opérations">
+      <div class="m-feuille-tete"><span class="m-poignee" aria-hidden="true"></span><h2>Filtrer</h2><button class="ghost" onclick="resetFilters()">Tout effacer</button></div>
       <span style="position:relative;flex:1;min-width:180px;display:flex">
         <input class="search" id="f-search" type="text" style="flex:1;padding-right:30px" placeholder="Rechercher partout (destinataire, catégorie, montant, n°, date…)" onkeydown="if(event.key==='Escape'&&this.value){event.preventDefault();event.stopPropagation();this.value='';goPage(1);}">
         <button id="f-clear" title="Effacer la recherche (Échap)" onclick="clearSearch()"
           style="display:none;position:absolute;right:4px;top:50%;transform:translateY(-50%);border:0;background:transparent;padding:2px 6px;font-size:1rem;line-height:1;color:var(--ink-3)">×</button>
       </span>
+      <div class="m-feuille-h">Statut</div>
       <div id="f-statuts" class="fstatuts" title="Filtrer par statut — clique pour cumuler (comme un filtre Excel)">
         <span class="schip on" data-s="non_pointe" onclick="toggleStatut(this)">Non pointé</span>
         <span class="schip on" data-s="pointe" onclick="toggleStatut(this)">Pointé</span>
@@ -88,12 +95,19 @@
         <span class="schip on" data-s="previsionnel" onclick="toggleStatut(this)">Prévisionnel</span>
         <span class="schip on" data-s="annule" onclick="toggleStatut(this)">Annulé</span>
       </div>
+      <div class="m-feuille-h">Prévisionnel affiché</div>
       <select id="f-horizon" onchange="goPage(1)" title="Jusqu’où voir les opérations prévisionnelles à venir">
         <option value="3">Prévisionnel : 3 jours</option>
         <option value="finmois" selected>Prévisionnel : fin du mois</option>
         <option value="finmoisprochain">Prévisionnel : fin du mois prochain</option>
         <option value="masque">Prévisionnel : masqué</option>
       </select>
+      <div class="m-feuille-h">Période</div>
+      <div class="m-mois" id="m-mois">
+        <button onclick="moisFiltre(-1)" aria-label="Mois précédent"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
+        <button class="m-mois-nom" id="m-mois-nom" onclick="moisFiltre(0)">—</button>
+        <button onclick="moisFiltre(1)" aria-label="Mois suivant"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+      </div>
       <span class="periode" id="f-periode-wrap">
         <input type="hidden" id="f-periode" value="tout">
         <button type="button" class="pchip on" data-m="tout" onclick="setPeriode('f','tout')">Tout</button>
@@ -106,7 +120,8 @@
       <input type="text" id="f-from" class="dt datef" style="display:none" maxlength="8" inputmode="numeric" placeholder="JJ/MM/AA" oninput="maskDate(this)" onblur="fixDate(this)">
       <span id="f-sep" style="display:none;align-self:center;color:var(--ink-3)">au</span>
       <input type="text" id="f-to" class="dt datef" style="display:none" maxlength="8" inputmode="numeric" placeholder="JJ/MM/AA" oninput="maskDate(this)" onblur="fixDate(this)">
-      <button class="ghost" onclick="resetFilters()">Effacer les filtres</button>
+      <button class="ghost f-effacer" onclick="resetFilters()">Effacer les filtres</button>
+      <button class="primary m-voir" id="m-voir" onclick="fermerFiltres()">Voir les opérations</button>
     </div>
     <div class="listhead">
       <span id="count"></span>
@@ -358,6 +373,7 @@
 <div class="busy" id="busy"><div class="bx"><div class="spin"></div><div class="bt" id="busyTxt">Traitement…</div></div></div>
 <div class="toast" id="toast"></div>
 <div class="maj" id="maj" role="status" hidden>Nouvelle version de l’application <button onclick="installerMaj()">Mettre à jour</button></div>
+<div class="m-voile" id="m-voile" onclick="fermerFiltres()"></div>
 <nav class="m-onglets" id="m-onglets" aria-label="Navigation">
   <button data-o="registre" onclick="ongletMobile('registre')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span>Opérations</span></button>
   <button data-o="analyse" onclick="ongletMobile('analyse')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 109 9h-9zM15 2.6A9 9 0 0121.4 9H15z"/></svg><span>Analyse</span></button>
