@@ -373,3 +373,21 @@ test('échéance modifiée : seules celles d\'aujourd\'hui et à venir sont refa
   assert.deepEqual([...app.qy('SELECT montant m FROM operation WHERE compte_id=? AND supprime=0 ORDER BY date_operation', [c]).map(o => o.m)], [-3000, -3500]);
   app.todayISO = avant;
 });
+
+test('échéance modifiée : une échéance passée rapprochée mais datée autrement (ou saisie à la main) n\'est pas recréée', () => {
+  const avant = app.todayISO;
+  app.todayISO = () => '2026-10-29';
+  app.run("INSERT INTO compte(nom,type,solde_initial) VALUES('Éch2','courant',0)");
+  const c = app.lastId();
+  app.run(`INSERT INTO recurrence(compte_id,type,montant,tiers,cat_path,frequence,intervalle,jour,date_debut,prochaine,creer_en)
+           VALUES(?,'debit',-5000,'Assurance','Maison','mensuelle',1,1,'2026-09-01','2026-09-01','previsionnel')`, [c]);
+  const r = app.lastId();
+  app.genererRecurrences();
+  // septembre : prélevé le 3 (date corrigée) puis rapproché ; octobre : rapproché tel quel
+  app.run("UPDATE operation SET date_operation='2026-09-03',statut='rapproche',date_modification='x' WHERE compte_id=? AND date_operation='2026-09-01'", [c]);
+  app.run("UPDATE operation SET statut='rapproche' WHERE compte_id=? AND date_operation='2026-10-01'", [c]);
+  app.regenererRecurrence(r);
+  const dates = [...app.qy('SELECT date_operation d FROM operation WHERE compte_id=? AND supprime=0 ORDER BY d', [c]).map(o => o.d)];
+  assert.deepEqual(dates, ['2026-09-03', '2026-10-01', '2026-11-01']);   // pas de « 1er septembre » en double
+  app.todayISO = avant;
+});

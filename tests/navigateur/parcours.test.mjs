@@ -62,6 +62,7 @@ const swActif = page => page.evaluate(async () => { await navigator.serviceWorke
 async function fenetreOperationPrete(page) {
   await page.locator('#overlay #i-dest').waitFor({ state: 'visible' });
   await page.waitForFunction(() => ecranTactile() || document.activeElement === document.getElementById('i-dest'));
+  if (await page.evaluate(() => ecranTactile())) await page.waitForTimeout(80); // téléphone : le curseur peut aller dans le montant
 }
 async function ajouterOperation(page, { dest, montant, date, cat }) {
   await page.keyboard.press('a');
@@ -773,7 +774,7 @@ test('téléphone, saisie : plein écran, montant en grand en haut, statut rappe
   const { navigateur, page } = await ouvrirTelephone();
   try {
     await page.click('#m-ajouter');
-    await fenetreOperationPrete(page);
+    await page.waitForFunction(() => document.activeElement && document.activeElement.id === 'i-montant');   // directement dans le montant
     const y = async sel => (await page.locator(sel).boundingBox()).y;
     assert.ok(await y('#i-montant') < await y('#seg'), 'montant au-dessus du type');
     assert.ok(await y('#seg') < await y('#i-dest'), 'type au-dessus du destinataire');

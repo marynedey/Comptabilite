@@ -3690,7 +3690,9 @@ async function editRec(id){
         state.rcVent=arr.map(l=>{const meme=(l.montant===0)||(Math.sign(l.montant)===opSign);return {cat:l.cat||'',m:(meme?'':'-')+fmt.format(Math.abs(l.montant)/100)};});
         if(vv)vv.checked=true;rcVentToggle(true);
       }}catch(e){}}
-      const vir=document.getElementById('rc-s').value==='virement';const foc=document.getElementById(vir?'rc-m':'rc-t');if(foc&&!ecranTactile())foc.focus();}});
+      // nouvelle échéance sur téléphone : directement dans le montant (le clavier des chiffres s'ouvre)
+      const vir=document.getElementById('rc-s').value==='virement',mob=document.body.classList.contains('mobile');
+      const foc=document.getElementById(vir||(mob&&!id)?'rc-m':'rc-t');if(foc&&(!ecranTactile()||!id))foc.focus();}});
   if(!ok||!data)return;
   if(id){
     run(`UPDATE recurrence SET compte_id=?,type=?,montant=?,tiers=?,cat_path=?,commentaire=?,
