@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.14.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.15.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -2597,10 +2597,11 @@ function suggestionsCategorie(niveau,valeurs,tape){
   const q=(tape||'').trim().toLowerCase();
   return catEnfants(parent).filter(x=>!q||x.toLowerCase().includes(q)).slice(0,40);
 }
-function majListeCategories(el){
-  const box=document.getElementById('cat-sugg');if(!box)return;
-  const niveau=+el.id.slice(-1),vals=[0,1,2].map(i=>document.getElementById('i-cat'+i).value.trim());
-  const items=suggestionsCategorie(niveau,vals,el.value);
+const idListeCategories=pfx=>({'i-cat':'cat-sugg','rc-c':'rc-sugg'})[pfx]||pfx+'-sugg';
+function majListeCategories(el,tout){
+  const pfx=el.id.slice(0,-1),box=document.getElementById(idListeCategories(pfx));if(!box)return;
+  const niveau=+el.id.slice(-1),vals=[0,1,2].map(i=>document.getElementById(pfx+i).value.trim());
+  const items=suggestionsCategorie(niveau,vals,tout?'':el.value);
   if(!items.length){box.hidden=true;return;}
   box.innerHTML=items.map(x=>'<button type="button" data-v="'+esc(x)+'">'+esc(x)+'</button>').join('');
   box.dataset.pour=el.id;box.hidden=false;
@@ -2608,20 +2609,23 @@ function majListeCategories(el){
   box.style.bottom=(carte.clientHeight-haut+4)+'px'; // le bas de la liste juste au-dessus du champ
   box.style.maxHeight=Math.max(120,Math.min(260,haut+carte.getBoundingClientRect().top-90))+'px';
 }
-function brancherListeCategories(){
-  const carte=document.querySelector('#cat-simple .row3');if(!carte||document.getElementById('cat-sugg'))return;
-  const box=document.createElement('div');box.id='cat-sugg';box.className='cat-sugg';box.hidden=true;carte.appendChild(box);
+/* pfx : 'i-cat' (opération) ou 'rc-c' (échéance) ; apres(niveau) : après un choix (sous-catégories à vider…) */
+function brancherListeCategories(pfx,carte,apres){
+  pfx=pfx||'i-cat';carte=carte||document.querySelector('#cat-simple .row3');apres=apres||(n=>catChangee(n));
+  const idBox=idListeCategories(pfx);
+  if(!carte||document.getElementById(idBox))return;
+  const box=document.createElement('div');box.id=idBox;box.className='cat-sugg';box.hidden=true;carte.appendChild(box);carte.classList.add('avec-sugg');
   box.addEventListener('pointerdown',e=>e.preventDefault()); // le champ garde le clavier
   box.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
-    const el=document.getElementById(box.dataset.pour);if(!el)return;
+    const el=document.getElementById(box.dataset.pour);if(!el)return;const n=+el.id.slice(-1);
     el.value=b.dataset.v;delete el.dataset.avant;if(el.dataset.indice!==undefined){el.placeholder=el.dataset.indice;delete el.dataset.indice;}
-    box.hidden=true;catChangee(+el.id.slice(-1));
-    const suivant=document.getElementById('i-cat'+(+el.id.slice(-1)+1));
-    if(suivant&&catEnfants([0,1,2].slice(0,+el.id.slice(-1)+1).map(i=>document.getElementById('i-cat'+i).value.trim()).join(' : ')).length)suivant.focus();
+    box.hidden=true;apres(n);
+    const suivant=document.getElementById(pfx+(n+1));
+    if(suivant&&catEnfants([0,1,2].slice(0,n+1).map(i=>document.getElementById(pfx+i).value.trim()).join(' : ')).length)suivant.focus();
     else el.blur();});
-  [0,1,2].forEach(i=>{const el=document.getElementById('i-cat'+i);
+  [0,1,2].forEach(i=>{const el=document.getElementById(pfx+i);if(!el)return;
     el.removeAttribute('list');
-    el.addEventListener('focus',()=>majListeCategories(el));
+    el.addEventListener('focus',()=>majListeCategories(el,pfx!=='i-cat'));
     el.addEventListener('input',()=>majListeCategories(el));
     el.addEventListener('blur',()=>setTimeout(()=>{if(document.activeElement!==el&&box.dataset.pour===el.id)box.hidden=true;},150));});
 }
@@ -3424,12 +3428,16 @@ async function demanderDate(titre,defISO){
    on supprime les échéances encore intactes (non pointées, non modifiées, non rapprochées),
    on repositionne la prochaine échéance sur la date de début, puis on régénère.
    Les opérations déjà pointées/rapprochées/ventilées à la main sont conservées. */
+/* échéance modifiée : seules les échéances d'aujourd'hui et à venir sont refaites. Le passé reste tel quel, même
+   non pointé : sinon une échéance passée supprimée ou déplacée à une autre date revenait (« 1er septembre » créé
+   en octobre). */
+function prochaineDepuis(r,auj){let d=r.date_debut,g=0;while(d&&d<auj&&g<2000){d=avancerDate(d,r.frequence,r.jour,r.intervalle);g++;}return d;}
 function regenererRecurrence(id){
-  run(`DELETE FROM ventilation WHERE operation_id IN
-       (SELECT id FROM operation WHERE recurrence_id=? AND statut='non_pointe' AND supprime=0 AND date_modification IS NULL)`,[id]);
-  run("DELETE FROM operation WHERE recurrence_id=? AND statut='non_pointe' AND supprime=0 AND date_modification IS NULL",[id]);
-  const r=qy('SELECT date_debut FROM recurrence WHERE id=?',[id])[0];
-  if(r)run('UPDATE recurrence SET prochaine=? WHERE id=?',[r.date_debut,id]);
+  const auj=todayISO(),w="recurrence_id=? AND statut='non_pointe' AND supprime=0 AND date_modification IS NULL AND date_operation>=?";
+  run('DELETE FROM ventilation WHERE operation_id IN (SELECT id FROM operation WHERE '+w+')',[id,auj]);
+  run('DELETE FROM operation WHERE '+w,[id,auj]);
+  const r=qy('SELECT * FROM recurrence WHERE id=?',[id])[0];
+  if(r)run('UPDATE recurrence SET prochaine=? WHERE id=?',[prochaineDepuis(r,auj),id]);
   return genererRecurrences();
 }
 function recSort(col){
@@ -3610,22 +3618,22 @@ async function editRec(id){
     '</div>'+
     '<datalist id="rc-l0">'+dl(0)+'</datalist><datalist id="rc-l1">'+dl(1)+'</datalist><datalist id="rc-l2">'+dl(2)+'</datalist>'+
     '<div class="row3">'+
-      '<div class="field"><label>Montant (\u20ac)</label><input id="rc-m" inputmode="decimal" value="'+esc(mt)+'" oninput="if(document.getElementById(&#39;rc-vent&#39;).checked)rcVentTotal()"></div>'+
-      '<div class="field"><label id="rc-cpt-lbl">Compte</label><select id="rc-cpt">'+optC+'</select></div>'+
+      '<div class="field rc-f-montant"><label for="rc-m">Montant (\u20ac)</label><input id="rc-m" inputmode="decimal" value="'+esc(mt)+'" oninput="if(document.getElementById(&#39;rc-vent&#39;).checked)rcVentTotal()"></div>'+
+      '<div class="field rc-f-compte"><label id="rc-cpt-lbl">Compte</label><select id="rc-cpt">'+optC+'</select></div>'+
       '<div class="field" id="rc-vir-field" style="display:none"><label>Compte de destination</label><select id="rc-vircompte">'+optVir+'</select></div>'+
     '</div>'+
     '<div class="row2">'+
-      '<div class="field"><label>Fr\u00e9quence</label><select id="rc-f" onchange="rcFreqMaj()">'+optF+'</select></div>'+
+      '<div class="field rc-f-freq"><label>Fr\u00e9quence</label><select id="rc-f" onchange="rcFreqMaj()">'+optF+'</select></div>'+
       '<div class="field" id="rc-perso" style="'+(estPerso?'':'display:none')+'"><label>Tous les\u2026</label>'+
         '<div style="display:flex;gap:6px"><input id="rc-iv" inputmode="numeric" style="width:70px" value="'+(estPerso?(r.intervalle||1):'1')+'">'+
         '<select id="rc-u" style="flex:1">'+optU+'</select></div></div>'+
     '</div>'+
     '<div class="row3">'+
-      '<div class="field"><label>Premi\u00e8re \u00e9ch\u00e9ance</label><input id="rc-d" class="date datef" inputmode="numeric" maxlength="8" placeholder="JJ/MM/AA" value="'+(r?isoToShort(r.date_debut):isoToShort(todayISO()))+'" oninput="maskDate(this)" onblur="fixDate(this)"></div>'+
-      '<div class="field"><label>Fin (facultatif)</label><input id="rc-fin" class="date datef" inputmode="numeric" maxlength="8" placeholder="JJ/MM/AA" value="'+(r&&r.date_fin?isoToShort(r.date_fin):'')+'" oninput="maskDate(this)" onblur="fixDate(this)"></div>'+
-      '<div class="field"><label>Commentaire</label><input id="rc-com" value="'+esc(r&&r.commentaire?r.commentaire:'')+'"></div>'+
+      '<div class="field rc-f-debut"><label>Premi\u00e8re \u00e9ch\u00e9ance</label><input id="rc-d" class="date datef" inputmode="numeric" maxlength="8" placeholder="JJ/MM/AA" value="'+(r?isoToShort(r.date_debut):isoToShort(todayISO()))+'" oninput="maskDate(this)" onblur="fixDate(this)"></div>'+
+      '<div class="field rc-f-fin"><label>Fin (facultatif)</label><input id="rc-fin" class="date datef" inputmode="numeric" maxlength="8" placeholder="JJ/MM/AA" value="'+(r&&r.date_fin?isoToShort(r.date_fin):'')+'" oninput="maskDate(this)" onblur="fixDate(this)"></div>'+
+      '<div class="field rc-f-com"><label>Commentaire</label><input id="rc-com" value="'+esc(r&&r.commentaire?r.commentaire:'')+'"></div>'+
     '</div>'+
-    '<div style="font-size:.8rem;color:var(--ink-3)">Les \u00e9ch\u00e9ances pass\u00e9es sont g\u00e9n\u00e9r\u00e9es automatiquement jusqu\u2019\u00e0 aujourd\u2019hui (en non point\u00e9). La prochaine \u00e9ch\u00e9ance \u00e0 venir est affich\u00e9e d\u2019avance en <b>pr\u00e9visionnel</b>.</div>';
+    '<div class="rc-note" style="font-size:.8rem;color:var(--ink-3)">Les \u00e9ch\u00e9ances pass\u00e9es sont g\u00e9n\u00e9r\u00e9es automatiquement jusqu\u2019\u00e0 aujourd\u2019hui (en non point\u00e9). La prochaine \u00e9ch\u00e9ance \u00e0 venir est affich\u00e9e d\u2019avance en <b>pr\u00e9visionnel</b>.</div>';
   let data=null;
   const ok=await dlgOpen({title:id?'Modifier l’opération récurrente':'Nouvelle opération récurrente',msg:'',html,wide:true,
     buttons:[{t:'Annuler',v:false},{t:'Enregistrer',v:true,p:true,before:()=>{
@@ -3671,6 +3679,9 @@ async function editRec(id){
         creer_en:'previsionnel',ventil:ventil?JSON.stringify(ventil):null,compte_cible:null};
     }}],
     onOpen:()=>{majSousCatsRec();rcFreqMaj();rcSensMaj();
+      if(document.body.classList.contains('mobile')){ // téléphone : même liste de catégories que la saisie d'une opération
+        brancherListeCategories('rc-c',document.querySelector('#rc-cat-simple .row3'),()=>majSousCatsRec());
+        document.querySelector('#dlgBack .dlg').scrollTop=0;}
       state.rcVent=null;const vv=document.getElementById('rc-vent');if(vv)vv.checked=false;
       const cs=document.getElementById('rc-cat-simple'),vb=document.getElementById('rc-vent-box');
       if(cs)cs.style.display='';if(vb)vb.style.display='none';
@@ -3679,7 +3690,7 @@ async function editRec(id){
         state.rcVent=arr.map(l=>{const meme=(l.montant===0)||(Math.sign(l.montant)===opSign);return {cat:l.cat||'',m:(meme?'':'-')+fmt.format(Math.abs(l.montant)/100)};});
         if(vv)vv.checked=true;rcVentToggle(true);
       }}catch(e){}}
-      const vir=document.getElementById('rc-s').value==='virement';const foc=document.getElementById(vir?'rc-m':'rc-t');if(foc)foc.focus();}});
+      const vir=document.getElementById('rc-s').value==='virement';const foc=document.getElementById(vir?'rc-m':'rc-t');if(foc&&!ecranTactile())foc.focus();}});
   if(!ok||!data)return;
   if(id){
     run(`UPDATE recurrence SET compte_id=?,type=?,montant=?,tiers=?,cat_path=?,commentaire=?,

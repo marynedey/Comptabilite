@@ -880,6 +880,28 @@ test('téléphone, gestion : renommer un tiers, fusionner une catégorie', async
   } finally { await navigateur.close(); }
 });
 
+test('téléphone, échéance : même présentation que la saisie (montant en haut, plein écran), enregistrée', async () => {
+  const { navigateur, page } = await ouvrirTelephone();
+  try {
+    await page.evaluate(() => { upsertCategorie('Loisirs : Sport');
+      run("INSERT INTO recurrence(compte_id,type,montant,tiers,cat_path,frequence,intervalle,jour,date_debut,prochaine,creer_en) VALUES(?,'debit',-3000,'Salle de sport','Loisirs : Sport','mensuelle',1,1,'2026-09-01','2026-11-01','previsionnel')", [state.acc]);
+      ongletMobile('recurrences'); });
+    await page.locator('#m-echeances .me-item', { hasText: 'Salle de sport' }).click();
+    await page.click('#dlgFoot button:has-text("Modifier")');
+    await page.locator('#rc-m').waitFor();
+    const y = async sel => (await page.locator(sel).boundingBox()).y;
+    assert.ok(await y('#rc-m') < await y('#rc-seg') && await y('#rc-seg') < await y('#rc-t') && await y('#rc-t') < await y('#rc-cpt'), 'montant, type, destinataire, puis compte');
+    assert.ok((await page.locator('#dlgBack .dlg').boundingBox()).width >= 389, 'plein écran');
+    await page.waitForFunction(() => document.getElementById('rc-sugg'));   // branchée à l'ouverture de la fenêtre
+    await page.click('#rc-c1');
+    await page.locator('#rc-sugg button:has-text("Sport")').waitFor();
+    await page.fill('#rc-m', '35');
+    await page.click('#dlgFoot button:has-text("Enregistrer")');
+    await page.waitForFunction(() => scal("SELECT montant FROM recurrence WHERE tiers='Salle de sport'") === -3500);
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
 test('deux fenêtres : la 2e dit « déjà ouvert », fait signe à la 1re, et démarre quand la 1re se ferme', async () => {
   const { navigateur, contexte, page } = await ouvrir();
   try {

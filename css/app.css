@@ -487,7 +487,7 @@
   body.mobile .vent-l .vx{min-height:44px;justify-content:center}
   body.mobile .ventfoot{flex-wrap:wrap;gap:6px}
   /* liste des catégories proposées (téléphone) : au-dessus du champ, jamais sur le clavier */
-  body.mobile #cat-simple .row3{position:relative}
+  body.mobile .row3.avec-sugg{position:relative}
   .cat-sugg{position:absolute;left:8px;right:8px;z-index:5;overflow:auto;background:var(--card);border:1px solid var(--line-2);
     border-radius:12px;box-shadow:0 -6px 20px rgba(0,0,0,.18);padding:4px}
   .cat-sugg[hidden]{display:none}
@@ -512,6 +512,48 @@
   .mg-tiers:last-child{border-bottom:0}
   .mg-tiers .me-item{flex:1;min-width:0;border-bottom:0}
   .mg-plus{font-size:1.2rem}
+  /* fenêtre d'une échéance (téléphone) : même présentation que la saisie d'une opération — plein écran, montant en
+     grand en haut, type, destinataire, catégories dans un bloc, puis compte, fréquence, dates ; Enregistrer en bas */
+  body.mobile #dlgBack:has(#rc-seg){padding:0;align-items:stretch;background:var(--paper)}
+  body.mobile .dlg:has(#rc-seg){width:100%;max-width:720px;margin:0 auto;max-height:none;height:100%;border:0;border-radius:0;background:var(--paper);
+    padding:env(safe-area-inset-top, 0px) 16px 0;display:flex;flex-direction:column;overscroll-behavior:contain}
+  body.mobile .dlg:has(#rc-seg) #dlgTitle{font-size:1.1rem;margin:14px 0 6px}
+  body.mobile .dlg:has(#rc-seg) #dlgBody{display:flex;flex-wrap:wrap;align-content:flex-start;gap:12px;flex:1 0 auto}
+  body.mobile #dlgBody:has(#rc-seg)>*{width:100%;margin:0} /* l'ordre est donné champ par champ ci-dessous */
+  body.mobile #dlgBody:has(#rc-seg) .row2,body.mobile #dlgBody:has(#rc-seg) .row3:not(#rc-cat-simple .row3){display:contents}
+  body.mobile #dlgBody:has(#rc-seg) .hint{display:none}
+  body.mobile .rc-f-montant{order:1;width:100%;margin:0;display:flex;flex-direction:column;align-items:center;gap:2px}
+  body.mobile .rc-f-montant label{font-size:.82rem;font-weight:400;color:var(--ink-2);margin:0}
+  body.mobile #rc-m{width:240px;max-width:100%;border:0;border-bottom:2px solid var(--brand);border-radius:0;background:none;
+    font-size:2.4rem;font-weight:700;text-align:center;padding:0;height:auto;color:var(--debit)}
+  body.mobile #dlgBody:has(#rc-seg [data-t="credit"].on) #rc-m{color:var(--credit)}
+  body.mobile #dlgBody:has(#rc-seg [data-t="virement"].on) #rc-m{color:var(--ink)}
+  body.mobile #rc-seg{order:2;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));background:var(--line);border-radius:12px;padding:3px;gap:0;margin:0!important}
+  body.mobile #rc-seg button{min-height:42px;border:0;border-radius:10px;background:transparent;justify-content:center;color:var(--ink-2)}
+  body.mobile #rc-seg button.on{background:var(--brand);color:#fff;font-weight:600}
+  body.mobile #rc-dest-field{order:3}
+  body.mobile #rc-vir-field{order:4;width:100%;margin:0}
+  body.mobile #rc-cat-simple{order:5}
+  body.mobile #rc-ventchk{order:6;min-height:44px;font-size:.92rem}
+  body.mobile #rc-vent-box{order:7;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:8px 12px}
+  body.mobile .rc-f-compte{order:8;width:100%;margin:0}
+  body.mobile .rc-f-freq{order:9;width:100%;margin:0}
+  body.mobile #rc-perso{order:10;width:100%;margin:0}
+  body.mobile .rc-f-debut{order:11;width:calc(50% - 6px);margin:0}
+  body.mobile .rc-f-fin{order:12;width:calc(50% - 6px);margin:0}
+  body.mobile .rc-f-com{order:13;width:100%;margin:0}
+  body.mobile .rc-note{order:14}
+  body.mobile #dlgBody:has(#rc-seg) .field label{font-size:.82rem;font-weight:600;color:var(--ink-2)}
+  body.mobile #dlgBody:has(#rc-seg) .field input:not(#rc-m),body.mobile #dlgBody:has(#rc-seg) select{height:50px;border-radius:12px;font-size:1rem;padding:0 14px;width:100%}
+  body.mobile #rc-cat-simple .row3{display:block;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:2px 14px}
+  body.mobile #rc-cat-simple .field{display:flex;align-items:center;gap:10px;min-height:52px;margin:0;border-bottom:1px solid var(--line)}
+  body.mobile #rc-cat-simple .field:last-of-type{border-bottom:0}
+  body.mobile #rc-cat-simple .field label{width:110px;flex:none;font-weight:400;margin:0}
+  body.mobile #rc-cat-simple .field input{flex:1;min-width:0;border:0!important;background:none;padding:0!important;height:44px!important}
+  body.mobile .dlg:has(#rc-seg) .dlg-foot{position:sticky;bottom:0;margin:12px -16px 0;padding:10px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+    background:var(--card);border-top:1px solid var(--line);display:flex;gap:8px}
+  body.mobile .dlg:has(#rc-seg) .dlg-foot button{flex:1;min-height:52px;border-radius:14px;justify-content:center;font-size:1rem}
+  body.mobile .dlg:has(#rc-seg) .dlg-foot button.primary{flex:2}
   .ma-h{font-size:.85rem;font-weight:600;color:var(--ink-2);margin:16px 2px 4px}
   .m-version{text-align:center;font-size:.8rem;color:var(--ink-2);margin:18px 0 0}
 

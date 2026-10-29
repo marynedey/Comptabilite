@@ -354,3 +354,22 @@ test('analyse à l\'année : l\'année en cours s\'arrête au dernier mois entie
   assert.deepEqual({ ...app.bornesPeriodeAna('2025', '09-30') }, { f: '2025-01-01', t: '2025-09-30' });
   assert.equal(app.libellePeriodeAna('2026', '09-30'), '2026 (janv. → sept.)');
 });
+
+test('échéance modifiée : seules celles d\'aujourd\'hui et à venir sont refaites ; une passée supprimée ne revient pas', () => {
+  const avant = app.todayISO;
+  app.todayISO = () => '2026-10-29';
+  app.run("INSERT INTO compte(nom,type,solde_initial) VALUES('Éch','courant',0)");
+  const c = app.lastId();
+  app.run(`INSERT INTO recurrence(compte_id,type,montant,tiers,cat_path,frequence,intervalle,jour,date_debut,prochaine,creer_en)
+           VALUES(?,'debit',-3000,'Gym','Sport','mensuelle',1,1,'2026-09-01','2026-09-01','previsionnel')`, [c]);
+  const r = app.lastId();
+  app.genererRecurrences();
+  const dates = () => [...app.qy('SELECT date_operation d FROM operation WHERE compte_id=? AND supprime=0 ORDER BY d', [c]).map(o => o.d)];
+  assert.deepEqual(dates(), ['2026-09-01', '2026-10-01', '2026-11-01']);
+  app.run("UPDATE operation SET supprime=1 WHERE compte_id=? AND date_operation='2026-09-01'", [c]);   // mise à la corbeille
+  app.run('UPDATE recurrence SET montant=-3500 WHERE id=?', [r]);
+  app.regenererRecurrence(r);
+  assert.deepEqual(dates(), ['2026-10-01', '2026-11-01']);
+  assert.deepEqual([...app.qy('SELECT montant m FROM operation WHERE compte_id=? AND supprime=0 ORDER BY date_operation', [c]).map(o => o.m)], [-3000, -3500]);
+  app.todayISO = avant;
+});
