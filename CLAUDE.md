@@ -27,6 +27,10 @@ App web de comptes personnels, en français, hors ligne. Publiée sur https://ma
 - Interface téléphone (`body.mobile`, `estTelephone()` : appli Android, ou écran tactile < 600 px) : en-tête
   `#m-entete` (liste déroulante des comptes), onglets `#m-onglets` (Opérations, Analyse, Échéances, Plus), vue `plus`.
   Le PC et la tablette gardent la barre latérale. Les écrans sont refaits pour le téléphone un par un (une PR chacun).
+- Réglages d'affichage (`REGLAGES` : thème auto/clair/sombre, barres de recherche en haut/bas, montants masqués à
+  l'ouverture) : `localStorage` `mc.reglages` de l'appareil. Thème forcé = `html[data-theme]` ; toute couleur sombre
+  ajoutée au CSS doit l'être pour `@media (prefers-color-scheme: dark){:root:not([data-theme="clair"])…}` ET
+  `:root[data-theme="sombre"]`.
 - `vendor/` : sql.js 1.10.3 et pdf.js 3.11.174, tels quels (ne pas modifier).
 
 ## Versions

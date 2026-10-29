@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.6.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.7.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -662,6 +662,7 @@ function repondreAuSigne(){ // fenêtre active : se mettre au premier plan si le
     if(n>12||document.hasFocus()){clearInterval(_clignote);document.title=titre;}},700);
 }
 async function boot(){
+  chargerReglages();appliquerReglages(true);
   if(estTelephone()){
     document.body.classList.add('mobile');
     // la recherche des opérations est directement dans l'écran (pas dans la feuille des filtres)
@@ -2460,7 +2461,37 @@ async function dossierSauvegarde(){ // {nom, handle} ou null = Téléchargements
     const h=await idbGetKey('dossierSauvegarde');return h?{nom:h.name,handle:h}:null;
   }catch(e){return null;}
 }
+/* ---------- réglages d'affichage de cet appareil : thème, barres de recherche en haut / en bas, montants
+   masqués à l'ouverture. Gardés dans le localStorage de l'appareil (jamais dans la base, qui part dans les
+   sauvegardes). ---------- */
+function lireReglages(txt){
+  let r={};try{r=JSON.parse(txt||'{}')||{};}catch(e){}
+  return {theme:['clair','sombre'].indexOf(r.theme)>=0?r.theme:'auto',recherche:r.recherche==='bas'?'bas':'haut',masquer:r.masquer===true};
+}
+let REGLAGES=lireReglages(null);
+function chargerReglages(){try{REGLAGES=lireReglages(localStorage.getItem('mc.reglages'));}catch(e){}}
+function appliquerReglages(ouverture){
+  const r=REGLAGES,h=document.documentElement;
+  if(r.theme==='auto')h.removeAttribute('data-theme');else h.setAttribute('data-theme',r.theme);
+  document.body.classList.toggle('recherche-bas',r.recherche==='bas');
+  document.body.classList.toggle('masquer-montants',r.masquer);
+  if(ouverture||!r.masquer)document.body.classList.toggle('montants-masques',r.masquer);
+  majOeil();
+  // appli : icônes de la barre d'état d'Android lisibles sur le fond choisi
+  if(enAppli())Capacitor.nativePromise('SystemBars','setStyle',{style:r.theme==='sombre'?'DARK':r.theme==='clair'?'LIGHT':'DEFAULT'}).catch(()=>{});
+}
+function changerReglage(cle,val){
+  REGLAGES=Object.assign({},REGLAGES,{[cle]:val});
+  try{localStorage.setItem('mc.reglages',JSON.stringify(REGLAGES));}catch(e){}
+  appliquerReglages(false);renderReglages();
+}
+function basculerMontants(){document.body.classList.toggle('montants-masques');majOeil();}
+function majOeil(){const m=document.body.classList.contains('montants-masques');
+  document.querySelectorAll('.m-oeil').forEach(b=>b.setAttribute('aria-label',m?'Afficher les montants':'Masquer les montants'));}
 async function renderReglages(){
+  [['rg-theme',REGLAGES.theme],['rg-recherche',REGLAGES.recherche]].forEach(([id,v])=>
+    document.querySelectorAll('#'+id+' button').forEach(b=>b.setAttribute('aria-checked',String(b.dataset.v===v))));
+  document.getElementById('rg-masquer').checked=REGLAGES.masquer;
   const d=await dossierSauvegarde(),possible=choixDossierPossible();
   document.getElementById('rg-dossier').textContent=d?d.nom:'Téléchargements';
   document.getElementById('rg-btns').hidden=!possible;

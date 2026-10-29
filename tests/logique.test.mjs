@@ -218,3 +218,10 @@ test('téléphone : mois du filtre, ‹ et ›', () => {
   assert.equal(app.libellePeriode('mois', auj), 'Octobre 2026');
   assert.equal(app.libellePeriode('annee', auj), 'Cette année');
 });
+
+test('réglages d\'affichage : valeurs par défaut et valeurs inconnues ignorées', () => {
+  assert.deepEqual(js(app.lireReglages(null)), { theme: 'auto', recherche: 'haut', masquer: false });
+  assert.deepEqual(js(app.lireReglages('{"theme":"sombre","recherche":"bas","masquer":true}')), { theme: 'sombre', recherche: 'bas', masquer: true });
+  assert.deepEqual(js(app.lireReglages('{"theme":"violet","recherche":"gauche","masquer":"oui"}')), { theme: 'auto', recherche: 'haut', masquer: false });
+  assert.deepEqual(js(app.lireReglages('pas du json')), { theme: 'auto', recherche: 'haut', masquer: false });
+});
