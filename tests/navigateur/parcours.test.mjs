@@ -226,6 +226,9 @@ test('appli Android : bienvenue, pas de service worker, sauvegarde native, mise 
 
     // Nouvelle version publiée : bandeau ; d'abord l'autorisation d'Android, puis l'installation.
     await page.locator('#maj-appli:has-text("9.9.9")').waitFor();
+    // le bandeau : même écart au-dessus des onglets qu'en dessous du bouton +
+    const bd = await page.locator('#maj-appli').boundingBox(), fab = await page.locator('.m-fab').boundingBox(), ong = await page.locator('#m-onglets').boundingBox();
+    assert.ok(Math.abs((bd.y - (fab.y + fab.height)) - (ong.y - (bd.y + bd.height))) <= 2, 'écarts égaux');
     await page.click('#maj-appli button:has-text("Mettre à jour")');
     await page.click('#dlgFoot button:has-text("Ouvrir le réglage")');
     assert.equal((await appels(page, 'autoriserInstallation')).length, 1);
@@ -617,10 +620,74 @@ test('téléphone, retours d\'affichage : bulle au-dessus des boutons, « Annule
     assert.equal(new Set(ys).size, 1, 'une seule ligne');
     // renommer / fusionner une catégorie : la fenêtre tient dans l'écran ; « son opération rejoint »
     await page.evaluate(() => { upsertCategorie('Une catégorie au nom vraiment très long : avec une sous-catégorie qui ne finit pas'); setView('categories'); });
-    await page.click('#m-categories button[aria-label="Renommer ou fusionner Alimentation"]');
-    await page.locator('#dlgBack.show').waitFor();
+    await page.locator('#m-categories .mg-nom', { hasText: 'Alimentation' }).dispatchEvent('pointerdown', { clientX: 10, clientY: 10 }); // appui long
+    await page.locator('#dlgBack.show #dlgTitle:has-text("Alimentation")').waitFor();
+    assert.deepEqual(await page.locator('#dlgFoot button').allTextContents(), ['Fusionner…', 'Renommer…']); // pas Supprimer : elle a une opération
+    await page.click('#dlgFoot button:has-text("Fusionner…")');
+    await page.locator('#dlgBack.show #dlgTitle:has-text("Fusionner « Alimentation »")').waitFor();
+    // seulement les catégories du même niveau ; le nom proposé devient le sien, l'ancien reste à un toucher
+    assert.deepEqual(await page.locator('#mc-avec option').allTextContents(), ['— choisir une catégorie —', 'Maison', 'Une catégorie au nom vraiment très long']);
+    await page.selectOption('#mc-avec', { label: 'Maison' });
+    assert.equal(await page.inputValue('#mc-nom'), 'Maison');
+    await page.click('#mc-noms button:has-text("Alimentation")');
+    assert.equal(await page.inputValue('#mc-nom'), 'Alimentation');
     assert.ok(await page.locator('#dlgBack .dlg').evaluate(d => d.scrollWidth <= d.clientWidth), 'pas plus large que l\'écran');
     assert.match(await page.textContent('#dlgBody'), /son opération rejoint l’autre catégorie/);
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
+test('téléphone, retours : échéance touchée → son champ, erreur visible, croix de recherche, liste de la répartition, barres', async () => {
+  const { navigateur, page } = await ouvrirTelephone();
+  try {
+    await paieVentilee(page);
+    // croix de la recherche : assez grande pour le doigt
+    await page.fill('#f-search', 'TBF');
+    const croix = await page.locator('#f-clear').boundingBox();
+    assert.ok(croix.width >= 40 && croix.height >= 40, 'croix ' + croix.width + '×' + croix.height);
+    await page.click('#f-clear');
+    // répartition : toucher un montant de la fiche → ce montant ; la liste des catégories est celle de l'app
+    await ligne(page, 'TBF').first().locator('.m-op-corps').click();
+    await page.locator('#m-fiche .mf-infos button').nth(1).click();
+    await page.waitForFunction(() => document.activeElement === document.querySelectorAll('#vent-list .vent-l')[1].querySelectorAll('input')[1]);
+    const cat = page.locator('#vent-list .vent-l').first().locator('input').first();
+    assert.equal(await cat.getAttribute('list'), null, 'pas la liste d\'Android');
+    await cat.fill('salaire');
+    const liste = page.locator('#vent-box .cat-sugg');
+    await liste.locator('button', { hasText: 'Traitements et salaires : Salaire net' }).waitFor();
+    const lb = await liste.boundingBox(), cb = await cat.boundingBox();
+    assert.ok(lb.y + lb.height <= cb.y + 1, 'au-dessus du champ');
+    await liste.locator('button', { hasText: 'Traitements et salaires : Salaire net' }).click();
+    assert.equal(await cat.inputValue(), 'Traitements et salaires : Salaire net');
+    assert.equal(await page.evaluate(() => document.activeElement === document.querySelectorAll('#vent-list .vent-l')[0].querySelectorAll('input')[1]), true, 'puis son montant');
+    await page.click('#overlay .m-fermer');
+    // échéance : toucher une ligne du détail → la fenêtre sur ce champ ; répartition fausse → message visible
+    await page.evaluate(() => { upsertCategorie('Loisirs : Sport'); upsertCategorie('Loisirs : Cinéma');
+      run("INSERT INTO recurrence(compte_id,type,montant,tiers,cat_path,frequence,intervalle,jour,date_debut,prochaine,creer_en,ventil) VALUES(?,'debit',-3000,'Club','Loisirs : Sport','mensuelle',1,1,'2026-09-01','2026-11-01','previsionnel',?)",
+        [state.acc, JSON.stringify([{ cat: 'Loisirs : Sport', montant: -2000 }, { cat: 'Loisirs : Cinéma', montant: -1000 }])]);
+      ongletMobile('recurrences'); });
+    await page.click('#m-echeances .me-item:has-text("Club")');
+    await page.click('#dlgBody button.me-info:has-text("Fréquence")');
+    await page.waitForFunction(() => document.activeElement && document.activeElement.id === 'rc-f');
+    await page.click('#dlgFoot button:has-text("Annuler")');
+    await page.click('#m-echeances .me-item:has-text("Club")');
+    await page.click('#dlgBody button.me-info:has-text("Montant")');
+    await page.waitForFunction(() => document.activeElement && document.activeElement.id === 'rc-m');
+    await page.fill('#rc-m', '35,00');
+    await page.click('#dlgFoot button:has-text("Enregistrer")');
+    await page.locator('#toast.show:has-text("La répartition")').waitFor();
+    assert.ok(await page.evaluate(() => +getComputedStyle(document.getElementById('toast')).zIndex > +getComputedStyle(document.getElementById('dlgBack')).zIndex), 'au-dessus de la fenêtre');
+    assert.equal(await page.isVisible('#dlgBack.show'), true, 'la fenêtre reste ouverte pour corriger');
+    await page.click('#dlgFoot button:has-text("Annuler")');
+    // analyse d'une catégorie : barres proportionnelles (septembre 2 300 € plus haut que rien), total et moyenne sur une ligne
+    await page.evaluate(() => setView('categories'));
+    await page.locator('#m-categories .mg-nom', { hasText: 'Traitements et salaires' }).click();
+    const h = await page.locator('#m-catana .ca-barres span').evaluateAll(es => es.map(e => e.getBoundingClientRect().height));
+    assert.ok(h[10] > 80 && h[11] > 80 && h[9] <= 2, 'hauteurs ' + h.join(','));
+    const ligneTot = page.locator('#m-catana .ca-ligne');
+    assert.ok(await ligneTot.evaluate(l => l.scrollWidth <= l.clientWidth), 'sur une ligne');
+    const mt = await ligneTot.locator('>b').boundingBox(), moy = await ligneTot.locator('.ca-moy').boundingBox();
+    assert.ok(Math.abs((mt.y + mt.height / 2) - (moy.y + moy.height / 2)) < 4, 'centrés sur le montant');
     assert.deepEqual(page.erreurs, []);
   } finally { await navigateur.close(); }
 });
@@ -871,8 +938,8 @@ test('téléphone, opération rapprochée ventilée : la fiche tient dans l\'éc
     await fiche.locator('.mf-infos button').first().click();
     assert.equal(await page.isVisible('#m-fiche'), false);
     assert.equal(await page.locator('#i-montant').evaluate(e => e.readOnly), true);
-    // le curseur se place dans la 1re ligne de la répartition (30 ms après l'ouverture) : l'attendre avant d'écrire
-    await page.waitForFunction(() => document.activeElement === document.querySelector('#vent-list input'));
+    // le curseur se place dans le montant de la ligne touchée (30 ms après l'ouverture) : l'attendre avant d'écrire
+    await page.waitForFunction(() => document.activeElement === document.querySelectorAll('#vent-list .vent-l')[0].querySelectorAll('input')[1]);
     const champs = page.locator('#vent-list .vent-l input[inputmode="decimal"]');
     await champs.nth(0).fill('2640,00');
     await champs.nth(1).fill('-323,24');
@@ -901,15 +968,15 @@ test('téléphone, catégories : montant total ; toucher une catégorie → son 
     assert.match(await a.locator('.ca-titre').textContent(), /\+4\s942,73\s€ · 2 opérations en tout/);
     // par mois : 12 barres, le mois en cours choisi ; la moyenne des mois passés
     assert.equal(await a.locator('.ca-barres button').count(), 12);
-    assert.match(await a.locator('.ma-total').textContent(), /Octobre 2026 \(en cours\)\+2\s642,73\s€/);
+    assert.match(await a.locator('.ca-total').textContent(), /Octobre 2026 \(en cours\)\+2\s642,73\s€/);
     assert.match(await a.locator('.ca-moy').textContent(), /moyenne \+209,09\s€ \/ mois/);
     await a.locator('.ca-barres button[aria-label^="Septembre 2026"]').click();
-    assert.match(await a.locator('.ma-total').textContent(), /Septembre 2026\+2\s300,00\s€/);
+    assert.match(await a.locator('.ca-total').textContent(), /Septembre 2026\+2\s300,00\s€/);
     assert.match(await a.textContent(), /Opérations \(1\)/);
     // par année
     await a.locator('button:has-text("Par année")').click();
     assert.equal(await a.locator('.ca-barres button').count(), 1);
-    assert.match(await a.locator('.ma-total').textContent(), /2026 \(en cours\)\+4\s942,73\s€/);
+    assert.match(await a.locator('.ca-total').textContent(), /2026 \(en cours\)\+4\s942,73\s€/);
     // une sous-catégorie, puis retour
     await a.locator('.ma-ligne', { hasText: 'Prime' }).click();
     assert.equal(await a.locator('h2').textContent(), 'Prime');
@@ -1197,9 +1264,13 @@ test('téléphone, gestion : renommer un tiers, fusionner une catégorie', async
     await page.click('#dlgFoot button:has-text("Enregistrer")');
     await page.locator('#m-tiers .me-nom:has-text("Pharmacie du centre")').waitFor();
     await page.evaluate(() => { upsertCategorie('Alimentation'); const id = upsertCategorie('Courses'); run("UPDATE ventilation SET categorie_id=? WHERE operation_id=(SELECT id FROM operation WHERE cat_path='Alimentation : Courses')", [id]); run("UPDATE operation SET cat_path='Courses' WHERE cat_path='Alimentation : Courses'"); setView('categories'); });
-    await page.click('#m-categories button[aria-label="Renommer ou fusionner Courses"]');
+    // appui long sur une catégorie : menu Renommer / Fusionner ; le « ⋯ » a disparu (plus de place pour les montants)
+    assert.equal(await page.locator('#m-categories .mg-plus').count(), 0);
+    await page.locator('#m-categories .mg-nom', { hasText: 'Courses' }).dispatchEvent('pointerdown', { clientX: 10, clientY: 10 });
+    await page.click('#dlgFoot button:has-text("Fusionner…")');
     await page.selectOption('#mc-avec', { label: 'Alimentation' });
-    await page.click('#dlgFoot button:has-text("Enregistrer")');
+    await page.click('#dlgFoot button:has-text("Fusionner")');
+    await page.locator('#dlgBack.show #dlgTitle:has-text("Fusionner")').waitFor();
     await page.click('#dlgFoot button:has-text("Fusionner")');
     await page.waitForFunction(() => scal("SELECT COUNT(*) FROM categorie WHERE libelle='Courses' AND parent_id IS NULL") === 0);
     assert.equal(await page.evaluate(() => scal("SELECT cat_path FROM operation o JOIN tiers t ON t.id=o.tiers_id WHERE t.nom='Supermarché'")), 'Alimentation');

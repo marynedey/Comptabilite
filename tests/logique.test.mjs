@@ -324,7 +324,7 @@ test('tiers : renommer, ou fusionner avec un doublon (opérations, échéances e
   assert.equal(app.scal("SELECT COUNT(*) FROM operation WHERE hay LIKE 'amazon prime%'"), 2);
 });
 
-test('catégories : renommer (chemins des opérations et échéances suivent), fusionner, limite de 3 niveaux', () => {
+test('catégories : renommer (chemins des opérations et échéances suivent), fusionner au même niveau seulement', () => {
   app.run("INSERT INTO compte(nom,type,solde_initial) VALUES('Cats','courant',0)");
   const c = app.lastId();
   const op = cat => { const cid = app.upsertCategorie(cat); app.run("INSERT INTO operation(compte_id,date_operation,montant,cat_path,supprime) VALUES(?,?,?,?,0)", [c, '2026-10-02', -100, cat]);
@@ -342,8 +342,18 @@ test('catégories : renommer (chemins des opérations et échéances suivent), f
   assert.equal(app.scal('SELECT cat_path FROM operation WHERE id=?', [o2]), 'Logement : Équipement');
   assert.equal(app.upsertCategorieLecture('Habitat'), null);
   assert.equal(app.scal("SELECT COUNT(*) FROM categorie WHERE libelle='Équipement'"), 1);
-  // pas plus de 3 niveaux
+  // seulement au même niveau : une principale avec une principale, une sous-catégorie avec une autre de la même catégorie
+  const o3 = op('Logement : Meubles'), o4 = op('Alimentation : Courses');
   assert.throws(() => app.fusionnerCategoriesDb(app.upsertCategorieLecture('Logement'), app.upsertCategorieLecture('Logement : Équipement : Aspirateur')));
+  assert.throws(() => app.fusionnerCategoriesDb(app.upsertCategorieLecture('Alimentation'), app.upsertCategorieLecture('Logement : Meubles')), /même niveau/);
+  assert.throws(() => app.fusionnerCategoriesDb(app.upsertCategorieLecture('Alimentation : Courses'), app.upsertCategorieLecture('Logement : Meubles')), /même niveau/);
+  // deux sous-catégories de « Logement », en gardant l'autre nom : « Aspirateur » reste sous elle, au même niveau
+  const r2 = app.fusionnerCategoriesDb(app.upsertCategorieLecture('Logement : Équipement'), app.upsertCategorieLecture('Logement : Meubles'), 'Équipement');
+  assert.equal(r2.chemin, 'Logement : Équipement');
+  assert.equal(app.scal('SELECT cat_path FROM operation WHERE id=?', [o1]), 'Logement : Équipement : Aspirateur');
+  assert.equal(app.scal('SELECT cat_path FROM operation WHERE id=?', [o3]), 'Logement : Équipement');
+  assert.equal(app.upsertCategorieLecture('Logement : Meubles'), null);
+  assert.equal(app.scal('SELECT cat_path FROM operation WHERE id=?', [o4]), 'Alimentation : Courses');
 });
 
 test('analyse à l\'année : l\'année en cours s\'arrête au dernier mois entier (et l\'année comparée aux mêmes mois)', () => {

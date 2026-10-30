@@ -210,6 +210,9 @@
   body.mobile #reg-sums,body.mobile #reg-info,body.mobile #v-registre .foot,body.mobile .f-effacer{display:none}
   body.mobile .m-recherche{display:flex;margin:0 0 10px}
   body.mobile .m-recherche input.search{height:48px;border-radius:24px;padding-left:16px;font-size:1rem;width:100%}
+  /* croix pour vider la recherche : assez grande pour le doigt */
+  body.mobile #f-clear{width:44px;height:44px;right:2px!important;padding:0!important;font-size:1.6rem!important;justify-content:center;border-radius:22px!important}
+  body.mobile #f-search{padding-right:48px!important}
   body.mobile .m-soldes{display:block;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 16px}
   .m-soldes .ms-k{font-size:.82rem;color:var(--ink-2)}
   .m-soldes .ms-reel{font-size:2rem;font-weight:700;letter-spacing:-.02em;line-height:1.2}
@@ -246,7 +249,8 @@
   body.mobile #v-registre.on .m-fab{display:flex}
   /* bandeau « Nouvelle version » : au-dessus des onglets, et le bouton + au-dessus du bandeau */
   body.mobile .maj-appli{bottom:calc(84px + env(safe-area-inset-bottom, 0px))}
-  body.mobile.maj-appli-visible .m-fab{bottom:calc(220px + env(safe-area-inset-bottom, 0px))}
+  /* bandeau à 14 px au-dessus des onglets (70 px), bouton + à 14 px au-dessus du bandeau (--maj-h : sa hauteur) */
+  body.mobile.maj-appli-visible .m-fab{bottom:calc(98px + var(--maj-h, 136px) + env(safe-area-inset-bottom, 0px))}
   .m-fab{position:fixed;right:18px;bottom:calc(96px + env(safe-area-inset-bottom, 0px));z-index:14;width:60px;height:60px;border-radius:18px;border:0;
        background:var(--brand);color:#fff;align-items:center;justify-content:center;box-shadow:0 6px 18px rgba(15,110,86,.35);padding:0}
   body.mobile #v-registre .bar{position:fixed;left:0;right:0;bottom:0;z-index:38;margin:0;background:var(--card);border-radius:24px 24px 0 0;
@@ -316,10 +320,14 @@
   .ca-titre p{margin:0;font-size:.9rem;color:var(--ink-2)}
   .ca-titre b{color:var(--ink)}
   .ca-unite{align-self:center;margin-bottom:14px}
+  .ca-total{margin:4px 0 12px}
   .ca-per{display:block;font-size:.85rem;color:var(--ink-2)}
-  .ca-moy{font-size:.85rem;color:var(--ink-2);text-align:right;line-height:1.5}
-  .ma-total .ca-moy b{font-size:inherit;letter-spacing:0;font-weight:600;color:var(--ink)}
-  .ca-barres{gap:4px;padding:12px 10px 8px;height:130px;margin-bottom:4px}
+  .ca-ligne{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .ca-ligne>b{font-size:1.8rem;letter-spacing:-.02em;white-space:nowrap;min-width:0}
+  .ca-ligne>b.credit{color:var(--credit)}
+  .ca-moy{flex:none;font-size:.85rem;color:var(--ink-2);text-align:right;line-height:1.5;white-space:nowrap}
+  .ca-moy b{font-weight:600;color:var(--ink)}
+  .ma-barres.ca-barres{gap:4px;padding:12px 10px 8px;height:140px;margin-bottom:4px}
   .ma-total b.credit,.ca-titre b.credit,.ma-ligne .num.credit{color:var(--credit)}
   .mf-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:auto;padding-top:18px}
   .mf-actions button{min-height:50px;justify-content:center;border-radius:14px;font-weight:600;font-size:.95rem}
@@ -372,7 +380,7 @@
   .ma-total b{font-size:1.8rem;letter-spacing:-.02em}
   .ma-barres{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;align-items:end;height:110px;background:var(--card-alt);border-radius:14px;padding:12px 14px 8px}
   .ma-barres>button{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:6px;height:100%;min-height:0;border:0;background:none;padding:0;border-radius:6px}
-  .ma-barres span{display:block;width:100%;border-radius:6px 6px 2px 2px;background:var(--line-2);min-height:2px}
+  .ma-barres span{display:block;flex:none;width:100%;border-radius:6px 6px 2px 2px;background:var(--line-2);min-height:2px}
   .ma-barres .actuel span{background:var(--st-prev)}
   .ma-barres small{font-size:.7rem;color:var(--ink-2)}
   /* Évolution (téléphone) : courbe du solde, ce compte ou patrimoine, barres par mois */
@@ -427,8 +435,10 @@
   .me-nom small{display:block;font-size:.76rem;font-weight:400;color:var(--ink-2)}
   .me-item .num{font-weight:600;white-space:nowrap}
   .me-nouvelle{position:fixed;right:16px;bottom:calc(96px + env(safe-area-inset-bottom, 0px));z-index:14;display:flex;align-items:center;gap:8px;height:56px;padding:0 20px 0 16px;border-radius:18px;border:0;background:var(--brand);color:#fff;font-weight:600;box-shadow:0 6px 18px rgba(15,110,86,.35)}
-  body.mobile.maj-appli-visible .me-nouvelle{bottom:calc(220px + env(safe-area-inset-bottom, 0px))}
-  .me-info{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);font-size:.92rem}
+  body.mobile.maj-appli-visible .me-nouvelle{bottom:calc(98px + var(--maj-h, 136px) + env(safe-area-inset-bottom, 0px))}
+  .me-info{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);font-size:.92rem}
+  button.me-info{width:100%;min-height:44px;border:0;border-bottom:1px solid var(--line);border-radius:0;background:none;color:var(--ink);text-align:left;font-weight:400}
+  .me-info em{font-style:normal;font-weight:400;color:var(--ink-3)}
   .me-info span{color:var(--ink-2)}
   .me-info b{text-align:right;overflow-wrap:anywhere}
   /* Relevé PDF (téléphone) : tuiles-filtres, lignes à cocher, pied « Appliquer » */
@@ -533,7 +543,7 @@
   body.mobile .vent-l .vx{min-height:44px;justify-content:center}
   body.mobile .ventfoot{flex-wrap:wrap;gap:6px}
   /* liste des catégories proposées (téléphone) : au-dessus du champ, jamais sur le clavier */
-  body.mobile .row3.avec-sugg{position:relative}
+  body.mobile .row3.avec-sugg,body.mobile .avec-sugg{position:relative}
   .cat-sugg{position:absolute;left:8px;right:8px;z-index:5;overflow:auto;background:var(--card);border:1px solid var(--line-2);
     border-radius:12px;box-shadow:0 -6px 20px rgba(0,0,0,.18);padding:4px}
   .cat-sugg[hidden]{display:none}
@@ -673,11 +683,11 @@
   .hint{font-size:0.76rem;color:var(--ink-3);margin-left:6px;font-weight:400}
 
   .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--ink);color:var(--paper);
-         padding:10px 16px;border-radius:9px;font-size:0.86rem;opacity:0;pointer-events:none;transition:.25s;z-index:30}
+         padding:10px 16px;border-radius:9px;font-size:0.86rem;opacity:0;pointer-events:none;transition:.25s;z-index:62} /* au-dessus des fenêtres : leurs messages d'erreur restent visibles */
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
   @media (prefers-reduced-motion: reduce){.toast{transition:none}}
   /* téléphone : la bulle passe au-dessus des onglets, et au-dessus du bouton + dans les opérations */
-  body.mobile .toast{bottom:calc(98px + env(safe-area-inset-bottom, 0px));max-width:calc(100vw - 32px);z-index:39}
+  body.mobile .toast{bottom:calc(98px + env(safe-area-inset-bottom, 0px));max-width:calc(100vw - 32px)}
   body.mobile:has(#v-registre.on) .toast{bottom:calc(170px + env(safe-area-inset-bottom, 0px))}
   .maj{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:40;display:flex;align-items:center;gap:12px;
        background:var(--ink);color:var(--paper);padding:8px 8px 8px 16px;border-radius:9px;font-size:0.86rem;
