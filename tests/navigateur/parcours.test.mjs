@@ -226,6 +226,9 @@ test('appli Android : bienvenue, pas de service worker, sauvegarde native, mise 
 
     // Nouvelle version publiée : bandeau ; d'abord l'autorisation d'Android, puis l'installation.
     await page.locator('#maj-appli:has-text("9.9.9")').waitFor();
+    // le bandeau : même écart au-dessus des onglets qu'en dessous du bouton +
+    const bd = await page.locator('#maj-appli').boundingBox(), fab = await page.locator('.m-fab').boundingBox(), ong = await page.locator('#m-onglets').boundingBox();
+    assert.ok(Math.abs((bd.y - (fab.y + fab.height)) - (ong.y - (bd.y + bd.height))) <= 2, 'écarts égaux');
     await page.click('#maj-appli button:has-text("Mettre à jour")');
     await page.click('#dlgFoot button:has-text("Ouvrir le réglage")');
     assert.equal((await appels(page, 'autoriserInstallation')).length, 1);
@@ -273,6 +276,11 @@ test('appli Android : fond et icônes des barres d\'Android selon le thème de l
     await page.emulateMedia({ colorScheme: 'dark' });
     await page.waitForFunction(() => window.__appels.filter(a => a[1] === 'fondBarres').at(-1)[2].sombre === true);
     assert.deepEqual(await dernier('setStyle'), { style: 'DARK' });
+    // plein écran de l'évolution : les barres d'Android se cachent, puis reviennent
+    await page.evaluate(() => grPleinEcran(true));
+    assert.equal((await appels(page, 'hide')).length, 1);
+    await page.evaluate(() => grPleinEcran(false));
+    assert.equal((await appels(page, 'show')).length, 1);
     assert.deepEqual(page.erreurs, []);
   } finally { await navigateur.close(); }
 });
@@ -558,6 +566,148 @@ test('téléphone, filtres : nombre d\'opérations tout à gauche, dates sur une
   } finally { await navigateur.close(); }
 });
 
+test('téléphone, retours d\'affichage : bulle au-dessus des boutons, « Annuler », anneau, barres d\'une catégorie, tiers, fusion', async () => {
+  const { navigateur, page } = await ouvrirTelephone();
+  try {
+    await page.evaluate(() => {
+      const ins = (d, m, dest, cat) => {
+        run("INSERT INTO operation(compte_id,date_operation,montant,cat_path,statut,supprime,previsionnel,tiers_id,hay) VALUES(?,?,?,?,'pointe',0,0,?,?)",
+          [state.acc, d, m, cat, upsertTiers(dest), makeHay(dest, cat, null, '', m, d)]);
+        run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)', [scal('SELECT MAX(id) FROM operation'), upsertCategorie(cat), m]);
+      };
+      for (let i = 0; i < 10; i++) ins('2026-' + String(i + 1).padStart(2, '0') + '-05', -7802930, 'Notaire', 'Maison : Travaux');
+      ins('2026-10-20', -450, 'Boulangerie', 'Alimentation');
+      invalidateCaches(); render();
+    });
+    // la bulle passe au-dessus du bouton + et des onglets
+    await page.evaluate(() => toast('Sauvegarde enregistrée dans « Comptes » : comptes_2026-10-30_14h55m11.sqlite'));
+    await page.waitForTimeout(350); // fin de l'animation d'apparition
+    const bulle = await page.locator('#toast').boundingBox(), plus = await page.locator('.m-fab').boundingBox(), onglets = await page.locator('#m-onglets').boundingBox();
+    assert.ok(bulle.y + bulle.height <= plus.y, 'au-dessus du bouton +');
+    await page.click('#m-onglets button[data-o="plus"]');
+    await page.evaluate(() => toast('Essai'));
+    await page.waitForTimeout(350);
+    const b2 = await page.locator('#toast').boundingBox();
+    assert.ok(b2.y + b2.height <= onglets.y, 'au-dessus des onglets');
+    await page.click('#m-onglets button[data-o="registre"]');
+    // modifier une opération : « Annuler » (et pas « Passer en annulé »), pas de trait sous la sous-sous-catégorie
+    await ligne(page, 'Boulangerie').locator('.m-op-corps').click();
+    await page.click('#m-fiche button:has-text("Modifier")');
+    assert.equal(await page.textContent('#btn-ann'), 'Annuler');
+    assert.equal(await page.locator('#i-cat2').evaluate(e => getComputedStyle(e.closest('.field')).borderBottomStyle), 'none');
+    await page.click('#overlay .m-fermer');
+    // analyse sur l'année : le grand total tient dans l'anneau
+    await page.click('#m-onglets button[data-o="analyse"]');
+    await page.selectOption('#m-analyse .ma-mois-centre select', 'annee');
+    const centre = page.locator('#m-analyse .ma-centre b');
+    assert.match(await centre.textContent(), /702\s263,70/); // janvier → septembre (année en cours)
+    assert.ok(await centre.evaluate(e => e.scrollWidth <= e.parentElement.clientWidth * 0.62 + 1), 'dans le cercle');
+    // le détail d'une catégorie, par mois : la barre choisie ne bouge que depuis la moitié gauche
+    await page.selectOption('#m-analyse .ma-mois-centre select', 'mois');
+    await page.locator('#m-analyse .ma-ligne', { hasText: 'Maison' }).click();
+    const barres = () => page.locator('#m-analyse .ma-barres button').evaluateAll(bs => bs.map(b => b.getAttribute('aria-label').split(' :')[0] + (b.getAttribute('aria-current') ? '*' : '')));
+    assert.deepEqual(await barres(), ['Mai 2026', 'Juin 2026', 'Juillet 2026', 'Août 2026', 'Septembre 2026', 'Octobre 2026*']);
+    await page.click('#m-analyse .ma-barres button[aria-label^="Août 2026"]');        // moitié droite : rien ne bouge
+    assert.deepEqual(await barres(), ['Mai 2026', 'Juin 2026', 'Juillet 2026', 'Août 2026*', 'Septembre 2026', 'Octobre 2026']);
+    await page.click('#m-analyse .ma-barres button[aria-label^="Juin 2026"]');        // moitié gauche : juin au milieu
+    assert.deepEqual(await barres(), ['Mars 2026', 'Avril 2026', 'Mai 2026', 'Juin 2026*', 'Juillet 2026', 'Août 2026']);
+    // « vs … » n'est jamais coupé
+    await page.click('#m-analyse .ma-tete button');
+    assert.ok(await page.locator('#m-analyse .ma-ligne small .nw').count() > 0);
+    // tiers : les trois tris sur une ligne
+    await page.evaluate(() => setView('tiers'));
+    const ys = await page.locator('#m-tiers .mg-tris button').evaluateAll(bs => bs.map(b => Math.round(b.getBoundingClientRect().top)));
+    assert.equal(new Set(ys).size, 1, 'une seule ligne');
+    // renommer / fusionner une catégorie : la fenêtre tient dans l'écran ; « son opération rejoint »
+    await page.evaluate(() => { upsertCategorie('Une catégorie au nom vraiment très long : avec une sous-catégorie qui ne finit pas'); setView('categories'); });
+    await page.locator('#m-categories .mg-nom', { hasText: 'Alimentation' }).dispatchEvent('pointerdown', { clientX: 10, clientY: 10 }); // appui long
+    await page.locator('#dlgBack.show #dlgTitle:has-text("Alimentation")').waitFor();
+    assert.deepEqual(await page.locator('#dlgFoot button').allTextContents(), ['Fusionner…', 'Renommer…']); // pas Supprimer : elle a une opération
+    await page.click('#dlgFoot button:has-text("Fusionner…")');
+    await page.locator('#dlgBack.show #dlgTitle:has-text("Fusionner « Alimentation »")').waitFor();
+    // seulement les catégories du même niveau ; le nom proposé devient le sien, l'ancien reste à un toucher
+    assert.deepEqual(await page.locator('#mc-avec option').allTextContents(), ['— choisir une catégorie —', 'Maison', 'Une catégorie au nom vraiment très long']);
+    await page.selectOption('#mc-avec', { label: 'Maison' });
+    assert.equal(await page.inputValue('#mc-nom'), 'Maison');
+    await page.click('#mc-noms button:has-text("Alimentation")');
+    assert.equal(await page.inputValue('#mc-nom'), 'Alimentation');
+    assert.ok(await page.locator('#dlgBack .dlg').evaluate(d => d.scrollWidth <= d.clientWidth), 'pas plus large que l\'écran');
+    assert.match(await page.textContent('#dlgBody'), /son opération rejoint l’autre catégorie/);
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
+test('téléphone, retours : échéance touchée → son champ, erreur visible, croix de recherche, liste de la répartition, barres', async () => {
+  const { navigateur, page } = await ouvrirTelephone();
+  try {
+    await paieVentilee(page);
+    // croix de la recherche : assez grande pour le doigt
+    await page.fill('#f-search', 'TBF');
+    const croix = await page.locator('#f-clear').boundingBox();
+    assert.ok(croix.width >= 40 && croix.height >= 40, 'croix ' + croix.width + '×' + croix.height);
+    await page.click('#f-clear');
+    // répartition : toucher un montant de la fiche → ce montant ; la liste des catégories est celle de l'app
+    await ligne(page, 'TBF').first().locator('.m-op-corps').click();
+    await page.locator('#m-fiche .mf-infos button').nth(1).click();
+    await page.waitForFunction(() => document.activeElement === document.querySelectorAll('#vent-list .vent-l')[1].querySelectorAll('input')[1]);
+    const cat = page.locator('#vent-list .vent-l').first().locator('input').first();
+    assert.equal(await cat.getAttribute('list'), null, 'pas la liste d\'Android');
+    await cat.fill('salaire');
+    const liste = page.locator('#vent-box .cat-sugg');
+    await liste.locator('button', { hasText: 'Traitements et salaires : Salaire net' }).waitFor();
+    const lb = await liste.boundingBox(), cb = await cat.boundingBox();
+    assert.ok(lb.y + lb.height <= cb.y + 1, 'au-dessus du champ');
+    await liste.locator('button', { hasText: 'Traitements et salaires : Salaire net' }).click();
+    assert.equal(await cat.inputValue(), 'Traitements et salaires : Salaire net');
+    assert.equal(await page.evaluate(() => document.activeElement === document.querySelectorAll('#vent-list .vent-l')[0].querySelectorAll('input')[1]), true, 'puis son montant');
+    await page.click('#overlay .m-fermer');
+    // échéance : toucher une ligne du détail → la fenêtre sur ce champ ; répartition fausse → message visible
+    await page.evaluate(() => { upsertCategorie('Loisirs : Sport'); upsertCategorie('Loisirs : Cinéma');
+      run("INSERT INTO recurrence(compte_id,type,montant,tiers,cat_path,frequence,intervalle,jour,date_debut,prochaine,creer_en,ventil) VALUES(?,'debit',-3000,'Club','Loisirs : Sport','mensuelle',1,1,'2026-09-01','2026-11-01','previsionnel',?)",
+        [state.acc, JSON.stringify([{ cat: 'Loisirs : Sport', montant: -2000 }, { cat: 'Loisirs : Cinéma', montant: -1000 }])]);
+      ongletMobile('recurrences'); });
+    await page.click('#m-echeances .me-item:has-text("Club")');
+    await page.click('#dlgBody button.me-info:has-text("Fréquence")');
+    await page.waitForFunction(() => document.activeElement && document.activeElement.id === 'rc-f');
+    await page.click('#dlgFoot button:has-text("Annuler")');
+    await page.click('#m-echeances .me-item:has-text("Club")');
+    await page.click('#dlgBody button.me-info:has-text("Montant")');
+    await page.waitForFunction(() => document.activeElement && document.activeElement.id === 'rc-m');
+    await page.fill('#rc-m', '35,00');
+    await page.click('#dlgFoot button:has-text("Enregistrer")');
+    await page.locator('#toast.show:has-text("La répartition")').waitFor();
+    assert.ok(await page.evaluate(() => +getComputedStyle(document.getElementById('toast')).zIndex > +getComputedStyle(document.getElementById('dlgBack')).zIndex), 'au-dessus de la fenêtre');
+    assert.equal(await page.isVisible('#dlgBack.show'), true, 'la fenêtre reste ouverte pour corriger');
+    await page.click('#dlgFoot button:has-text("Annuler")');
+    // analyse d'une catégorie : barres proportionnelles (septembre 2 300 € plus haut que rien), total et moyenne sur une ligne
+    await page.evaluate(() => setView('categories'));
+    await page.locator('#m-categories .mg-nom', { hasText: 'Traitements et salaires' }).click();
+    const h = await page.locator('#m-catana .ca-barres span').evaluateAll(es => es.map(e => e.getBoundingClientRect().height));
+    assert.ok(h[10] > 80 && h[11] > 80 && h[9] <= 2, 'hauteurs ' + h.join(','));
+    // choisir la période : rien avant la fenêtre → ‹ grisé ; une opération de 2025 → ‹ recule de 12 mois
+    assert.equal(await page.locator('#m-catana .ca-fenetre button[aria-label="Période précédente"]').isDisabled(), true);
+    assert.equal(await page.locator('#m-catana .ca-fenetre button[aria-label="Période suivante"]').isDisabled(), true);
+    await page.evaluate(() => {
+      run("INSERT INTO operation(compte_id,date_operation,montant,cat_path,statut,supprime,previsionnel,tiers_id,hay) VALUES(?,?,?,?,'rapproche',0,0,?,?)",
+        [state.acc, '2025-06-25', 210000, 'Traitements et salaires : Prime', upsertTiers('TBF'), '']);
+      run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)', [scal('SELECT MAX(id) FROM operation'), upsertCategorie('Traitements et salaires : Prime'), 210000]);
+      renderAnalyseCategorie(); });
+    await page.click('#m-catana .ca-fenetre button[aria-label="Période précédente"]');
+    assert.match(await page.textContent('#m-catana .ca-fenetre'), /nov\. 2024 – oct\. 2025/);
+    assert.match(await page.textContent('#m-catana .ca-total'), /Octobre 20250,00\s€0 op\./);
+    await page.click('#m-catana .ca-barres button[aria-label^="Juin 2025"]');
+    assert.match(await page.textContent('#m-catana .ca-total'), /Juin 2025\+2\s100,00\s€/);
+    assert.match(await page.textContent('#m-catana .ca-moy'), /moyenne \+175,00\s€ \/ mois/); // fenêtre passée : 2 100 ÷ 12
+    await page.click('#m-catana .ca-fenetre button[aria-label="Période suivante"]');
+    assert.match(await page.textContent('#m-catana .ca-fenetre'), /nov\. 2025 – oct\. 2026/);
+    const ligneTot = page.locator('#m-catana .ca-ligne');
+    assert.ok(await ligneTot.evaluate(l => l.scrollWidth <= l.clientWidth), 'sur une ligne');
+    const mt = await ligneTot.locator('>b').boundingBox(), moy = await ligneTot.locator('.ca-moy').boundingBox();
+    assert.ok(Math.abs((mt.y + mt.height / 2) - (moy.y + moy.height / 2)) < 4, 'centrés sur le montant');
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
 test('téléphone : écran Plus — sauvegarde en attente, sauvegarder, outils', async () => {
   const { navigateur, page } = await ouvrir(TELEPHONE);
   try {
@@ -804,8 +954,8 @@ test('téléphone, opération rapprochée ventilée : la fiche tient dans l\'éc
     await fiche.locator('.mf-infos button').first().click();
     assert.equal(await page.isVisible('#m-fiche'), false);
     assert.equal(await page.locator('#i-montant').evaluate(e => e.readOnly), true);
-    // le curseur se place dans la 1re ligne de la répartition (30 ms après l'ouverture) : l'attendre avant d'écrire
-    await page.waitForFunction(() => document.activeElement === document.querySelector('#vent-list input'));
+    // le curseur se place dans le montant de la ligne touchée (30 ms après l'ouverture) : l'attendre avant d'écrire
+    await page.waitForFunction(() => document.activeElement === document.querySelectorAll('#vent-list .vent-l')[0].querySelectorAll('input')[1]);
     const champs = page.locator('#vent-list .vent-l input[inputmode="decimal"]');
     await champs.nth(0).fill('2640,00');
     await champs.nth(1).fill('-323,24');
@@ -834,15 +984,15 @@ test('téléphone, catégories : montant total ; toucher une catégorie → son 
     assert.match(await a.locator('.ca-titre').textContent(), /\+4\s942,73\s€ · 2 opérations en tout/);
     // par mois : 12 barres, le mois en cours choisi ; la moyenne des mois passés
     assert.equal(await a.locator('.ca-barres button').count(), 12);
-    assert.match(await a.locator('.ma-total').textContent(), /Octobre 2026 \(en cours\)\+2\s642,73\s€/);
+    assert.match(await a.locator('.ca-total').textContent(), /Octobre 2026 \(en cours\)\+2\s642,73\s€/);
     assert.match(await a.locator('.ca-moy').textContent(), /moyenne \+209,09\s€ \/ mois/);
     await a.locator('.ca-barres button[aria-label^="Septembre 2026"]').click();
-    assert.match(await a.locator('.ma-total').textContent(), /Septembre 2026\+2\s300,00\s€/);
+    assert.match(await a.locator('.ca-total').textContent(), /Septembre 2026\+2\s300,00\s€/);
     assert.match(await a.textContent(), /Opérations \(1\)/);
     // par année
     await a.locator('button:has-text("Par année")').click();
     assert.equal(await a.locator('.ca-barres button').count(), 1);
-    assert.match(await a.locator('.ma-total').textContent(), /2026 \(en cours\)\+4\s942,73\s€/);
+    assert.match(await a.locator('.ca-total').textContent(), /2026 \(en cours\)\+4\s942,73\s€/);
     // une sous-catégorie, puis retour
     await a.locator('.ma-ligne', { hasText: 'Prime' }).click();
     assert.equal(await a.locator('h2').textContent(), 'Prime');
@@ -1020,6 +1170,9 @@ test('téléphone, gestion : tiers (tri, toucher → opérations), catégories (
     await page.evaluate(() => { run("UPDATE operation SET supprime=1,date_suppression='2026-10-22 10:00:00' WHERE tiers_id IN (SELECT id FROM tiers WHERE nom IN ('Pharmacie','Boulangerie'))"); setView('corbeille'); });
     const b = page.locator('#m-corbeille');
     assert.equal(await b.locator('.mg-ligne').count(), 2);
+    // Restaurer et la poubelle l'un sous l'autre
+    const rb = await b.locator('.mg-ligne').first().locator('.mg-restaurer').boundingBox(), pb = await b.locator('.mg-ligne').first().locator('.mg-icone').boundingBox();
+    assert.ok(pb.y >= rb.y + rb.height - 1 && Math.abs((pb.x + pb.width / 2) - (rb.x + rb.width / 2)) < 2, 'l\'un sous l\'autre');
     await b.locator('.mg-ligne', { hasText: 'Pharmacie' }).locator('.mg-restaurer').click();
     assert.equal(await b.locator('.mg-ligne').count(), 1);
     await b.locator('button:has-text("Vider la corbeille")').click();
@@ -1130,9 +1283,13 @@ test('téléphone, gestion : renommer un tiers, fusionner une catégorie', async
     await page.click('#dlgFoot button:has-text("Enregistrer")');
     await page.locator('#m-tiers .me-nom:has-text("Pharmacie du centre")').waitFor();
     await page.evaluate(() => { upsertCategorie('Alimentation'); const id = upsertCategorie('Courses'); run("UPDATE ventilation SET categorie_id=? WHERE operation_id=(SELECT id FROM operation WHERE cat_path='Alimentation : Courses')", [id]); run("UPDATE operation SET cat_path='Courses' WHERE cat_path='Alimentation : Courses'"); setView('categories'); });
-    await page.click('#m-categories button[aria-label="Renommer ou fusionner Courses"]');
+    // appui long sur une catégorie : menu Renommer / Fusionner ; le « ⋯ » a disparu (plus de place pour les montants)
+    assert.equal(await page.locator('#m-categories .mg-plus').count(), 0);
+    await page.locator('#m-categories .mg-nom', { hasText: 'Courses' }).dispatchEvent('pointerdown', { clientX: 10, clientY: 10 });
+    await page.click('#dlgFoot button:has-text("Fusionner…")');
     await page.selectOption('#mc-avec', { label: 'Alimentation' });
-    await page.click('#dlgFoot button:has-text("Enregistrer")');
+    await page.click('#dlgFoot button:has-text("Fusionner")');
+    await page.locator('#dlgBack.show #dlgTitle:has-text("Fusionner")').waitFor();
     await page.click('#dlgFoot button:has-text("Fusionner")');
     await page.waitForFunction(() => scal("SELECT COUNT(*) FROM categorie WHERE libelle='Courses' AND parent_id IS NULL") === 0);
     assert.equal(await page.evaluate(() => scal("SELECT cat_path FROM operation o JOIN tiers t ON t.id=o.tiers_id WHERE t.nom='Supermarché'")), 'Alimentation');

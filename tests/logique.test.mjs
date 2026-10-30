@@ -324,7 +324,7 @@ test('tiers : renommer, ou fusionner avec un doublon (opérations, échéances e
   assert.equal(app.scal("SELECT COUNT(*) FROM operation WHERE hay LIKE 'amazon prime%'"), 2);
 });
 
-test('catégories : renommer (chemins des opérations et échéances suivent), fusionner, limite de 3 niveaux', () => {
+test('catégories : renommer (chemins des opérations et échéances suivent), fusionner au même niveau seulement', () => {
   app.run("INSERT INTO compte(nom,type,solde_initial) VALUES('Cats','courant',0)");
   const c = app.lastId();
   const op = cat => { const cid = app.upsertCategorie(cat); app.run("INSERT INTO operation(compte_id,date_operation,montant,cat_path,supprime) VALUES(?,?,?,?,0)", [c, '2026-10-02', -100, cat]);
@@ -342,8 +342,18 @@ test('catégories : renommer (chemins des opérations et échéances suivent), f
   assert.equal(app.scal('SELECT cat_path FROM operation WHERE id=?', [o2]), 'Logement : Équipement');
   assert.equal(app.upsertCategorieLecture('Habitat'), null);
   assert.equal(app.scal("SELECT COUNT(*) FROM categorie WHERE libelle='Équipement'"), 1);
-  // pas plus de 3 niveaux
+  // seulement au même niveau : une principale avec une principale, une sous-catégorie avec une autre de la même catégorie
+  const o3 = op('Logement : Meubles'), o4 = op('Alimentation : Courses');
   assert.throws(() => app.fusionnerCategoriesDb(app.upsertCategorieLecture('Logement'), app.upsertCategorieLecture('Logement : Équipement : Aspirateur')));
+  assert.throws(() => app.fusionnerCategoriesDb(app.upsertCategorieLecture('Alimentation'), app.upsertCategorieLecture('Logement : Meubles')), /même niveau/);
+  assert.throws(() => app.fusionnerCategoriesDb(app.upsertCategorieLecture('Alimentation : Courses'), app.upsertCategorieLecture('Logement : Meubles')), /même niveau/);
+  // deux sous-catégories de « Logement », en gardant l'autre nom : « Aspirateur » reste sous elle, au même niveau
+  const r2 = app.fusionnerCategoriesDb(app.upsertCategorieLecture('Logement : Équipement'), app.upsertCategorieLecture('Logement : Meubles'), 'Équipement');
+  assert.equal(r2.chemin, 'Logement : Équipement');
+  assert.equal(app.scal('SELECT cat_path FROM operation WHERE id=?', [o1]), 'Logement : Équipement : Aspirateur');
+  assert.equal(app.scal('SELECT cat_path FROM operation WHERE id=?', [o3]), 'Logement : Équipement');
+  assert.equal(app.upsertCategorieLecture('Logement : Meubles'), null);
+  assert.equal(app.scal('SELECT cat_path FROM operation WHERE id=?', [o4]), 'Alimentation : Courses');
 });
 
 test('analyse à l\'année : l\'année en cours s\'arrête au dernier mois entier (et l\'année comparée aux mêmes mois)', () => {
@@ -421,4 +431,27 @@ test('verrouillage : réglage lu prudemment, verrouillé au retour après le dé
   assert.equal(app.doitVerrouiller({ verrou: true, verrouDelai: 0 }, t, t), true);   // tout de suite
   assert.equal(app.doitVerrouiller({ verrou: false, verrouDelai: 0 }, t, t + 1e9), false);
   assert.equal(app.doitVerrouiller(r, null, t), false);                              // pas passée en arrière-plan
+});
+
+test('barres du détail d\'une catégorie : immobiles dans la moitié droite, recentrées depuis la moitié gauche', () => {
+  const f = (fin, sel, max = '2026-10') => app.fenetreBarres(fin, sel, 6, max);   // fenêtre de 6 : fin = dernière barre
+  assert.equal(f(null, '2026-10'), '2026-10');                 // première fois : la période choisie à droite
+  assert.equal(f('2026-10', '2026-08'), '2026-10');            // 4e barre (moitié droite) : rien ne bouge
+  assert.equal(f('2026-10', '2026-07'), '2026-09');            // 3e barre (mai → oct.) : moitié gauche, juillet passe au milieu
+  assert.equal(f('2026-10', '2026-06'), '2026-08');            // 2e barre (moitié gauche) : au milieu (4e barre)
+  assert.equal(f('2026-08', '2026-03'), '2026-05');            // 1re barre : on recule
+  assert.equal(f('2026-10', '2026-09', '2026-10'), '2026-10'); // jamais au-delà du mois en cours
+  assert.equal(f('2026-10', '2025-01'), '2025-01');            // hors de la fenêtre : à droite
+  assert.equal(app.fenetreBarres('2026', '2022', 6, '2026'), '2024'); // années
+});
+
+test('analyse d\'une catégorie : fenêtre choisie (‹ ›), moyenne sur toute la fenêtre quand elle est passée', () => {
+  const auj = new Date(2026, 9, 30);
+  const L = [{ id: 1, d: '2025-03-10', m: -1200 }, { id: 2, d: '2025-10-01', m: -600 }, { id: 3, d: '2026-10-02', m: -300 }];
+  const M = js(app.periodesCategorie(L, 'mois', auj, '2025-10'));
+  assert.deepEqual([M[0].cle, M[11].cle], ['2024-11', '2025-10']);
+  assert.equal(M.find(p => p.cle === '2025-03').total, -1200);
+  assert.equal(app.moyenneCategorie(M, true), Math.round(-1800 / 12));   // fenêtre passée : les 12 mois comptent
+  assert.equal(app.moyenneCategorie(M), Math.round(-1200 / 11));         // sinon sans le dernier (en cours)
+  assert.deepEqual(js(app.periodesCategorie(L, 'annee', auj, '2025')).map(p => p.cle), ['2025']);
 });

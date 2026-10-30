@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.15.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.16.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -115,13 +115,18 @@ async function verifierMajAppli(){
   // le message « N opérations chargées » de l'ouverture passe dans le bandeau au lieu de le chevaucher
   if(msgChargement&&Date.now()-msgChargement.t<6000){document.getElementById('toast').classList.remove('show');}
   document.getElementById('maj-appli-info').textContent=(msgChargement?msgChargement.texte+' · ':'')+'Tes données sont gardées.';
+  hauteurBandeauMaj();
 }
+// le bouton + se place au-dessus du bandeau avec le même écart qu'entre le bandeau et les onglets : il suit sa hauteur
+function hauteurBandeauMaj(){const b=document.getElementById('maj-appli');
+  if(b&&!b.hidden)document.documentElement.style.setProperty('--maj-h',b.offsetHeight+'px');}
+window.addEventListener('resize',hauteurBandeauMaj);
 /* ouverture : « N opérations chargées », dans le bandeau de mise à jour s'il est affiché, sinon en message bref */
 let msgChargement=null;
 function texteChargement(n){return n.toLocaleString('fr-FR')+' opération'+(n>1?'s':'')+' '+(enAppli()?'retrouvée'+(n>1?'s':'')+' sur ce téléphone':'chargée'+(n>1?'s':'')+' depuis ce navigateur');}
 function annoncerChargement(n){
   msgChargement={texte:texteChargement(n),t:Date.now()};
-  if(document.body.classList.contains('maj-appli-visible'))document.getElementById('maj-appli-info').textContent=msgChargement.texte+' · Tes données sont gardées.';
+  if(document.body.classList.contains('maj-appli-visible')){document.getElementById('maj-appli-info').textContent=msgChargement.texte+' · Tes données sont gardées.';hauteurBandeauMaj();}
   else toast(msgChargement.texte);
 }
 function plusTardMajAppli(){ // reproposée au prochain lancement de l'appli
@@ -667,7 +672,7 @@ function ouvrirFiche(id){
   const vent=lignesVentilation(id);
   const infos=[]; // [libellé, valeur, champ du formulaire à ouvrir en touchant la ligne]
   if(isVirCat(o.cat_path))infos.push(['Virement',(o.montant<0?'vers ':'reçu de ')+esc(o.lie||'un autre compte'),'dest']);
-  else if(vent.length>1)vent.forEach(l=>infos.push([esc(l.cat||'Divers'),eur(l.m),'vent']));
+  else if(vent.length>1)vent.forEach((l,i)=>infos.push([esc(l.cat||'Divers'),eur(l.m),'vent'+i]));
   else catParts(o.cat_path||'Divers').forEach((c,i)=>infos.push([['Catégorie','Sous-catégorie','Sous-sous-catégorie'][i]||'Catégorie',esc(c),'cat'+i]));
   infos.push(['N° (chèque…)',o.numero?esc(String(o.numero)):'<em>ajouter</em>','num']);
   infos.push(['Commentaire',o.commentaire?esc(o.commentaire):'<em>ajouter</em>','comm']);
@@ -689,7 +694,7 @@ function ouvrirFiche(id){
       '<i style="background:'+m.col+'"></i>'+m.label+
       (rapp?' — son montant ne peut plus être modifié':stt==='previsionnel'?' — prévue, pas encore effective':'')+
       (statutTouche?'<small>Toucher pour changer</small></button>':'</div>')+
-    '<div class="mf-infos">'+infos.map(([k,v,f])=>'<button onclick="modifierDepuisFiche(\''+f+'\')"><span>'+k+'</span><span'+(f==='vent'?' class="num"':'')+'>'+v+'</span></button>').join('')+'</div>'+
+    '<div class="mf-infos">'+infos.map(([k,v,f])=>'<button onclick="modifierDepuisFiche(\''+f+'\')"><span>'+k+'</span><span'+(f.indexOf('vent')===0?' class="num"':'')+'>'+v+'</span></button>').join('')+'</div>'+
     '<div class="mf-actions"><button onclick="dupliquerDepuisFiche()">Dupliquer</button>'+
       (rapp||ann?'':'<button class="danger" onclick="corbeilleDepuisFiche()">Mettre à la corbeille</button>')+'</div>';
   fi.hidden=false;fi.scrollTop=0;
@@ -755,11 +760,22 @@ function regrouperAnalyse(lignes,sens,vir,chemin){
 function totalAnalyse(lignes,sens,vir,chemin){return lignesSens(lignes,sens,vir,chemin).reduce((t,l)=>t+Math.abs(l.m),0);}
 /* écart avec la période de comparaison : texte « +8 % » / « −12 % » / « = », null sans base */
 function ecartPct(a,b){if(!b)return null;const p=Math.round((a-b)/b*100);return p>0?'+'+p+' %':p<0?'−'+(-p)+' %':'=';}
+/* barres du détail d'une catégorie : dernière période affichée (fin) quand on choisit la période sel.
+   Hors de la fenêtre : sel tout à droite. Dans la moitié droite : rien ne bouge. Dans la moitié gauche : les
+   barres se décalent pour mettre sel au milieu, sans dépasser la période en cours (max). */
+const rangPeriode=k=>k.length===4?+k:(+k.slice(0,4))*12+(+k.slice(5))-1;
+function fenetreBarres(fin,sel,n,max){
+  if(!fin||rangPeriode(sel)>rangPeriode(fin)||rangPeriode(fin)-rangPeriode(sel)>=n)return sel;
+  const i=n-1-(rangPeriode(fin)-rangPeriode(sel)),milieu=Math.floor(n/2);
+  if(i>=milieu)return fin;
+  const f=periodeDecalee(sel,n-1-milieu);
+  return max&&rangPeriode(f)>rangPeriode(max)?max:f;
+}
 function anaMobileSens(s){MA.sens=s;MA.chemin=[];if(state.view!=='analyse')setView('analyse');else renderAnalyseMobile();}
 function anaMobileAller(k){MA.debut=k;MA.comp=null;renderAnalyseMobile();}
-function anaMobileDecaler(d){MA.debut=periodeDecalee(MA.debut,d);MA.comp=null;renderAnalyseMobile();}
-function anaMobileUnite(u){const auj=new Date();MA.unite=u;MA.debut=u==='annee'?String(auj.getFullYear()):clefMois(auj);MA.comp=null;MA.chemin=[];renderAnalyseMobile();}
-function anaMobileDescendre(nom){MA.chemin.push(nom);renderAnalyseMobile();document.querySelector('main').scrollTop=0;}
+function anaMobileDecaler(d){MA.debut=periodeDecalee(MA.debut,d);MA.comp=null;MA.fin=null;renderAnalyseMobile();}
+function anaMobileUnite(u){const auj=new Date();MA.unite=u;MA.debut=u==='annee'?String(auj.getFullYear()):clefMois(auj);MA.comp=null;MA.chemin=[];MA.fin=null;renderAnalyseMobile();}
+function anaMobileDescendre(nom){MA.chemin.push(nom);if(MA.chemin.length===1)MA.fin=null;renderAnalyseMobile();document.querySelector('main').scrollTop=0;}
 function anaMobileRemonter(){MA.chemin.pop();renderAnalyseMobile();}
 /* périodes proposées pour la comparaison : tous les mois (ou années) depuis la 1re opération du compte */
 function periodesDuCompte(acc,unite,auj){
@@ -881,7 +897,9 @@ function renderAnalyseMobile(){
   if(optsComp.indexOf(comp)<0)optsComp.push(comp);
   const selComp='<select aria-label="Comparer avec" onchange="MA.comp=this.value;renderAnalyseMobile()">'+
     optsComp.map(k=>'<option value="'+k+'"'+(k===comp?' selected':'')+'>'+libellePeriodeAna(k)+'</option>').join('')+'</select>';
-  const ecartLigne=(v,vc)=>{const d=v-vc;return d===0?'comme en '+nomC.toLowerCase():(d>0?'+':'−')+eur(Math.abs(d)).replace('-','')+' vs '+nomC.toLowerCase();};
+  // « vs 2025 (janv. → sept.) » reste d'un seul tenant : la ligne se coupe avant, pas au milieu
+  const ecartLigne=(v,vc)=>{const d=v-vc;return d===0?'<span class="nw">comme en '+nomC.toLowerCase()+'</span>'
+    :(d>0?'+':'−')+eur(Math.abs(d)).replace('-','')+' <span class="nw">vs '+nomC.toLowerCase()+'</span>';};
   let h='';
   if(!MA.chemin.length){
     h+='<div class="ma-mois"><button onclick="anaMobileDecaler(-1)" aria-label="Période précédente">'+fl('M15 6l-6 6 6 6')+'</button>'+
@@ -910,13 +928,14 @@ function renderAnalyseMobile(){
     h+='<div class="ma-tete"><button onclick="anaMobileRemonter()" aria-label="Retour">'+fl('M15 6l-6 6 6 6')+'</button>'+
       '<div><small>'+esc([motSens].concat(MA.chemin.slice(0,-1)).join(' › '))+' › '+nomP+'</small><h2>'+esc(nom)+'</h2></div></div>';
     h+='<div class="ma-total"><b class="num">'+eur(tot).replace('-','')+'</b><span class="ma-ecart '+classeEc+'">'+ecartLigne(tot,totC)+'</span></div>';
-    // 6 derniers mois (ou années) de cette catégorie
-    const ps=[];for(let i=5;i>=0;i--)ps.push(periodeDecalee(MA.debut,-i));
+    // 6 mois (ou années) de cette catégorie ; la fenêtre ne bouge que si la barre choisie passe dans la moitié gauche
+    MA.fin=fenetreBarres(MA.fin,MA.debut,6,MA.unite==='annee'?String(auj.getFullYear()):clefMois(auj));
+    const ps=[];for(let i=5;i>=0;i--)ps.push(periodeDecalee(MA.fin,-i));
     const vals=ps.map(k=>totalAnalyse(lignesAnalyse(acc,k,lim),MA.sens,MA.vir,MA.chemin)),max=Math.max(1,...vals);
     // toucher une barre : le détail de ce mois (ou de cette année), dans la même catégorie
     h+='<div class="ma-barres">'+
       ps.map((k,i)=>'<button'+(k===MA.debut?' class="actuel" aria-current="true"':'')+' onclick="anaMobileAller(\''+k+'\')" aria-label="'+esc(libellePeriodeAna(k)+' : '+eur(vals[i]).replace('-',''))+'">'+
-        '<span style="height:'+Math.round(vals[i]/max*100)+'%"></span><small>'+(k.length===4?k:MOIS_COURT[+k.slice(5)-1])+'</small></button>').join('')+'</div>';
+        '<span style="height:'+hauteurBarre(vals[i],max,66)+'px"></span><small>'+(k.length===4?k:MOIS_COURT[+k.slice(5)-1])+'</small></button>').join('')+'</div>';
     if(groupes.some(g=>!(g.nom==='Sans sous-catégorie'&&g.feuille)||groupes.length>1))
       h+='<h3 class="ma-h">Sous-catégories</h3><div class="ma-liste">'+groupes.map(g=>'<button class="ma-ligne" onclick="anaMobileDescendre('+esc(JSON.stringify(g.nom))+')">'+
         '<span class="ma-nom">'+esc(g.nom)+'<small>'+Math.round(tot?g.total/tot*100:0)+' %</small></span><span class="num">'+eur(g.total).replace('-','')+'</span>'+fl('M9 6l6 6-6 6')+'</button>').join('')+'</div>';
@@ -925,6 +944,10 @@ function renderAnalyseMobile(){
       '<span class="ma-nom">'+esc(o.ti||'(sans destinataire)')+'<small>'+libJour(o.d,auj)+'</small></span><span class="num">'+eur(Math.abs(o.m))+'</span></button>').join('')+'</div>';
   }
   document.getElementById('m-analyse').innerHTML=h;
+  // le total au centre de l'anneau tient dans le cercle : plus petit pour un grand montant
+  const c=document.querySelector('#m-analyse .ma-centre b');
+  if(c){let f=parseFloat(getComputedStyle(c).fontSize)||21;const max=c.parentElement.clientWidth*0.62||118;
+    while(c.scrollWidth>max&&f>11){f-=1;c.style.fontSize=f+'px';}}
 }
 /* ---------- une seule fenêtre à la fois (PC) ----------
    Chaque fenêtre garde sa copie de la base en mémoire et la réécrit en entier : deux fenêtres (ou onglets)
@@ -966,6 +989,7 @@ async function boot(){
     rch.placeholder='Rechercher (destinataire, catégorie, montant…)';
     brancherListeCategories();
     glisserPourFermer(document.getElementById('f-zone'),fermerFiltres);
+    brancherListeVentilation('vent-box');
     // « Entrée » / « OK » du clavier dans une recherche : le clavier se ferme pour laisser voir les résultats
     ['f-search','ti-search','cat-search'].forEach(id=>{const el=document.getElementById(id);if(!el)return;
       el.setAttribute('enterkeyhint','search');
@@ -1603,8 +1627,9 @@ function renderCorbeille(){
       (rows.length?'<div class="me-liste">'+rows.map(o=>'<div class="mg-ligne">'+
         '<span class="me-nom">'+esc(o.dest||'(sans destinataire)')+'<small>Supprimée le '+jour((o.ds||'').slice(0,10))+' · '+esc(o.cpt||'')+' · opération du '+isoToFr(o.d)+'</small></span>'+
         '<span class="num" style="color:'+(o.m<0?'var(--ink)':'var(--credit)')+'">'+eur(o.m)+'</span>'+
-        '<button class="mg-restaurer" onclick="restaurer('+o.id+')">Restaurer</button>'+
-        '<button class="ghost mg-icone" aria-label="Supprimer définitivement" onclick="supprDef('+o.id+')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button></div>').join('')+'</div>'+
+        // Restaurer et la poubelle l'un sous l'autre : la colonne du nom garde de la place
+        '<span class="mg-actions"><button class="mg-restaurer" onclick="restaurer('+o.id+')">Restaurer</button>'+
+        '<button class="ghost mg-icone" aria-label="Supprimer définitivement" onclick="supprDef('+o.id+')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button></span></div>').join('')+'</div>'+
         '<div class="mg-pied"><button class="danger" onclick="viderCorbeille()">Vider la corbeille</button></div>'
       :'<div class="m-vide">La corbeille est vide.</div>');
     return;
@@ -1670,7 +1695,7 @@ function renderTiers(){
 }
 /* Tiers sur téléphone : une ligne par destinataire (initiale, nombre d'opérations, catégorie habituelle, total),
    tri « les plus utilisés » / A → Z / montant total ; toucher → ses opérations */
-const TRIS_TIERS=[['n','Les plus utilisés'],['az','A → Z'],['total','Montant le plus élevé']];
+const TRIS_TIERS=[['n','Plus utilisés'],['az','A → Z'],['total','Montant le plus élevé']];
 function trierTiersMobile(rows,tri){
   const r=rows.slice();
   if(tri==='az')r.sort((a,b)=>(a.dest||'').localeCompare(b.dest||'','fr'));
@@ -1758,9 +1783,13 @@ function renommerTiersDb(id,nom){
   recalculerCatEtHay(qy('SELECT id FROM operation WHERE tiers_id=?',[id]).map(r=>r.id));invalidateCaches();
   return {action:'renomme',nom};
 }
-function fusionnerCategoriesDb(src,dst){
+/* fusion de deux catégories du même niveau (deux principales, ou deux sous-catégories d'une même catégorie) :
+   les opérations de src passent dans dst, ses sous-catégories s'ajoutent à celles de dst, au même niveau (celles
+   au nom identique fusionnent à leur tour) ; nom : le nom gardé (celui de dst par défaut) */
+function fusionnerCategoriesDb(src,dst,nom){
   if(src===dst||descendantsCategorie(src).indexOf(dst)>=0)throw new Error('une catégorie ne peut pas être fusionnée avec une de ses sous-catégories');
-  if(profondeurCategorie(dst)+hauteurCategorie(src)-1>3)throw new Error('cela ferait plus de 3 niveaux de catégories');
+  const ps=scal('SELECT parent_id FROM categorie WHERE id=?',[src]),pd=scal('SELECT parent_id FROM categorie WHERE id=?',[dst]);
+  if(ps!==pd)throw new Error('on ne fusionne qu’avec une catégorie du même niveau');
   const ancien=cheminCategorie(src),nouveau=cheminCategorie(dst),n=opsDesCategories(descendantsCategorie(src)).length;
   const fusion=(s,d)=>{
     qy('SELECT id,libelle FROM categorie WHERE parent_id=?',[s]).forEach(k=>{
@@ -1773,7 +1802,9 @@ function fusionnerCategoriesDb(src,dst){
   fusion(src,dst);
   remplacerCheminCategorie(ancien,nouveau);
   recalculerCatEtHay(opsDesCategories(descendantsCategorie(dst)));invalidateCaches();
-  return {action:'fusionne',chemin:nouveau,n};
+  nom=(nom||'').trim();
+  if(nom&&nom!==scal('SELECT libelle FROM categorie WHERE id=?',[dst]))renommerCategorieDb(dst,nom); // l'autre nom gardé
+  return {action:'fusionne',chemin:cheminCategorie(dst),n};
 }
 function renommerCategorieDb(id,lib){
   lib=(lib||'').trim();const c=qy('SELECT * FROM categorie WHERE id=?',[id])[0];
@@ -1810,23 +1841,49 @@ async function modifierTiers(nom){
     toast(r.action==='fusionne'?'« '+t.nom+' » fusionné avec « '+r.nom+' »':'Renommé en « '+r.nom+' »');
   }catch(e){dlgAlert('Impossible : '+(e.message||e),'Tiers');}
 }
-async function modifierCategorie(id){
+// fusion : le nom proposé devient celui de la catégorie choisie ; on peut reprendre l'ancien d'un toucher
+function mcAvecChange(sel){
+  const o=sel.selectedOptions[0],m=document.getElementById('mc-nom'),n=document.getElementById('mc-noms');if(!m)return;
+  const lib=o&&o.dataset.lib;m.value=lib||state.mcLib;
+  document.getElementById('mc-nom-l').textContent=lib?'Nom après la fusion':'Nouveau nom';
+  if(n)n.innerHTML=lib&&lib!==state.mcLib?'Garder plutôt : <button type="button" class="ghost mc-nom-choix" onclick="document.getElementById(&#39;mc-nom&#39;).value=this.textContent">'+esc(state.mcLib)+'</button>':'';
+}
+/* téléphone : appui long sur une catégorie → menu Renommer / Fusionner (et Supprimer si elle est vide) */
+async function menuCategorie(id){
+  const chemin=cheminCategorie(id);if(!chemin)return;
+  const ids=descendantsCategorie(id);
+  const nb=scal('SELECT COUNT(*) FROM ventilation v JOIN operation o ON o.id=v.operation_id WHERE o.supprime=0 AND v.categorie_id IN ('+ids.map(()=>'?').join(',')+')',ids)||0;
+  const v=await dlgOpen({title:chemin,msg:'',fermeDehors:true,buttons:(nb?[]:[{t:'Supprimer',v:'suppr',d:true}]).concat([
+    {t:'Fusionner…',v:'fus'},{t:'Renommer…',v:'ren',p:true}])});
+  if(v==='ren')modifierCategorie(id,'renommer');else if(v==='fus')modifierCategorie(id,'fusionner');else if(v==='suppr')supprCategorie(id);
+}
+// mode : 'renommer' ou 'fusionner' (menu du téléphone), sinon les deux dans la même fenêtre (PC)
+async function modifierCategorie(id,mode){
   const chemin=cheminCategorie(id);if(!chemin)return;
   const c=qy('SELECT * FROM categorie WHERE id=?',[id])[0],exclus=descendantsCategorie(id),haut=hauteurCategorie(id);
-  const cibles=catCheminsComplets().map(p=>({p,id:upsertCategorieLecture(p)})).filter(x=>x.id&&exclus.indexOf(x.id)<0&&catParts(x.p).length+haut-1<=3);
+  // fusion : seulement avec une catégorie du même niveau (principale avec principale, sous-catégorie avec une autre de la même catégorie)
+  const cibles=qy('SELECT id,libelle FROM categorie WHERE parent_id IS ? AND id<>? ORDER BY libelle COLLATE NOCASE',[c.parent_id,id])
+    .map(x=>({id:x.id,lib:x.libelle,p:cheminCategorie(x.id)}));
   const n=opsDesCategories(exclus).length;
-  const html='<div class="field"><label>Nouveau nom</label><input id="mc-nom" value="'+esc(c.libelle)+'" autocomplete="off"></div>'+
-    '<div class="field"><label>Ou fusionner avec</label><select id="mc-avec"><option value="">— garder séparée —</option>'+
-    cibles.map(x=>'<option value="'+x.id+'">'+esc(x.p)+'</option>').join('')+'</select></div>'+
-    '<div class="meta">Fusionner : '+(n>1?'ses '+n+' opérations':n?'son opération':'elle')+(haut>1?' et ses sous-catégories':'')+' rejoignent l’autre catégorie.</div>';
-  let avec=0,nv='';const lire=()=>{avec=+document.getElementById('mc-avec').value||0;nv=document.getElementById('mc-nom').value;};
-  const v=await dlgOpen({title:'Renommer ou fusionner « '+chemin+' »',msg:'',html,fermeDehors:true,buttons:[{t:'Annuler',v:false},{t:'Enregistrer',v:'ok',p:true,before:lire}]});
+  // en choisissant la catégorie, le nom proposé devient le sien ; on peut garder l'autre ou en écrire un nouveau
+  const html=(mode!=='renommer'?'<div class="field"><label>'+(mode?'Fusionner avec':'Ou fusionner avec')+'</label><select id="mc-avec" onchange="mcAvecChange(this)"><option value="">'+(mode?'— choisir une catégorie —':'— garder séparée —')+'</option>'+
+      cibles.map(x=>'<option value="'+x.id+'" data-lib="'+esc(x.lib)+'">'+esc(x.lib)+'</option>').join('')+'</select></div>':'')+
+    '<div class="field"><label id="mc-nom-l">'+(mode==='fusionner'?'Nom après la fusion':'Nouveau nom')+'</label><input id="mc-nom" value="'+esc(c.libelle)+'" autocomplete="off"></div>'+
+    (mode!=='renommer'?'<div class="meta" id="mc-noms"></div>'+
+      '<div class="meta">Fusionner : '+(n>1?'ses '+n+' opérations':n?'son opération':'elle')+(haut>1?' et ses sous-catégories':'')+
+      (n>1||haut>1?' rejoignent':' rejoint')+' l’autre catégorie'+(haut>1?' ; les sous-catégories restent au même niveau, celles au nom identique fusionnent':'')+'.</div>'+
+      (cibles.length?'':'<div class="meta">Aucune autre catégorie à ce niveau'+(c.parent_id!=null?' dans « '+esc(cheminCategorie(c.parent_id))+' »':'')+'.</div>'):'');
+  let avec=0,nv='';const lire=()=>{const a=document.getElementById('mc-avec'),m=document.getElementById('mc-nom');avec=a?+a.value||0:0;nv=m?m.value:c.libelle;};
+  state.mcLib=c.libelle;
+  const titre=mode==='renommer'?'Renommer « '+chemin+' »':mode==='fusionner'?'Fusionner « '+chemin+' »':'Renommer ou fusionner « '+chemin+' »';
+  const v=await dlgOpen({title:titre,msg:'',html,fermeDehors:true,buttons:[{t:'Annuler',v:false},{t:mode==='fusionner'?'Fusionner':'Enregistrer',v:'ok',p:true,before:lire}]});
   if(v!=='ok')return;
   try{
     let r;
-    if(avec){const b=cibles.find(x=>x.id===avec);
-      if(!await dlgConfirm('Fusionner « '+chemin+' » avec « '+b.p+' » ?\n\n'+(n>1?'Ses '+n+' opérations passeront':n?'Son opération passera':'Elle sera rangée')+' dans « '+b.p+' ».','Fusionner','Fusionner'))return;
-      r=fusionnerCategoriesDb(id,avec);}
+    if(avec){const b=cibles.find(x=>x.id===avec),nom=(nv||'').trim()||b.lib;
+      if(!await dlgConfirm('Fusionner « '+chemin+' » avec « '+b.p+' » ?\n\n'+(n>1?'Ses '+n+' opérations passeront':n?'Son opération passera':'Elle sera rangée')+
+        ' dans « '+b.p+' »'+(nom!==b.lib?', qui s’appellera « '+nom+' »':'')+'.','Fusionner','Fusionner'))return;
+      r=fusionnerCategoriesDb(id,avec,nom);}
     else r=renommerCategorieDb(id,nv);
     if(!r)return;
     touch(r.action==='fusionne'?'Catégories fusionnées':'Catégorie renommée',chemin+' → '+r.chemin);render();
@@ -1924,44 +1981,51 @@ function renderCategoriesMobile(cats,kids,totOf,sumOf){
   const L=lignesCategoriesMobile(kids,totOf,state.catOuvertes||new Set(),q,!!state.catVides);
   const fleche=(o)=>'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="'+(o?'M6 9l6 6 6-6':'M9 6l6 6-6 6')+'"/></svg>';
   document.getElementById('m-categories').innerHTML=(L.length?'<div class="me-liste">'+L.map(l=>
-    '<div class="mg-cat d'+l.depth+'" style="padding-left:'+(6+l.depth*22)+'px">'+
+    '<div class="mg-cat d'+l.depth+'" data-id="'+l.c.id+'" style="padding-left:'+(6+l.depth*22)+'px">'+
       (l.enfants?'<button class="ghost mg-icone" aria-expanded="'+l.ouverte+'" aria-label="'+(l.ouverte?'Replier ':'Déplier ')+esc(l.c.libelle)+'" onclick="basculerCategorie('+l.c.id+')">'+fleche(l.ouverte)+'</button>':'<span class="mg-icone"></span>')+
       '<button class="mg-nom" onclick="voirAnalyseCategorie('+l.c.id+')">'+esc(l.c.libelle)+'</button>'+
       (l.n===0?'<button class="ghost mg-suppr" onclick="supprCategorie('+l.c.id+')">Supprimer</button>'
         :'<span class="mg-nb"><b class="num '+clsSigne(sumOf(l.c.id))+'">'+eurSigne(sumOf(l.c.id))+'</b>'+l.n+' op.</span>')+
-      '<button class="ghost mg-icone mg-plus" aria-label="Renommer ou fusionner '+esc(l.c.libelle)+'" onclick="modifierCategorie('+l.c.id+')">⋯</button></div>').join('')+'</div>'
+      '</div>').join('')+'</div>'
     :'<div class="m-vide">'+(q||state.catVides?'Aucune catégorie ne correspond.':'Aucune catégorie pour l’instant.')+'</div>')+
-    '<p class="me-aide" style="margin-top:12px">Touche une catégorie pour son analyse par mois ou par année, et ses opérations ; la flèche montre ses sous-catégories ; « ⋯ » pour la renommer ou la fusionner.</p>';
+    '<p class="me-aide" style="margin-top:12px">Touche une catégorie pour son analyse par mois ou par année, et ses opérations ; la flèche montre ses sous-catégories ; appui long pour la renommer ou la fusionner.</p>';
+  // appui long sur le nom : menu Renommer / Fusionner (le toucher simple ouvre toujours l'analyse)
+  document.querySelectorAll('#m-categories .mg-cat').forEach(r=>{const b=r.querySelector('.mg-nom');if(b)appuiLong(b,()=>menuCategorie(+r.dataset.id));});
 }
 
 /* ---------- Analyse d'une catégorie (téléphone) ----------
    Tous les comptes, opérations effectives (ni annulées, ni prévisionnelles), sous-catégories comprises.
    Par mois : les 12 derniers mois ; par année : depuis la 1re opération (10 ans au plus). Toucher une barre
    choisit la période : son total, la moyenne des périodes passées, ses sous-catégories et ses opérations. */
-const CA={pile:[],unite:'mois',sel:null};
+const CA={pile:[],unite:'mois',sel:null,fin:null};
 const eurSigne=c=>(c>0?'+':'')+eur(c);
 function cleCategorie(d,unite){return unite==='annee'?d.slice(0,4):d.slice(0,7);}
 // lignes [{id,d,m}] → [{cle,total (centimes, signé),n (opérations)}] de la plus ancienne à la plus récente
-function periodesCategorie(lignes,unite,auj){
+// fin : dernière période affichée ('AAAA-MM' ou 'AAAA'), la période en cours par défaut (‹ › pour remonter le temps)
+function periodesCategorie(lignes,unite,auj,fin){
   const cles=[];
   if(unite==='annee'){
-    const y0=lignes.reduce((y,l)=>Math.min(y,+l.d.slice(0,4)),auj.getFullYear());
-    for(let y=Math.max(y0,auj.getFullYear()-9);y<=auj.getFullYear();y++)cles.push(String(y));
-  }else for(let i=11;i>=0;i--)cles.push(periodeDecalee(clefMois(auj),-i));
+    const f=fin?+fin:auj.getFullYear(),y0=lignes.reduce((y,l)=>Math.min(y,+l.d.slice(0,4)),f);
+    for(let y=Math.max(y0,f-9);y<=f;y++)cles.push(String(y));
+  }else for(let i=11;i>=0;i--)cles.push(periodeDecalee(fin||clefMois(auj),-i));
   const par=new Map(cles.map(k=>[k,{cle:k,total:0,ops:new Set()}]));
   lignes.forEach(l=>{const e=par.get(cleCategorie(l.d,unite));if(e){e.total+=l.m;e.ops.add(l.id);}});
   return cles.map(k=>{const e=par.get(k);return {cle:k,total:e.total,n:e.ops.size};});
 }
-// moyenne des périodes passées (la période en cours, commencée, n'y entre pas) ; null s'il n'y en a pas
-function moyenneCategorie(P){const p=P.slice(0,-1);return p.length?Math.round(p.reduce((t,x)=>t+x.total,0)/p.length):null;}
+// moyenne des périodes affichées, sans la période en cours (commencée) si elle en fait partie ; null s'il n'y en a pas
+function moyenneCategorie(P,avecDerniere){const p=avecDerniere?P:P.slice(0,-1);return p.length?Math.round(p.reduce((t,x)=>t+x.total,0)/p.length):null;}
+// ‹ › : la fenêtre recule ou avance de 12 mois (ou de 10 ans), jamais au-delà de la période en cours
+function caDecaler(d){const auj=new Date(),cur=CA.unite==='annee'?String(auj.getFullYear()):clefMois(auj);
+  const f=periodeDecalee(CA.fin||cur,d*(CA.unite==='annee'?10:12));
+  CA.fin=rangPeriode(f)>=rangPeriode(cur)?null:f;CA.sel=null;renderAnalyseCategorie();}
 function voirAnalyseCategorie(id){
-  CA.pile=[id];CA.sel=null;const el=document.getElementById('m-catana');
+  CA.pile=[id];CA.sel=null;CA.fin=null;const el=document.getElementById('m-catana');
   renderAnalyseCategorie();el.hidden=false;el.scrollTop=0;
 }
 function fermerAnalyseCategorie(){const el=document.getElementById('m-catana');if(el)el.hidden=true;CA.pile=[];}
 function caRetour(){CA.pile.pop();if(!CA.pile.length){fermerAnalyseCategorie();return;}renderAnalyseCategorie();document.getElementById('m-catana').scrollTop=0;}
 function caDescendre(id){CA.pile.push(id);renderAnalyseCategorie();document.getElementById('m-catana').scrollTop=0;}
-function caUnite(u){CA.unite=u;CA.sel=null;renderAnalyseCategorie();}
+function caUnite(u){CA.unite=u;CA.sel=null;CA.fin=null;renderAnalyseCategorie();}
 function caPeriode(k){CA.sel=k;renderAnalyseCategorie();}
 function caOperations(){const id=CA.pile[CA.pile.length-1];fermerAnalyseCategorie();voirCategorie(id);}
 function renderAnalyseCategorie(){
@@ -1973,8 +2037,10 @@ function renderAnalyseCategorie(){
     JOIN operation o ON o.id=v.operation_id LEFT JOIN tiers t ON t.id=o.tiers_id LEFT JOIN compte cp ON cp.id=o.compte_id
     WHERE v.categorie_id IN (${ids.map(()=>'?').join(',')}) AND o.supprime=0 AND o.statut<>'annule' AND o.previsionnel=0
     AND o.date_operation<=?`,[...ids,isoDe(auj)]);
-  const an=CA.unite==='annee',P=periodesCategorie(L,CA.unite,auj),cles=P.map(p=>p.cle);
-  const sel=cles.indexOf(CA.sel)>=0?CA.sel:cles[cles.length-1],p=P[cles.indexOf(sel)],moy=moyenneCategorie(P);
+  const an=CA.unite==='annee',P=periodesCategorie(L,CA.unite,auj,CA.fin),cles=P.map(p=>p.cle);
+  const sel=cles.indexOf(CA.sel)>=0?CA.sel:cles[cles.length-1],p=P[cles.indexOf(sel)],moy=moyenneCategorie(P,!!CA.fin);
+  // ‹ possible tant qu'il reste des opérations avant la fenêtre
+  const premiere=L.reduce((m,l)=>!m||l.d<m?l.d:m,null),avant=!!premiere&&cleCategorie(premiere,CA.unite)<cles[0];
   const LS=L.filter(l=>cleCategorie(l.d,CA.unite)===sel);
   const totalTout=L.reduce((t,l)=>t+l.m,0),nTout=new Set(L.map(l=>l.id)).size;
   const parents=cheminCategorie(id).split(' : ').slice(0,-1),fl=d=>icoPlus(d);
@@ -1985,15 +2051,21 @@ function renderAnalyseCategorie(){
     '<p>'+(nTout?'<b class="num '+clsSigne(totalTout)+'">'+eurSigne(totalTout)+'</b> · '+nTout+' opération'+(nTout>1?'s':'')+' en tout':'Aucune opération')+'</p></div>';
   h+='<div class="ev-portee ca-unite" role="tablist" aria-label="Par mois ou par année">'+[['mois','Par mois'],['annee','Par année']].map(([k,t])=>
     '<button role="tab" aria-selected="'+(CA.unite===k)+'" onclick="caUnite(\''+k+'\')">'+t+'</button>').join('')+'</div>';
-  const enCours=sel===cles[cles.length-1];
-  h+='<div class="ma-total"><div><small class="ca-per">'+nomPer(sel)+(enCours?' (en cours)':'')+'</small>'+
-    '<b class="num '+clsSigne(p.total)+'">'+eurSigne(p.total)+'</b></div>'+
-    '<span class="ca-moy">'+p.n+' op.'+(moy!=null?'<br>moyenne <b class="num">'+eurSigne(moy)+'</b> / '+(an?'an':'mois'):'')+'</span></div>';
+  const enCours=!CA.fin&&sel===cles[cles.length-1];
+  // la période, puis sur une ligne : le montant, et en face (centrés sur lui) le nombre d'opérations et la moyenne
+  h+='<div class="ca-total"><small class="ca-per">'+nomPer(sel)+(enCours?' (en cours)':'')+'</small>'+
+    '<div class="ca-ligne"><b class="num '+clsSigne(p.total)+'">'+eurSigne(p.total)+'</b>'+
+    '<span class="ca-moy">'+p.n+' op.'+(moy!=null?'<br>moyenne <b class="num">'+eurSigne(moy)+'</b> / '+(an?'an':'mois'):'')+'</span></div></div>';
+  // la fenêtre des barres : ‹ période · › (12 mois, ou jusqu'à 10 ans)
+  const court=k=>an?k:MOIS_COURT[+k.slice(5)-1]+' '+k.slice(0,4);
+  h+='<div class="ma-mois ca-fenetre"><button onclick="caDecaler(-1)" aria-label="Période précédente"'+(avant?'':' disabled')+'>'+fl('M15 6l-6 6 6 6')+'</button>'+
+    '<div class="ma-mois-centre"><b>'+(cles.length>1?court(cles[0])+' – '+court(cles[cles.length-1]):court(cles[0]))+'</b></div>'+
+    '<button onclick="caDecaler(1)" aria-label="Période suivante"'+(CA.fin?'':' disabled')+'>'+fl('M9 6l6 6-6 6')+'</button></div>';
   // toucher une barre : le détail de cette période
   const max=Math.max(1,...P.map(x=>Math.abs(x.total)));
   h+='<div class="ma-barres ca-barres" style="grid-template-columns:repeat('+P.length+',minmax(0,1fr))">'+P.map(x=>
     '<button'+(x.cle===sel?' class="actuel" aria-current="true"':'')+' onclick="caPeriode(\''+x.cle+'\')" aria-label="'+esc(nomPer(x.cle)+' : '+eurSigne(x.total))+'">'+
-    '<span style="height:'+Math.round(Math.abs(x.total)/max*100)+'%"></span><small>'+(an?(P.length>6?'’'+x.cle.slice(2):x.cle):MOIS_FR[+x.cle.slice(5)-1].charAt(0).toUpperCase())+'</small></button>').join('')+'</div>';
+    '<span style="height:'+hauteurBarre(x.total,max,96)+'px"></span><small>'+(an?(P.length>6?'’'+x.cle.slice(2):x.cle):MOIS_FR[+x.cle.slice(5)-1].charAt(0).toUpperCase())+'</small></button>').join('')+'</div>';
   // sous-catégories de la période (au niveau juste en dessous)
   const enfants=Object.values(by).filter(c=>c.parent_id===id);
   if(enfants.length){
@@ -2014,7 +2086,13 @@ function renderAnalyseCategorie(){
     '<span class="num '+clsSigne(o.m)+'">'+eurSigne(o.m)+'</span></button>').join('')
     :'<div class="m-vide">Aucune opération sur cette période.</div>')+'</div>';
   el.innerHTML=h;
+  ajusterTaille(el.querySelector('.ca-ligne>b'),()=>{const l=el.querySelector('.ca-ligne');return l.scrollWidth>l.clientWidth;});
 }
+// hauteur d'une barre en px (pas en % : pas toujours suivi par la vue web d'Android) ; un montant non nul se voit toujours
+function hauteurBarre(v,max,haut){return v?Math.max(4,Math.round(Math.abs(v)/max*haut)):2;}
+// réduit la police d'un élément tant que trop() est vrai (un grand montant qui ne tient pas)
+function ajusterTaille(e,trop){if(!e)return;let f=parseFloat(getComputedStyle(e).fontSize)||20;e.style.fontSize='';
+  while(trop()&&f>12){f-=1;e.style.fontSize=f+'px';}}
 
 /* ============================================================
    Analyse — uniquement des barres horizontales, avec descente
@@ -2313,6 +2391,8 @@ async function grPleinEcran(on,auto){
   d.body.classList.toggle('gr-plein',on);d.body.classList.toggle('gr-auto',on&&!!auto);
   d.body.classList.toggle('gr-fs-barres',on&&!!grShow().fsBarres);grSortie();
   if(!on)grFsAuto=false;
+  // appli : le plein écran du navigateur n'existe pas, on cache les barres d'Android (état, navigation)
+  if(enAppli()&&!auto)Capacitor.nativePromise('SystemBars',on?'hide':'show',{}).catch(()=>{});
   if(on&&!auto){
     if(!pleinEcranActif()&&(el.requestFullscreen||el.webkitRequestFullscreen)){
       try{await (el.requestFullscreen||el.webkitRequestFullscreen).call(el,{navigationUI:'hide'});grFsNatif=true;}catch(e){grFsNatif=false;}}
@@ -2655,7 +2735,7 @@ function ventRender(){
   const box=document.getElementById('vent-list');
   box.innerHTML=(state.vent||[]).map((l,i)=>
     '<div class="vent-l">'+
-      '<input list="dlfull" value="'+esc(l.cat)+'" placeholder="Alimentation : Supermarché" oninput="ventSet('+i+',&#39;cat&#39;,this.value)">'+
+      '<input'+(document.body.classList.contains('mobile')?'':' list="dlfull"')+' value="'+esc(l.cat)+'" placeholder="Alimentation : Supermarché" oninput="ventSet('+i+',&#39;cat&#39;,this.value)">'+
       '<input inputmode="decimal" style="text-align:right" value="'+esc(l.m)+'" placeholder="0,00" oninput="ventSet('+i+',&#39;m&#39;,this.value)">'+
       '<button type="button" class="ghost vx" onclick="ventDel('+i+')" title="Retirer cette ligne">&#10005;</button>'+
     '</div>').join('');
@@ -2740,6 +2820,35 @@ function majListeCategories(el,tout){
   const carte=el.closest('.row3'),haut=el.closest('.field').offsetTop;
   box.style.bottom=(carte.clientHeight-haut+4)+'px'; // le bas de la liste juste au-dessus du champ
   box.style.maxHeight=Math.max(120,Math.min(260,haut+carte.getBoundingClientRect().top-90))+'px';
+}
+/* Répartition (téléphone) : la même liste maison que les catégories, au-dessus du champ, au lieu de la liste
+   d'Android (blanche, qui restait dessinée en défilant). conteneurId : 'vent-box' (opération) ou 'rc-vent-box'
+   (échéance) ; les lignes sont redessinées, d'où l'écoute sur le conteneur. */
+const sansAccents=t=>t.normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+function suggestionsVentilation(tape){
+  const q=sansAccents((tape||'').trim().toLowerCase());
+  return catCheminsComplets().filter(x=>!q||sansAccents(x.toLowerCase()).includes(q)).slice(0,40);
+}
+function brancherListeVentilation(conteneurId){
+  const c=document.getElementById(conteneurId);if(!c||c.querySelector('.cat-sugg'))return;
+  const box=document.createElement('div');box.className='cat-sugg';box.hidden=true;c.appendChild(box);c.classList.add('avec-sugg');
+  const estCat=el=>el&&el.tagName==='INPUT'&&el.closest('.vent-l')&&el===el.closest('.vent-l').querySelector('input');
+  let pour=null;
+  const montrer=el=>{
+    const items=suggestionsVentilation(el.value);if(!items.length){box.hidden=true;return;}
+    box.innerHTML=items.map(x=>'<button type="button" data-v="'+esc(x)+'">'+esc(x)+'</button>').join('');
+    pour=el;box.hidden=false;
+    const haut=el.getBoundingClientRect().top-c.getBoundingClientRect().top;
+    box.style.bottom=(c.clientHeight-haut+4)+'px'; // le bas de la liste juste au-dessus du champ
+    box.style.maxHeight=Math.max(120,Math.min(260,el.getBoundingClientRect().top-90))+'px';
+  };
+  c.addEventListener('focusin',e=>{if(estCat(e.target))montrer(e.target);});
+  c.addEventListener('input',e=>{if(estCat(e.target))montrer(e.target);});
+  c.addEventListener('focusout',e=>{if(estCat(e.target))setTimeout(()=>{if(document.activeElement!==pour)box.hidden=true;},150);});
+  box.addEventListener('pointerdown',e=>e.preventDefault()); // le champ garde le clavier
+  box.addEventListener('click',e=>{const b=e.target.closest('button');if(!b||!pour)return;
+    const el=pour;el.value=b.dataset.v;el.dispatchEvent(new Event('input',{bubbles:true}));box.hidden=true;
+    const m=el.closest('.vent-l').querySelectorAll('input')[1];if(m){m.focus();if(m.select)m.select();}}); // puis son montant
 }
 /* pfx : 'i-cat' (opération) ou 'rc-c' (échéance) ; apres(niveau) : après un choix (sous-catégories à vider…) */
 function brancherListeCategories(pfx,carte,apres){
@@ -2833,7 +2942,8 @@ function openModal(id,focus){
   if(o){
     if(o.statut==='rapproche'){/* verrouillée : tout reste modifiable sauf le montant, confirmation demandée à l'enregistrement */}
     else if(o.statut==='annule'){ann.style.display='inline-flex';ann.textContent='Restaurer (dé-annuler)';}
-    else{del.style.display='inline-flex';ann.style.display='inline-flex';ann.textContent='Passer en annulé';}
+    // téléphone : « Annuler » (pas d'autre bouton Annuler, on ferme avec la croix) ; PC : il y a déjà « Annuler » (fermer)
+    else{del.style.display='inline-flex';ann.style.display='inline-flex';ann.textContent=document.body.classList.contains('mobile')?'Annuler':'Passer en annulé';}
   }
   closeAC();document.getElementById('overlay').classList.add('show');
   document.querySelector('#overlay .modal').scrollTop=0; // toujours ouverte en haut
@@ -2847,7 +2957,8 @@ function openModal(id,focus){
       :focus==='cat'||focus==='cat0'?document.getElementById('i-cat0')
       :focus==='cat1'?document.getElementById('i-cat1')
       :focus==='cat2'?document.getElementById('i-cat2')
-      :focus==='vent'?document.querySelector('#vent-list input')
+      :/^vent\d*$/.test(focus||'')?(()=>{const l=document.querySelectorAll('#vent-list .vent-l')[+focus.slice(4)||0]; // le montant de la ligne touchée
+        return l?l.querySelectorAll('input')[1]:document.querySelector('#vent-list input');})()
       :focus==='comm'?document.getElementById('i-comm')
       :destEl();
     if(cible){cible.focus();if(cible.select)cible.select();if(ecranTactile()&&cible.scrollIntoView)cible.scrollIntoView({block:'center'});}
@@ -3675,13 +3786,15 @@ function renderEcheancesMobile(){
 // toucher une échéance : son détail, puis Modifier / Suspendre (Réactiver) / Supprimer
 async function actionEcheance(id){
   const r=qy('SELECT r.*, c.nom cnom FROM recurrence r JOIN compte c ON c.id=r.compte_id WHERE r.id=?',[id])[0];if(!r)return;
-  const ligne=(k,v)=>'<div class="me-info"><span>'+k+'</span><b>'+v+'</b></div>';
-  const html=ligne('Montant','<span class="num">'+(r.montant<0?'':'+')+eur(r.montant)+'</span>')+ligne('Fréquence',esc(freqLabel(r.frequence,r.intervalle)))+
-    ligne('Compte',esc(r.cnom))+ligne('Prochaine',r.actif?isoToFr(r.prochaine):'suspendue')+
-    ligne('Jusqu’au',r.date_fin?isoToFr(r.date_fin):'sans fin')+(r.commentaire?ligne('Commentaire',esc(r.commentaire)):'');
+  // toucher une ligne : la fenêtre de modification s'ouvre directement sur ce champ (comme la fiche d'une opération)
+  const ligne=(k,v,champ)=>'<button type="button" class="me-info" onclick="dlgClose(&#39;champ:'+champ+'&#39;)"><span>'+k+'</span><b>'+v+'</b></button>';
+  const html=ligne('Montant','<span class="num">'+(r.montant<0?'':'+')+eur(r.montant)+'</span>','rc-m')+ligne('Fréquence',esc(freqLabel(r.frequence,r.intervalle)),'rc-f')+
+    ligne('Compte',esc(r.cnom),'rc-cpt')+ligne('Prochaine',r.actif?isoToFr(r.prochaine):'suspendue','rc-d')+
+    ligne('Jusqu’au',r.date_fin?isoToFr(r.date_fin):'sans fin','rc-fin')+ligne('Commentaire',r.commentaire?esc(r.commentaire):'<em>ajouter</em>','rc-com');
   const v=await dlgOpen({title:r.tiers||'Échéance',html,fermeDehors:true,buttons:[
     {t:'Supprimer',v:'suppr',d:true},{t:r.actif?'Suspendre':'Réactiver',v:'susp'},{t:'Modifier',v:'mod',p:true}]});
   if(v==='mod')editRec(id);else if(v==='susp')toggleRec(id,r.actif?0:1);else if(v==='suppr')supprRec(id);
+  else if(typeof v==='string'&&v.indexOf('champ:')===0)editRec(id,v.slice(6));
 }
 function renderRecurrences(){
   if(document.body.classList.contains('mobile')){renderEcheancesMobile();return;}
@@ -3762,7 +3875,7 @@ function rcVentRender(){
   const box=document.getElementById('rc-vent-list');
   box.innerHTML=(state.rcVent||[]).map((l,i)=>
     '<div class="vent-l">'+
-      '<input list="rc-dlfull" value="'+esc(l.cat)+'" placeholder="Alimentation : Supermarché" oninput="rcVentSet('+i+',&#39;cat&#39;,this.value)">'+
+      '<input'+(document.body.classList.contains('mobile')?'':' list="rc-dlfull"')+' value="'+esc(l.cat)+'" placeholder="Alimentation : Supermarché" oninput="rcVentSet('+i+',&#39;cat&#39;,this.value)">'+
       '<input inputmode="decimal" style="text-align:right" value="'+esc(l.m)+'" placeholder="0,00" oninput="rcVentSet('+i+',&#39;m&#39;,this.value)">'+
       '<button type="button" class="ghost vx" onclick="rcVentDel('+i+')" title="Retirer cette ligne">&#10005;</button>'+
     '</div>').join('');
@@ -3776,7 +3889,7 @@ function rcVentTotal(){
   el.className=(reste===0&&abs>0)?'ok':'bad';
   el.textContent='Réparti '+eur(Math.abs(som))+' / '+eur(Math.abs(cible))+(reste===0?' — équilibré':' — reste '+eur(Math.abs(reste)));
 }
-async function editRec(id){
+async function editRec(id,champ){
   const r=id?qy('SELECT * FROM recurrence WHERE id=?',[id])[0]:null;
   const comptes=qy('SELECT id,nom FROM compte WHERE actif=1 ORDER BY ordre_affichage,id');
   const lv=catLevels(),dl=k=>lv[k].map(v=>'<option value="'+esc(v)+'">').join('');
@@ -3875,6 +3988,7 @@ async function editRec(id){
     onOpen:()=>{majSousCatsRec();rcFreqMaj();rcSensMaj();
       if(document.body.classList.contains('mobile')){ // téléphone : même liste de catégories que la saisie d'une opération
         brancherListeCategories('rc-c',document.querySelector('#rc-cat-simple .row3'),()=>majSousCatsRec());
+        brancherListeVentilation('rc-vent-box');
         document.querySelector('#dlgBack .dlg').scrollTop=0;}
       state.rcVent=null;const vv=document.getElementById('rc-vent');if(vv)vv.checked=false;
       const cs=document.getElementById('rc-cat-simple'),vb=document.getElementById('rc-vent-box');
@@ -3886,7 +4000,11 @@ async function editRec(id){
       }}catch(e){}}
       // nouvelle échéance sur téléphone : directement dans le montant (le clavier des chiffres s'ouvre)
       const vir=document.getElementById('rc-s').value==='virement',mob=document.body.classList.contains('mobile');
-      const foc=document.getElementById(vir||(mob&&!id)?'rc-m':'rc-t');if(foc&&(!ecranTactile()||!id))foc.focus();}});
+      // une ligne du détail touchée : directement sur ce champ (la liste s'ouvre pour une fréquence ou un compte)
+      const foc=document.getElementById(champ||(vir||(mob&&!id)?'rc-m':'rc-t'));
+      if(foc&&(!ecranTactile()||!id||champ)){foc.focus();if(champ&&foc.select&&foc.tagName==='INPUT')foc.select();
+        if(champ&&foc.tagName==='SELECT'&&foc.showPicker)try{foc.showPicker();}catch(e){}
+        if(champ&&foc.scrollIntoView)foc.scrollIntoView({block:'center'});}}});
   if(!ok||!data)return;
   if(id){
     run(`UPDATE recurrence SET compte_id=?,type=?,montant=?,tiers=?,cat_path=?,commentaire=?,

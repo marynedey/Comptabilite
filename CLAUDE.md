@@ -40,7 +40,10 @@ App web de comptes personnels, en français, hors ligne. Publiée sur https://ma
   catégorie ouvre `#m-catana` (`renderAnalyseCategorie`, état `CA`) : par mois (12 derniers) ou par année, sous-catégories,
   opérations. Il est sous la fenêtre de saisie et la fiche (z-index), qui s'ouvrent par-dessus.
 - Tiers et catégories se renomment ou se fusionnent (`renommerTiersDb`, `fusionnerTiersDb`, `renommerCategorieDb`,
-  `fusionnerCategoriesDb`) : `cat_path`, `hay` des opérations et échéances suivent ; jamais plus de 3 niveaux.
+  `fusionnerCategoriesDb`) : `cat_path`, `hay` des opérations et échéances suivent. Une catégorie ne fusionne qu'avec une
+  catégorie du même niveau (même parent) : ses sous-catégories s'ajoutent au même niveau, celles au nom identique
+  fusionnent ; on choisit le nom gardé. Téléphone : appui long sur une catégorie → Renommer / Fusionner (`menuCategorie`).
+- Barres (analyse, analyse d'une catégorie) : hauteurs en px (`hauteurBarre`), pas en % (pas toujours suivi sur Android).
 - Réglages d'affichage (`REGLAGES` : thème auto/clair/sombre, barres de recherche en haut/bas, montants masqués à
   l'ouverture) : `localStorage` `mc.reglages` de l'appareil. Thème forcé = `html[data-theme]` ; toute couleur sombre
   ajoutée au CSS doit l'être pour `@media (prefers-color-scheme: dark){:root:not([data-theme="clair"])…}` ET
