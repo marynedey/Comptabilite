@@ -684,6 +684,22 @@ test('téléphone, retours : échéance touchée → son champ, erreur visible, 
     await page.locator('#m-categories .mg-nom', { hasText: 'Traitements et salaires' }).click();
     const h = await page.locator('#m-catana .ca-barres span').evaluateAll(es => es.map(e => e.getBoundingClientRect().height));
     assert.ok(h[10] > 80 && h[11] > 80 && h[9] <= 2, 'hauteurs ' + h.join(','));
+    // choisir la période : rien avant la fenêtre → ‹ grisé ; une opération de 2025 → ‹ recule de 12 mois
+    assert.equal(await page.locator('#m-catana .ca-fenetre button[aria-label="Période précédente"]').isDisabled(), true);
+    assert.equal(await page.locator('#m-catana .ca-fenetre button[aria-label="Période suivante"]').isDisabled(), true);
+    await page.evaluate(() => {
+      run("INSERT INTO operation(compte_id,date_operation,montant,cat_path,statut,supprime,previsionnel,tiers_id,hay) VALUES(?,?,?,?,'rapproche',0,0,?,?)",
+        [state.acc, '2025-06-25', 210000, 'Traitements et salaires : Prime', upsertTiers('TBF'), '']);
+      run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)', [scal('SELECT MAX(id) FROM operation'), upsertCategorie('Traitements et salaires : Prime'), 210000]);
+      renderAnalyseCategorie(); });
+    await page.click('#m-catana .ca-fenetre button[aria-label="Période précédente"]');
+    assert.match(await page.textContent('#m-catana .ca-fenetre'), /nov\. 2024 – oct\. 2025/);
+    assert.match(await page.textContent('#m-catana .ca-total'), /Octobre 20250,00\s€0 op\./);
+    await page.click('#m-catana .ca-barres button[aria-label^="Juin 2025"]');
+    assert.match(await page.textContent('#m-catana .ca-total'), /Juin 2025\+2\s100,00\s€/);
+    assert.match(await page.textContent('#m-catana .ca-moy'), /moyenne \+175,00\s€ \/ mois/); // fenêtre passée : 2 100 ÷ 12
+    await page.click('#m-catana .ca-fenetre button[aria-label="Période suivante"]');
+    assert.match(await page.textContent('#m-catana .ca-fenetre'), /nov\. 2025 – oct\. 2026/);
     const ligneTot = page.locator('#m-catana .ca-ligne');
     assert.ok(await ligneTot.evaluate(l => l.scrollWidth <= l.clientWidth), 'sur une ligne');
     const mt = await ligneTot.locator('>b').boundingBox(), moy = await ligneTot.locator('.ca-moy').boundingBox();

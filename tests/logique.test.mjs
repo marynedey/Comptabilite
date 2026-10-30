@@ -444,3 +444,14 @@ test('barres du détail d\'une catégorie : immobiles dans la moitié droite, re
   assert.equal(f('2026-10', '2025-01'), '2025-01');            // hors de la fenêtre : à droite
   assert.equal(app.fenetreBarres('2026', '2022', 6, '2026'), '2024'); // années
 });
+
+test('analyse d\'une catégorie : fenêtre choisie (‹ ›), moyenne sur toute la fenêtre quand elle est passée', () => {
+  const auj = new Date(2026, 9, 30);
+  const L = [{ id: 1, d: '2025-03-10', m: -1200 }, { id: 2, d: '2025-10-01', m: -600 }, { id: 3, d: '2026-10-02', m: -300 }];
+  const M = js(app.periodesCategorie(L, 'mois', auj, '2025-10'));
+  assert.deepEqual([M[0].cle, M[11].cle], ['2024-11', '2025-10']);
+  assert.equal(M.find(p => p.cle === '2025-03').total, -1200);
+  assert.equal(app.moyenneCategorie(M, true), Math.round(-1800 / 12));   // fenêtre passée : les 12 mois comptent
+  assert.equal(app.moyenneCategorie(M), Math.round(-1200 / 11));         // sinon sans le dernier (en cours)
+  assert.deepEqual(js(app.periodesCategorie(L, 'annee', auj, '2025')).map(p => p.cle), ['2025']);
+});

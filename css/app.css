@@ -180,7 +180,7 @@
   .m-onglets button.on svg{background:var(--brand-soft)}
   body.mobile #v-plus.on{display:block}
   .m-sauvegarde{display:flex;align-items:center;gap:12px;border-radius:14px;padding:14px 16px;margin-bottom:6px;background:var(--brand-soft)}
-  .m-sauvegarde.attente{background:#FBEFD9;color:#5E3D00}
+  .m-sauvegarde.attente{background:var(--attente-fond);color:var(--attente-encre)} /* ambre doux, foncé en mode sombre */
   .m-sauvegarde .ms-txt{flex:1;font-size:.92rem}
   .m-sauvegarde .ms-txt b{display:block;font-size:1rem}
   .m-groupe-h{font-size:.82rem;font-weight:600;color:var(--ink-2);margin:18px 2px 6px}
@@ -327,6 +327,9 @@
   .ca-ligne>b.credit{color:var(--credit)}
   .ca-moy{flex:none;font-size:.85rem;color:var(--ink-2);text-align:right;line-height:1.5;white-space:nowrap}
   .ca-moy b{font-weight:600;color:var(--ink)}
+  .ca-fenetre{margin:2px 0 8px}
+  .ca-fenetre b{font-size:.95rem}
+  .ca-fenetre button:disabled{opacity:.35}
   .ma-barres.ca-barres{gap:4px;padding:12px 10px 8px;height:140px;margin-bottom:4px}
   .ma-total b.credit,.ca-titre b.credit,.ma-ligne .num.credit{color:var(--credit)}
   .mf-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:auto;padding-top:18px}

@@ -1997,30 +1997,35 @@ function renderCategoriesMobile(cats,kids,totOf,sumOf){
    Tous les comptes, opérations effectives (ni annulées, ni prévisionnelles), sous-catégories comprises.
    Par mois : les 12 derniers mois ; par année : depuis la 1re opération (10 ans au plus). Toucher une barre
    choisit la période : son total, la moyenne des périodes passées, ses sous-catégories et ses opérations. */
-const CA={pile:[],unite:'mois',sel:null};
+const CA={pile:[],unite:'mois',sel:null,fin:null};
 const eurSigne=c=>(c>0?'+':'')+eur(c);
 function cleCategorie(d,unite){return unite==='annee'?d.slice(0,4):d.slice(0,7);}
 // lignes [{id,d,m}] → [{cle,total (centimes, signé),n (opérations)}] de la plus ancienne à la plus récente
-function periodesCategorie(lignes,unite,auj){
+// fin : dernière période affichée ('AAAA-MM' ou 'AAAA'), la période en cours par défaut (‹ › pour remonter le temps)
+function periodesCategorie(lignes,unite,auj,fin){
   const cles=[];
   if(unite==='annee'){
-    const y0=lignes.reduce((y,l)=>Math.min(y,+l.d.slice(0,4)),auj.getFullYear());
-    for(let y=Math.max(y0,auj.getFullYear()-9);y<=auj.getFullYear();y++)cles.push(String(y));
-  }else for(let i=11;i>=0;i--)cles.push(periodeDecalee(clefMois(auj),-i));
+    const f=fin?+fin:auj.getFullYear(),y0=lignes.reduce((y,l)=>Math.min(y,+l.d.slice(0,4)),f);
+    for(let y=Math.max(y0,f-9);y<=f;y++)cles.push(String(y));
+  }else for(let i=11;i>=0;i--)cles.push(periodeDecalee(fin||clefMois(auj),-i));
   const par=new Map(cles.map(k=>[k,{cle:k,total:0,ops:new Set()}]));
   lignes.forEach(l=>{const e=par.get(cleCategorie(l.d,unite));if(e){e.total+=l.m;e.ops.add(l.id);}});
   return cles.map(k=>{const e=par.get(k);return {cle:k,total:e.total,n:e.ops.size};});
 }
-// moyenne des périodes passées (la période en cours, commencée, n'y entre pas) ; null s'il n'y en a pas
-function moyenneCategorie(P){const p=P.slice(0,-1);return p.length?Math.round(p.reduce((t,x)=>t+x.total,0)/p.length):null;}
+// moyenne des périodes affichées, sans la période en cours (commencée) si elle en fait partie ; null s'il n'y en a pas
+function moyenneCategorie(P,avecDerniere){const p=avecDerniere?P:P.slice(0,-1);return p.length?Math.round(p.reduce((t,x)=>t+x.total,0)/p.length):null;}
+// ‹ › : la fenêtre recule ou avance de 12 mois (ou de 10 ans), jamais au-delà de la période en cours
+function caDecaler(d){const auj=new Date(),cur=CA.unite==='annee'?String(auj.getFullYear()):clefMois(auj);
+  const f=periodeDecalee(CA.fin||cur,d*(CA.unite==='annee'?10:12));
+  CA.fin=rangPeriode(f)>=rangPeriode(cur)?null:f;CA.sel=null;renderAnalyseCategorie();}
 function voirAnalyseCategorie(id){
-  CA.pile=[id];CA.sel=null;const el=document.getElementById('m-catana');
+  CA.pile=[id];CA.sel=null;CA.fin=null;const el=document.getElementById('m-catana');
   renderAnalyseCategorie();el.hidden=false;el.scrollTop=0;
 }
 function fermerAnalyseCategorie(){const el=document.getElementById('m-catana');if(el)el.hidden=true;CA.pile=[];}
 function caRetour(){CA.pile.pop();if(!CA.pile.length){fermerAnalyseCategorie();return;}renderAnalyseCategorie();document.getElementById('m-catana').scrollTop=0;}
 function caDescendre(id){CA.pile.push(id);renderAnalyseCategorie();document.getElementById('m-catana').scrollTop=0;}
-function caUnite(u){CA.unite=u;CA.sel=null;renderAnalyseCategorie();}
+function caUnite(u){CA.unite=u;CA.sel=null;CA.fin=null;renderAnalyseCategorie();}
 function caPeriode(k){CA.sel=k;renderAnalyseCategorie();}
 function caOperations(){const id=CA.pile[CA.pile.length-1];fermerAnalyseCategorie();voirCategorie(id);}
 function renderAnalyseCategorie(){
@@ -2032,8 +2037,10 @@ function renderAnalyseCategorie(){
     JOIN operation o ON o.id=v.operation_id LEFT JOIN tiers t ON t.id=o.tiers_id LEFT JOIN compte cp ON cp.id=o.compte_id
     WHERE v.categorie_id IN (${ids.map(()=>'?').join(',')}) AND o.supprime=0 AND o.statut<>'annule' AND o.previsionnel=0
     AND o.date_operation<=?`,[...ids,isoDe(auj)]);
-  const an=CA.unite==='annee',P=periodesCategorie(L,CA.unite,auj),cles=P.map(p=>p.cle);
-  const sel=cles.indexOf(CA.sel)>=0?CA.sel:cles[cles.length-1],p=P[cles.indexOf(sel)],moy=moyenneCategorie(P);
+  const an=CA.unite==='annee',P=periodesCategorie(L,CA.unite,auj,CA.fin),cles=P.map(p=>p.cle);
+  const sel=cles.indexOf(CA.sel)>=0?CA.sel:cles[cles.length-1],p=P[cles.indexOf(sel)],moy=moyenneCategorie(P,!!CA.fin);
+  // ‹ possible tant qu'il reste des opérations avant la fenêtre
+  const premiere=L.reduce((m,l)=>!m||l.d<m?l.d:m,null),avant=!!premiere&&cleCategorie(premiere,CA.unite)<cles[0];
   const LS=L.filter(l=>cleCategorie(l.d,CA.unite)===sel);
   const totalTout=L.reduce((t,l)=>t+l.m,0),nTout=new Set(L.map(l=>l.id)).size;
   const parents=cheminCategorie(id).split(' : ').slice(0,-1),fl=d=>icoPlus(d);
@@ -2044,11 +2051,16 @@ function renderAnalyseCategorie(){
     '<p>'+(nTout?'<b class="num '+clsSigne(totalTout)+'">'+eurSigne(totalTout)+'</b> · '+nTout+' opération'+(nTout>1?'s':'')+' en tout':'Aucune opération')+'</p></div>';
   h+='<div class="ev-portee ca-unite" role="tablist" aria-label="Par mois ou par année">'+[['mois','Par mois'],['annee','Par année']].map(([k,t])=>
     '<button role="tab" aria-selected="'+(CA.unite===k)+'" onclick="caUnite(\''+k+'\')">'+t+'</button>').join('')+'</div>';
-  const enCours=sel===cles[cles.length-1];
+  const enCours=!CA.fin&&sel===cles[cles.length-1];
   // la période, puis sur une ligne : le montant, et en face (centrés sur lui) le nombre d'opérations et la moyenne
   h+='<div class="ca-total"><small class="ca-per">'+nomPer(sel)+(enCours?' (en cours)':'')+'</small>'+
     '<div class="ca-ligne"><b class="num '+clsSigne(p.total)+'">'+eurSigne(p.total)+'</b>'+
     '<span class="ca-moy">'+p.n+' op.'+(moy!=null?'<br>moyenne <b class="num">'+eurSigne(moy)+'</b> / '+(an?'an':'mois'):'')+'</span></div></div>';
+  // la fenêtre des barres : ‹ période · › (12 mois, ou jusqu'à 10 ans)
+  const court=k=>an?k:MOIS_COURT[+k.slice(5)-1]+' '+k.slice(0,4);
+  h+='<div class="ma-mois ca-fenetre"><button onclick="caDecaler(-1)" aria-label="Période précédente"'+(avant?'':' disabled')+'>'+fl('M15 6l-6 6 6 6')+'</button>'+
+    '<div class="ma-mois-centre"><b>'+(cles.length>1?court(cles[0])+' – '+court(cles[cles.length-1]):court(cles[0]))+'</b></div>'+
+    '<button onclick="caDecaler(1)" aria-label="Période suivante"'+(CA.fin?'':' disabled')+'>'+fl('M9 6l6 6-6 6')+'</button></div>';
   // toucher une barre : le détail de cette période
   const max=Math.max(1,...P.map(x=>Math.abs(x.total)));
   h+='<div class="ma-barres ca-barres" style="grid-template-columns:repeat('+P.length+',minmax(0,1fr))">'+P.map(x=>
