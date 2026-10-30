@@ -604,7 +604,9 @@ test('téléphone, retours d\'affichage : bulle au-dessus des boutons, « Annule
     assert.match(await centre.textContent(), /702\s263,70/); // janvier → septembre (année en cours)
     assert.ok(await centre.evaluate(e => e.scrollWidth <= document.querySelector('#m-analyse .ma-anneau svg').getBoundingClientRect().width * 0.6 + 1), 'dans le trou de l\'anneau');
     // comparaisons « … vs 2025 » : toujours sur une ligne, quitte à écrire plus petit
-    assert.ok(await page.locator('#m-analyse .ma-ligne small').evaluateAll(es => es.every(e => e.scrollWidth <= e.clientWidth && e.getBoundingClientRect().height < 22)), 'une ligne');
+    const lignesComp = await page.locator('#m-analyse .ma-ligne small').evaluateAll(es => es.map(e => [e.textContent, e.scrollWidth - e.clientWidth, e.getBoundingClientRect().height]));
+    assert.ok(lignesComp.every(([, deb, h]) => deb <= 1 && h < 22), 'une ligne : ' + JSON.stringify(lignesComp));
+    assert.match(lignesComp[0][0], /vs 2025$/); // sans répéter « (janv. → sept.) »
     // le détail d'une catégorie, par mois : la barre choisie ne bouge que depuis la moitié gauche
     await page.selectOption('#m-analyse .ma-mois-centre select', 'mois');
     await page.locator('#m-analyse .ma-ligne', { hasText: 'Maison' }).click();

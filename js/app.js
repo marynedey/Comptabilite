@@ -899,8 +899,10 @@ function renderAnalyseMobile(){
   const selComp='<select aria-label="Comparer avec" onchange="MA.comp=this.value;renderAnalyseMobile()">'+
     optsComp.map(k=>'<option value="'+k+'"'+(k===comp?' selected':'')+'>'+libellePeriodeAna(k)+'</option>').join('')+'</select>';
   // « vs 2025 (janv. → sept.) » reste d'un seul tenant : la ligne se coupe avant, pas au milieu
-  const ecartLigne=(v,vc)=>{const d=v-vc;return d===0?'<span class="nw">comme en '+nomC.toLowerCase()+'</span>'
-    :(d>0?'+':'−')+eur(Math.abs(d)).replace('-','')+' <span class="nw">vs '+nomC.toLowerCase()+'</span>';};
+  // « vs 2025 » sans répéter « (janv. → sept.) » : les mêmes mois que la période affichée en haut
+  const nomCc=libellePeriodeAna(comp).toLowerCase();
+  const ecartLigne=(v,vc)=>{const d=v-vc;return d===0?'<span class="nw">comme en '+nomCc+'</span>'
+    :(d>0?'+':'−')+eur(Math.abs(d)).replace('-','')+' <span class="nw">vs '+nomCc+'</span>';};
   let h='';
   if(!MA.chemin.length){
     h+='<div class="ma-mois"><button onclick="anaMobileDecaler(-1)" aria-label="Période précédente">'+fl('M15 6l-6 6 6 6')+'</button>'+
@@ -954,7 +956,7 @@ function renderAnalyseMobile(){
   const c=document.querySelector('#m-analyse .ma-centre b'),sv=document.querySelector('#m-analyse .ma-anneau svg');
   if(c&&sv){const max=sv.getBoundingClientRect().width*0.6;ajusterTaille(c,()=>c.scrollWidth>max);}
   // comparaisons : toujours sur une ligne (à droite du montant) ; trop longues, la police rapetisse
-  document.querySelectorAll('#m-analyse .ma-ligne small').forEach(e=>ajusterTaille(e,()=>e.scrollWidth>e.clientWidth,9));
+  document.querySelectorAll('#m-analyse .ma-ligne small').forEach(e=>ajusterTaille(e,()=>e.scrollWidth>e.clientWidth,10));
   const t=document.querySelector('#m-analyse .ma-total');
   if(t){const e=t.querySelector('.ma-ecart'),b=t.querySelector('b');
     ajusterTaille(e,()=>t.scrollWidth>t.clientWidth,10);ajusterTaille(b,()=>t.scrollWidth>t.clientWidth);}

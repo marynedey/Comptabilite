@@ -366,7 +366,7 @@
   .ma-ligne i{width:12px;height:12px;border-radius:6px;flex:none}
   .ma-ligne .ma-nom{flex:1;min-width:0}
   .ma-ligne.choisie{background:var(--brand-soft)}
-  .ma-ligne .ma-nom small{display:block;font-size:.78rem;color:var(--ink-2);white-space:nowrap;overflow:hidden} /* une ligne, police réduite si besoin */
+  .ma-ligne .ma-nom small{display:block;font-size:.78rem;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis} /* une ligne, police réduite si besoin (« … » en dernier recours) */
   .ma-ligne .num{font-weight:600}
   .ma-ligne svg{width:16px;height:16px;color:var(--ink-3);flex:none}
   .ma-tete{display:flex;align-items:center;gap:4px;margin:0 -6px 6px}
