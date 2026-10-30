@@ -503,8 +503,17 @@ test('téléphone, fiche d\'une opération : montant en grand, statut en informa
     assert.match(await fiche.locator('.mf-montant').textContent(), /^-4,50\s€$/);
     assert.match(await fiche.textContent(), /Lundi 26 octobre 2026 · Compte courant/);
     assert.match(await fiche.locator('.mf-statut').textContent(), /Non pointé/);
-    assert.equal(await fiche.locator('.mf-statut button').count(), 0); // le statut ne se change pas ici
     assert.match(await fiche.locator('.mf-infos').textContent(), /CatégorieAlimentation/);
+    // le statut se change ici aussi d'un toucher
+    await fiche.locator('button.mf-statut').click();
+    assert.match(await fiche.locator('.mf-statut').textContent(), /^Pointé/);
+    await fiche.locator('button.mf-statut').click();
+    assert.match(await fiche.locator('.mf-statut').textContent(), /^Non pointé/);
+    // toucher le montant : le formulaire s'ouvre sur le montant
+    await fiche.locator('button.mf-montant').click();
+    await page.waitForFunction(() => document.activeElement && document.activeElement.id === 'i-montant');
+    await page.click('#overlay .m-fermer');
+    await ligne(page, 'Boulangerie').locator('.m-op-corps').click();
     // Modifier : la fenêtre d'opération, remplie
     await fiche.locator('button:has-text("Modifier")').click();
     assert.equal(await page.isVisible('#m-fiche'), false);
@@ -735,7 +744,7 @@ test('téléphone, gestion : tiers (tri, toucher → opérations), catégories (
     assert.equal(await page.isVisible('#ti-rows'), false);
     await t.locator('button:has-text("A → Z")').click();
     assert.deepEqual((await t.locator('.me-nom').evaluateAll(es => es.map(x => x.firstChild.textContent))).slice(0, 2), ['Boulangerie', 'Électricité']);
-    await t.locator('button:has-text("Montant total")').click();
+    await t.locator('button:has-text("Montant le plus élevé")').click();
     assert.equal(await t.locator('.me-nom').first().evaluate(x => x.firstChild.textContent), 'Salaire');
     await t.locator('.me-item', { hasText: 'Pharmacie' }).click();
     await page.waitForFunction(() => state.view === 'registre');
@@ -783,6 +792,90 @@ test('téléphone, saisie : plein écran, montant en grand en haut, statut rappe
     assert.equal(await page.textContent('#modal-title'), 'Modifier l’opération');
     assert.equal(await page.textContent('#i-statut'), 'Non pointé');
     await page.click('#overlay .m-fermer');
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
+test('téléphone, retours : Retour ferme le formulaire, prévisionnel lié à la période, statut à 3 états, nombre d\'opérations', async () => {
+  const { navigateur, page } = await ouvrirTelephone();
+  try {
+    await opsExemple(page);
+    assert.equal(await page.textContent('#m-nb-ops'), '5 opérations');
+    // Retour du navigateur (ou du clavier) avec le formulaire ouvert : il se ferme, l'écran derrière ne change pas
+    await page.evaluate(() => { setView('analyse'); setView('registre'); });
+    await page.click('#m-ajouter');
+    await fenetreOperationPrete(page);
+    await page.evaluate(() => history.back());
+    await page.locator('#overlay.show').waitFor({ state: 'hidden' });
+    assert.equal(await page.evaluate(() => state.view), 'registre');
+    // prévisionnel « fin du mois prochain » → période jusqu'au 30 novembre ; « Ce mois » n'est plus possible
+    await page.click('.m-filtrer');
+    await page.selectOption('#f-horizon', 'finmoisprochain');
+    assert.equal(await page.inputValue('#f-periode'), 'perso');
+    assert.equal(await page.inputValue('#f-to'), '30/11/26');
+    assert.equal(await page.isDisabled('#f-periode-wrap .pchip[data-m="mois"]'), true);
+    await page.selectOption('#f-horizon', 'finmois');
+    assert.equal(await page.inputValue('#f-periode'), 'mois');
+    assert.equal(await page.evaluate(() => document.querySelector('#f-horizon option[value="finmoisprochain"]').disabled), true);
+    await page.click('#m-voir');
+    // statut : l'opération prévisionnelle garde 3 états tant qu'on reste dessus
+    const st = () => statutDe(page, 'Électricité');
+    await ligne(page, 'Électricité').locator('.m-st').click();
+    assert.deepEqual({ ...(await st()) }, { s: 'non_pointe', pv: 0 });
+    await ligne(page, 'Électricité').locator('.m-st').click();
+    assert.equal((await st()).s, 'pointe');
+    await ligne(page, 'Électricité').locator('.m-st').click();
+    assert.deepEqual({ ...(await st()) }, { s: 'non_pointe', pv: 1 });   // de nouveau prévisionnelle
+    await ligne(page, 'Électricité').locator('.m-st').click();          // confirmée
+    await ligne(page, 'Boulangerie').locator('.m-st').click();          // une autre : la 1re n'a plus que 2 états
+    await ligne(page, 'Électricité').locator('.m-st').click();
+    await ligne(page, 'Électricité').locator('.m-st').click();
+    assert.deepEqual({ ...(await st()) }, { s: 'non_pointe', pv: 0 });
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
+test('téléphone, saisie : la liste des catégories s\'ouvre au-dessus du champ ; appui long sur un compte pour le modifier', async () => {
+  const { navigateur, page } = await ouvrirTelephone();
+  try {
+    await page.evaluate(() => { upsertCategorie('Alimentation : Courses'); upsertCategorie('Alimentation : Boulangerie'); upsertCategorie('Loisirs'); });
+    await page.click('#m-ajouter');
+    await fenetreOperationPrete(page);
+    await page.click('#i-cat0');
+    const liste = page.locator('#cat-sugg');
+    await liste.waitFor();
+    const l = await liste.boundingBox(), c = await page.locator('#i-cat0').boundingBox();
+    assert.ok(l.y + l.height <= c.y + 1, 'la liste est au-dessus du champ');
+    await liste.locator('button:has-text("Alimentation")').click();
+    assert.equal(await page.inputValue('#i-cat0'), 'Alimentation');
+    await page.waitForFunction(() => document.activeElement && document.activeElement.id === 'i-cat1');   // on passe à la sous-catégorie
+    assert.deepEqual(await page.locator('#cat-sugg button').allTextContents(), ['Boulangerie', 'Courses']);
+    await page.click('#overlay .m-fermer');
+    // appui long sur un compte de la liste déroulante : sa fenêtre de modification
+    await page.click('#m-compte-btn');
+    const b = page.locator('#m-comptes button[data-id]').first();
+    await b.dispatchEvent('pointerdown', { clientX: 10, clientY: 10 });
+    await page.locator('#dlgBack.show #dlgTitle:has-text("Modifier le compte")').waitFor();
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
+test('téléphone, gestion : renommer un tiers, fusionner une catégorie', async () => {
+  const { navigateur, page } = await ouvrirTelephone();
+  try {
+    await opsExemple(page);
+    await page.evaluate(() => setView('tiers'));
+    await page.click('#m-tiers button[aria-label="Renommer ou fusionner Pharmacie"]');
+    await page.fill('#mt-nom', 'Pharmacie du centre');
+    await page.click('#dlgFoot button:has-text("Enregistrer")');
+    await page.locator('#m-tiers .me-nom:has-text("Pharmacie du centre")').waitFor();
+    await page.evaluate(() => { upsertCategorie('Alimentation'); const id = upsertCategorie('Courses'); run("UPDATE ventilation SET categorie_id=? WHERE operation_id=(SELECT id FROM operation WHERE cat_path='Alimentation : Courses')", [id]); run("UPDATE operation SET cat_path='Courses' WHERE cat_path='Alimentation : Courses'"); setView('categories'); });
+    await page.click('#m-categories button[aria-label="Renommer ou fusionner Courses"]');
+    await page.selectOption('#mc-avec', { label: 'Alimentation' });
+    await page.click('#dlgFoot button:has-text("Enregistrer")');
+    await page.click('#dlgFoot button:has-text("Fusionner")');
+    await page.waitForFunction(() => scal("SELECT COUNT(*) FROM categorie WHERE libelle='Courses' AND parent_id IS NULL") === 0);
+    assert.equal(await page.evaluate(() => scal("SELECT cat_path FROM operation o JOIN tiers t ON t.id=o.tiers_id WHERE t.nom='Supermarché'")), 'Alimentation');
     assert.deepEqual(page.erreurs, []);
   } finally { await navigateur.close(); }
 });
