@@ -273,6 +273,11 @@ test('appli Android : fond et icônes des barres d\'Android selon le thème de l
     await page.emulateMedia({ colorScheme: 'dark' });
     await page.waitForFunction(() => window.__appels.filter(a => a[1] === 'fondBarres').at(-1)[2].sombre === true);
     assert.deepEqual(await dernier('setStyle'), { style: 'DARK' });
+    // plein écran de l'évolution : les barres d'Android se cachent, puis reviennent
+    await page.evaluate(() => grPleinEcran(true));
+    assert.equal((await appels(page, 'hide')).length, 1);
+    await page.evaluate(() => grPleinEcran(false));
+    assert.equal((await appels(page, 'show')).length, 1);
     assert.deepEqual(page.erreurs, []);
   } finally { await navigateur.close(); }
 });
@@ -554,6 +559,68 @@ test('téléphone, filtres : nombre d\'opérations tout à gauche, dates sur une
     assert.equal(await feuille.evaluate(e => e.scrollTop), 80);
     assert.equal(await glisser(200, '#f-statuts'), '');
     assert.equal(await page.evaluate(() => document.body.classList.contains('filtres-ouverts')), true);
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
+test('téléphone, retours d\'affichage : bulle au-dessus des boutons, « Annuler », anneau, barres d\'une catégorie, tiers, fusion', async () => {
+  const { navigateur, page } = await ouvrirTelephone();
+  try {
+    await page.evaluate(() => {
+      const ins = (d, m, dest, cat) => {
+        run("INSERT INTO operation(compte_id,date_operation,montant,cat_path,statut,supprime,previsionnel,tiers_id,hay) VALUES(?,?,?,?,'pointe',0,0,?,?)",
+          [state.acc, d, m, cat, upsertTiers(dest), makeHay(dest, cat, null, '', m, d)]);
+        run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)', [scal('SELECT MAX(id) FROM operation'), upsertCategorie(cat), m]);
+      };
+      for (let i = 0; i < 10; i++) ins('2026-' + String(i + 1).padStart(2, '0') + '-05', -7802930, 'Notaire', 'Maison : Travaux');
+      ins('2026-10-20', -450, 'Boulangerie', 'Alimentation');
+      invalidateCaches(); render();
+    });
+    // la bulle passe au-dessus du bouton + et des onglets
+    await page.evaluate(() => toast('Sauvegarde enregistrée dans « Comptes » : comptes_2026-10-30_14h55m11.sqlite'));
+    await page.waitForTimeout(350); // fin de l'animation d'apparition
+    const bulle = await page.locator('#toast').boundingBox(), plus = await page.locator('.m-fab').boundingBox(), onglets = await page.locator('#m-onglets').boundingBox();
+    assert.ok(bulle.y + bulle.height <= plus.y, 'au-dessus du bouton +');
+    await page.click('#m-onglets button[data-o="plus"]');
+    await page.evaluate(() => toast('Essai'));
+    await page.waitForTimeout(350);
+    const b2 = await page.locator('#toast').boundingBox();
+    assert.ok(b2.y + b2.height <= onglets.y, 'au-dessus des onglets');
+    await page.click('#m-onglets button[data-o="registre"]');
+    // modifier une opération : « Annuler » (et pas « Passer en annulé »), pas de trait sous la sous-sous-catégorie
+    await ligne(page, 'Boulangerie').locator('.m-op-corps').click();
+    await page.click('#m-fiche button:has-text("Modifier")');
+    assert.equal(await page.textContent('#btn-ann'), 'Annuler');
+    assert.equal(await page.locator('#i-cat2').evaluate(e => getComputedStyle(e.closest('.field')).borderBottomStyle), 'none');
+    await page.click('#overlay .m-fermer');
+    // analyse sur l'année : le grand total tient dans l'anneau
+    await page.click('#m-onglets button[data-o="analyse"]');
+    await page.selectOption('#m-analyse .ma-mois-centre select', 'annee');
+    const centre = page.locator('#m-analyse .ma-centre b');
+    assert.match(await centre.textContent(), /702\s263,70/); // janvier → septembre (année en cours)
+    assert.ok(await centre.evaluate(e => e.scrollWidth <= e.parentElement.clientWidth * 0.62 + 1), 'dans le cercle');
+    // le détail d'une catégorie, par mois : la barre choisie ne bouge que depuis la moitié gauche
+    await page.selectOption('#m-analyse .ma-mois-centre select', 'mois');
+    await page.locator('#m-analyse .ma-ligne', { hasText: 'Maison' }).click();
+    const barres = () => page.locator('#m-analyse .ma-barres button').evaluateAll(bs => bs.map(b => b.getAttribute('aria-label').split(' :')[0] + (b.getAttribute('aria-current') ? '*' : '')));
+    assert.deepEqual(await barres(), ['Mai 2026', 'Juin 2026', 'Juillet 2026', 'Août 2026', 'Septembre 2026', 'Octobre 2026*']);
+    await page.click('#m-analyse .ma-barres button[aria-label^="Août 2026"]');        // moitié droite : rien ne bouge
+    assert.deepEqual(await barres(), ['Mai 2026', 'Juin 2026', 'Juillet 2026', 'Août 2026*', 'Septembre 2026', 'Octobre 2026']);
+    await page.click('#m-analyse .ma-barres button[aria-label^="Juin 2026"]');        // moitié gauche : juin au milieu
+    assert.deepEqual(await barres(), ['Mars 2026', 'Avril 2026', 'Mai 2026', 'Juin 2026*', 'Juillet 2026', 'Août 2026']);
+    // « vs … » n'est jamais coupé
+    await page.click('#m-analyse .ma-tete button');
+    assert.ok(await page.locator('#m-analyse .ma-ligne small .nw').count() > 0);
+    // tiers : les trois tris sur une ligne
+    await page.evaluate(() => setView('tiers'));
+    const ys = await page.locator('#m-tiers .mg-tris button').evaluateAll(bs => bs.map(b => Math.round(b.getBoundingClientRect().top)));
+    assert.equal(new Set(ys).size, 1, 'une seule ligne');
+    // renommer / fusionner une catégorie : la fenêtre tient dans l'écran ; « son opération rejoint »
+    await page.evaluate(() => { upsertCategorie('Une catégorie au nom vraiment très long : avec une sous-catégorie qui ne finit pas'); setView('categories'); });
+    await page.click('#m-categories button[aria-label="Renommer ou fusionner Alimentation"]');
+    await page.locator('#dlgBack.show').waitFor();
+    assert.ok(await page.locator('#dlgBack .dlg').evaluate(d => d.scrollWidth <= d.clientWidth), 'pas plus large que l\'écran');
+    assert.match(await page.textContent('#dlgBody'), /son opération rejoint l’autre catégorie/);
     assert.deepEqual(page.erreurs, []);
   } finally { await navigateur.close(); }
 });

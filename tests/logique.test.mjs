@@ -422,3 +422,15 @@ test('verrouillage : réglage lu prudemment, verrouillé au retour après le dé
   assert.equal(app.doitVerrouiller({ verrou: false, verrouDelai: 0 }, t, t + 1e9), false);
   assert.equal(app.doitVerrouiller(r, null, t), false);                              // pas passée en arrière-plan
 });
+
+test('barres du détail d\'une catégorie : immobiles dans la moitié droite, recentrées depuis la moitié gauche', () => {
+  const f = (fin, sel, max = '2026-10') => app.fenetreBarres(fin, sel, 6, max);   // fenêtre de 6 : fin = dernière barre
+  assert.equal(f(null, '2026-10'), '2026-10');                 // première fois : la période choisie à droite
+  assert.equal(f('2026-10', '2026-08'), '2026-10');            // 4e barre (moitié droite) : rien ne bouge
+  assert.equal(f('2026-10', '2026-07'), '2026-09');            // 3e barre (mai → oct.) : moitié gauche, juillet passe au milieu
+  assert.equal(f('2026-10', '2026-06'), '2026-08');            // 2e barre (moitié gauche) : au milieu (4e barre)
+  assert.equal(f('2026-08', '2026-03'), '2026-05');            // 1re barre : on recule
+  assert.equal(f('2026-10', '2026-09', '2026-10'), '2026-10'); // jamais au-delà du mois en cours
+  assert.equal(f('2026-10', '2025-01'), '2025-01');            // hors de la fenêtre : à droite
+  assert.equal(app.fenetreBarres('2026', '2022', 6, '2026'), '2024'); // années
+});

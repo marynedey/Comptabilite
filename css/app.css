@@ -2,7 +2,7 @@
     color-scheme:light dark;
     --fs:15px;
     --paper:#F6F7F4; --card:#FFFFFF; --card-alt:#FBFCFA;
-    --ink:#1A1C1B; --ink-2:#5C625E; --ink-3:#8A908B;
+    --ink:#1A1C1B; --ink-2:#5C625E; --ink-3:#8A908B; --appui:rgba(0,0,0,.07);
     --line:#E6E9E3; --line-2:#D6DBD3;
     --brand:#0F6E56; --brand-soft:#E4F0EB;
     --sidebar:#18221E; --sidebar-2:#27332D; --sidebar-ink:#DCE3DD; --sidebar-ink-2:#8DA197;
@@ -15,7 +15,7 @@
   }
   @media (prefers-color-scheme: dark){:root:not([data-theme="clair"]){
       --paper:#14171A; --card:#1B1F22; --card-alt:#1F2427;
-      --ink:#E8EAE6; --ink-2:#A6ACA7; --ink-3:#7C837E;
+      --ink:#E8EAE6; --ink-2:#A6ACA7; --ink-3:#7C837E; --appui:rgba(255,255,255,.09);
       --line:#2A2F2D; --line-2:#363D39;
       --brand:#3FB892; --brand-soft:#15302A;
       --sidebar:#0F1714; --sidebar-2:#1C2622; --sidebar-ink:#DCE3DD; --sidebar-ink-2:#7D938A;
@@ -25,7 +25,7 @@
     }}
   :root[data-theme="sombre"]{color-scheme:dark;
       --paper:#14171A; --card:#1B1F22; --card-alt:#1F2427;
-      --ink:#E8EAE6; --ink-2:#A6ACA7; --ink-3:#7C837E;
+      --ink:#E8EAE6; --ink-2:#A6ACA7; --ink-3:#7C837E; --appui:rgba(255,255,255,.09);
       --line:#2A2F2D; --line-2:#363D39;
       --brand:#3FB892; --brand-soft:#15302A;
       --sidebar:#0F1714; --sidebar-2:#1C2622; --sidebar-ink:#DCE3DD; --sidebar-ink-2:#7D938A;
@@ -363,6 +363,12 @@
   .ma-tete h2{margin:0;font-size:1.25rem}
   .ma-total{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;column-gap:10px;margin:4px 0 12px}
   .ma-total b,.ma-centre b,.ev-solde b,.mf-montant,.ms-reel{white-space:nowrap}
+  .nw{white-space:nowrap}
+  /* toucher (téléphone) : plus le rectangle d'Android, mais une surbrillance qui suit les coins arrondis de ce
+     qu'on touche, partout (comme dans les Réglages). Les lignes de liste, carrées, s'arrondissent le temps du toucher. */
+  body.mobile *{-webkit-tap-highlight-color:transparent}
+  body.mobile :is(button,summary,a,label,[onclick]):active{box-shadow:inset 0 0 0 100vmax var(--appui)}
+  body.mobile :is(.m-liste button,.m-st,.m-op-corps,.mf-infos>button,.ma-ligne,.me-item,.seg button):active{border-radius:12px}
   .ma-total b{font-size:1.8rem;letter-spacing:-.02em}
   .ma-barres{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;align-items:end;height:110px;background:var(--card-alt);border-radius:14px;padding:12px 14px 8px}
   .ma-barres>button{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:6px;height:100%;min-height:0;border:0;background:none;padding:0;border-radius:6px}
@@ -457,7 +463,8 @@
   body.mobile .m-gestion{display:block}
   body.mobile #v-tiers>.tablecard,body.mobile #v-categories>.card,body.mobile #v-corbeille>.tablecard,body.mobile #v-corbeille>.top>button{display:none}
   body.mobile #v-corbeille .top .meta,body.mobile #v-categories .top .meta{display:none}
-  .mg-tris{justify-content:flex-start;margin:0 0 10px}
+  .mg-tris{justify-content:flex-start;margin:0 0 10px;flex-wrap:nowrap;gap:6px}
+  .mg-tris button{white-space:nowrap;padding:0 12px;font-size:.82rem;flex:0 1 auto;min-width:0}
   .mg-lettre{width:36px;height:36px;border-radius:18px;background:var(--brand-soft);color:var(--brand);font-weight:700;display:flex;align-items:center;justify-content:center;flex:none}
   .mg-ligne{display:flex;align-items:center;gap:10px;min-height:64px;padding:8px 6px 8px 14px;border-bottom:1px solid var(--line)}
   .mg-ligne:last-child{border-bottom:0}
@@ -517,7 +524,7 @@
   body.mobile .ventchk input{width:20px;height:20px}
   body.mobile #cat-simple .row3{display:block;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:2px 14px}
   body.mobile #cat-simple .field{display:flex;align-items:center;gap:10px;min-height:52px;margin:0;border-bottom:1px solid var(--line)}
-  body.mobile #cat-simple .field:last-child{border-bottom:0}
+  body.mobile #cat-simple .field:not(:has(~ .field)){border-bottom:0} /* la liste des catégories est ajoutée après */
   body.mobile #cat-simple .field label{width:110px;flex:none;font-weight:400;margin:0}
   body.mobile #cat-simple .field input{flex:1;min-width:0;border:0;background:none;padding:0;height:44px}
   body.mobile #vent-box{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:8px 12px}
@@ -586,7 +593,7 @@
   body.mobile #dlgBody:has(#rc-seg) .field input:not(#rc-m),body.mobile #dlgBody:has(#rc-seg) select{height:50px;border-radius:12px;font-size:1rem;padding:0 14px;width:100%}
   body.mobile #rc-cat-simple .row3{display:block;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:2px 14px}
   body.mobile #rc-cat-simple .field{display:flex;align-items:center;gap:10px;min-height:52px;margin:0;border-bottom:1px solid var(--line)}
-  body.mobile #rc-cat-simple .field:last-of-type{border-bottom:0}
+  body.mobile #rc-cat-simple .field:not(:has(~ .field)){border-bottom:0}
   body.mobile #rc-cat-simple .field label{width:110px;flex:none;font-weight:400;margin:0}
   body.mobile #rc-cat-simple .field input{flex:1;min-width:0;border:0!important;background:none;padding:0!important;height:44px!important}
   body.mobile .dlg:has(#rc-seg) .dlg-foot{position:sticky;bottom:0;margin:12px -16px 0;padding:10px 16px calc(14px + env(safe-area-inset-bottom, 0px));
@@ -669,6 +676,9 @@
          padding:10px 16px;border-radius:9px;font-size:0.86rem;opacity:0;pointer-events:none;transition:.25s;z-index:30}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
   @media (prefers-reduced-motion: reduce){.toast{transition:none}}
+  /* téléphone : la bulle passe au-dessus des onglets, et au-dessus du bouton + dans les opérations */
+  body.mobile .toast{bottom:calc(98px + env(safe-area-inset-bottom, 0px));max-width:calc(100vw - 32px);z-index:39}
+  body.mobile:has(#v-registre.on) .toast{bottom:calc(170px + env(safe-area-inset-bottom, 0px))}
   .maj{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:40;display:flex;align-items:center;gap:12px;
        background:var(--ink);color:var(--paper);padding:8px 8px 8px 16px;border-radius:9px;font-size:0.86rem;
        box-shadow:0 6px 20px rgba(0,0,0,.25);max-width:calc(100vw - 24px)}
@@ -768,7 +778,10 @@
   .dlg-back{position:fixed;inset:0;background:rgba(10,14,12,.45);display:none;align-items:center;justify-content:center;padding:20px;z-index:40}
   .dlg-back.show{display:flex}
   .dlg{background:var(--card);border-radius:14px;border:1px solid var(--line);width:min(520px,100%);max-height:92vh;overflow:auto;padding:22px 24px}
-  .dlg h2{margin:0 0 12px;font-size:1.1rem;font-weight:600}
+  .dlg h2{margin:0 0 12px;font-size:1.1rem;font-weight:600;overflow-wrap:anywhere}
+  /* une liste aux libellés longs (fusionner avec…) ne doit pas élargir la fenêtre au-delà de l'écran */
+  .dlg select{width:100%;max-width:100%;min-width:0;text-overflow:ellipsis}
+  .dlg .field{min-width:0}
   .dlg .msg{font-size:0.92rem;color:var(--ink-2);white-space:pre-wrap;line-height:1.55}
   .dlg-foot{display:flex;justify-content:flex-end;gap:9px;margin-top:18px}
   .prog{height:9px;background:var(--card-alt);border:1px solid var(--line);border-radius:20px;overflow:hidden;margin-top:14px}

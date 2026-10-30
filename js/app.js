@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.15.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.16.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -755,11 +755,22 @@ function regrouperAnalyse(lignes,sens,vir,chemin){
 function totalAnalyse(lignes,sens,vir,chemin){return lignesSens(lignes,sens,vir,chemin).reduce((t,l)=>t+Math.abs(l.m),0);}
 /* écart avec la période de comparaison : texte « +8 % » / « −12 % » / « = », null sans base */
 function ecartPct(a,b){if(!b)return null;const p=Math.round((a-b)/b*100);return p>0?'+'+p+' %':p<0?'−'+(-p)+' %':'=';}
+/* barres du détail d'une catégorie : dernière période affichée (fin) quand on choisit la période sel.
+   Hors de la fenêtre : sel tout à droite. Dans la moitié droite : rien ne bouge. Dans la moitié gauche : les
+   barres se décalent pour mettre sel au milieu, sans dépasser la période en cours (max). */
+const rangPeriode=k=>k.length===4?+k:(+k.slice(0,4))*12+(+k.slice(5))-1;
+function fenetreBarres(fin,sel,n,max){
+  if(!fin||rangPeriode(sel)>rangPeriode(fin)||rangPeriode(fin)-rangPeriode(sel)>=n)return sel;
+  const i=n-1-(rangPeriode(fin)-rangPeriode(sel)),milieu=Math.floor(n/2);
+  if(i>=milieu)return fin;
+  const f=periodeDecalee(sel,n-1-milieu);
+  return max&&rangPeriode(f)>rangPeriode(max)?max:f;
+}
 function anaMobileSens(s){MA.sens=s;MA.chemin=[];if(state.view!=='analyse')setView('analyse');else renderAnalyseMobile();}
 function anaMobileAller(k){MA.debut=k;MA.comp=null;renderAnalyseMobile();}
-function anaMobileDecaler(d){MA.debut=periodeDecalee(MA.debut,d);MA.comp=null;renderAnalyseMobile();}
-function anaMobileUnite(u){const auj=new Date();MA.unite=u;MA.debut=u==='annee'?String(auj.getFullYear()):clefMois(auj);MA.comp=null;MA.chemin=[];renderAnalyseMobile();}
-function anaMobileDescendre(nom){MA.chemin.push(nom);renderAnalyseMobile();document.querySelector('main').scrollTop=0;}
+function anaMobileDecaler(d){MA.debut=periodeDecalee(MA.debut,d);MA.comp=null;MA.fin=null;renderAnalyseMobile();}
+function anaMobileUnite(u){const auj=new Date();MA.unite=u;MA.debut=u==='annee'?String(auj.getFullYear()):clefMois(auj);MA.comp=null;MA.chemin=[];MA.fin=null;renderAnalyseMobile();}
+function anaMobileDescendre(nom){MA.chemin.push(nom);if(MA.chemin.length===1)MA.fin=null;renderAnalyseMobile();document.querySelector('main').scrollTop=0;}
 function anaMobileRemonter(){MA.chemin.pop();renderAnalyseMobile();}
 /* périodes proposées pour la comparaison : tous les mois (ou années) depuis la 1re opération du compte */
 function periodesDuCompte(acc,unite,auj){
@@ -881,7 +892,9 @@ function renderAnalyseMobile(){
   if(optsComp.indexOf(comp)<0)optsComp.push(comp);
   const selComp='<select aria-label="Comparer avec" onchange="MA.comp=this.value;renderAnalyseMobile()">'+
     optsComp.map(k=>'<option value="'+k+'"'+(k===comp?' selected':'')+'>'+libellePeriodeAna(k)+'</option>').join('')+'</select>';
-  const ecartLigne=(v,vc)=>{const d=v-vc;return d===0?'comme en '+nomC.toLowerCase():(d>0?'+':'−')+eur(Math.abs(d)).replace('-','')+' vs '+nomC.toLowerCase();};
+  // « vs 2025 (janv. → sept.) » reste d'un seul tenant : la ligne se coupe avant, pas au milieu
+  const ecartLigne=(v,vc)=>{const d=v-vc;return d===0?'<span class="nw">comme en '+nomC.toLowerCase()+'</span>'
+    :(d>0?'+':'−')+eur(Math.abs(d)).replace('-','')+' <span class="nw">vs '+nomC.toLowerCase()+'</span>';};
   let h='';
   if(!MA.chemin.length){
     h+='<div class="ma-mois"><button onclick="anaMobileDecaler(-1)" aria-label="Période précédente">'+fl('M15 6l-6 6 6 6')+'</button>'+
@@ -910,8 +923,9 @@ function renderAnalyseMobile(){
     h+='<div class="ma-tete"><button onclick="anaMobileRemonter()" aria-label="Retour">'+fl('M15 6l-6 6 6 6')+'</button>'+
       '<div><small>'+esc([motSens].concat(MA.chemin.slice(0,-1)).join(' › '))+' › '+nomP+'</small><h2>'+esc(nom)+'</h2></div></div>';
     h+='<div class="ma-total"><b class="num">'+eur(tot).replace('-','')+'</b><span class="ma-ecart '+classeEc+'">'+ecartLigne(tot,totC)+'</span></div>';
-    // 6 derniers mois (ou années) de cette catégorie
-    const ps=[];for(let i=5;i>=0;i--)ps.push(periodeDecalee(MA.debut,-i));
+    // 6 mois (ou années) de cette catégorie ; la fenêtre ne bouge que si la barre choisie passe dans la moitié gauche
+    MA.fin=fenetreBarres(MA.fin,MA.debut,6,MA.unite==='annee'?String(auj.getFullYear()):clefMois(auj));
+    const ps=[];for(let i=5;i>=0;i--)ps.push(periodeDecalee(MA.fin,-i));
     const vals=ps.map(k=>totalAnalyse(lignesAnalyse(acc,k,lim),MA.sens,MA.vir,MA.chemin)),max=Math.max(1,...vals);
     // toucher une barre : le détail de ce mois (ou de cette année), dans la même catégorie
     h+='<div class="ma-barres">'+
@@ -925,6 +939,10 @@ function renderAnalyseMobile(){
       '<span class="ma-nom">'+esc(o.ti||'(sans destinataire)')+'<small>'+libJour(o.d,auj)+'</small></span><span class="num">'+eur(Math.abs(o.m))+'</span></button>').join('')+'</div>';
   }
   document.getElementById('m-analyse').innerHTML=h;
+  // le total au centre de l'anneau tient dans le cercle : plus petit pour un grand montant
+  const c=document.querySelector('#m-analyse .ma-centre b');
+  if(c){let f=parseFloat(getComputedStyle(c).fontSize)||21;const max=c.parentElement.clientWidth*0.62||118;
+    while(c.scrollWidth>max&&f>11){f-=1;c.style.fontSize=f+'px';}}
 }
 /* ---------- une seule fenêtre à la fois (PC) ----------
    Chaque fenêtre garde sa copie de la base en mémoire et la réécrit en entier : deux fenêtres (ou onglets)
@@ -1670,7 +1688,7 @@ function renderTiers(){
 }
 /* Tiers sur téléphone : une ligne par destinataire (initiale, nombre d'opérations, catégorie habituelle, total),
    tri « les plus utilisés » / A → Z / montant total ; toucher → ses opérations */
-const TRIS_TIERS=[['n','Les plus utilisés'],['az','A → Z'],['total','Montant le plus élevé']];
+const TRIS_TIERS=[['n','Plus utilisés'],['az','A → Z'],['total','Montant le plus élevé']];
 function trierTiersMobile(rows,tri){
   const r=rows.slice();
   if(tri==='az')r.sort((a,b)=>(a.dest||'').localeCompare(b.dest||'','fr'));
@@ -1818,7 +1836,8 @@ async function modifierCategorie(id){
   const html='<div class="field"><label>Nouveau nom</label><input id="mc-nom" value="'+esc(c.libelle)+'" autocomplete="off"></div>'+
     '<div class="field"><label>Ou fusionner avec</label><select id="mc-avec"><option value="">— garder séparée —</option>'+
     cibles.map(x=>'<option value="'+x.id+'">'+esc(x.p)+'</option>').join('')+'</select></div>'+
-    '<div class="meta">Fusionner : '+(n>1?'ses '+n+' opérations':n?'son opération':'elle')+(haut>1?' et ses sous-catégories':'')+' rejoignent l’autre catégorie.</div>';
+    '<div class="meta">Fusionner : '+(n>1?'ses '+n+' opérations':n?'son opération':'elle')+(haut>1?' et ses sous-catégories':'')+
+      (n>1||haut>1?' rejoignent':' rejoint')+' l’autre catégorie.</div>';
   let avec=0,nv='';const lire=()=>{avec=+document.getElementById('mc-avec').value||0;nv=document.getElementById('mc-nom').value;};
   const v=await dlgOpen({title:'Renommer ou fusionner « '+chemin+' »',msg:'',html,fermeDehors:true,buttons:[{t:'Annuler',v:false},{t:'Enregistrer',v:'ok',p:true,before:lire}]});
   if(v!=='ok')return;
@@ -2313,6 +2332,8 @@ async function grPleinEcran(on,auto){
   d.body.classList.toggle('gr-plein',on);d.body.classList.toggle('gr-auto',on&&!!auto);
   d.body.classList.toggle('gr-fs-barres',on&&!!grShow().fsBarres);grSortie();
   if(!on)grFsAuto=false;
+  // appli : le plein écran du navigateur n'existe pas, on cache les barres d'Android (état, navigation)
+  if(enAppli()&&!auto)Capacitor.nativePromise('SystemBars',on?'hide':'show',{}).catch(()=>{});
   if(on&&!auto){
     if(!pleinEcranActif()&&(el.requestFullscreen||el.webkitRequestFullscreen)){
       try{await (el.requestFullscreen||el.webkitRequestFullscreen).call(el,{navigationUI:'hide'});grFsNatif=true;}catch(e){grFsNatif=false;}}
@@ -2833,7 +2854,8 @@ function openModal(id,focus){
   if(o){
     if(o.statut==='rapproche'){/* verrouillée : tout reste modifiable sauf le montant, confirmation demandée à l'enregistrement */}
     else if(o.statut==='annule'){ann.style.display='inline-flex';ann.textContent='Restaurer (dé-annuler)';}
-    else{del.style.display='inline-flex';ann.style.display='inline-flex';ann.textContent='Passer en annulé';}
+    // téléphone : « Annuler » (pas d'autre bouton Annuler, on ferme avec la croix) ; PC : il y a déjà « Annuler » (fermer)
+    else{del.style.display='inline-flex';ann.style.display='inline-flex';ann.textContent=document.body.classList.contains('mobile')?'Annuler':'Passer en annulé';}
   }
   closeAC();document.getElementById('overlay').classList.add('show');
   document.querySelector('#overlay .modal').scrollTop=0; // toujours ouverte en haut
