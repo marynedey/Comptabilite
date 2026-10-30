@@ -323,7 +323,8 @@
   .ca-total{margin:4px 0 12px}
   .ca-per{display:block;font-size:.85rem;color:var(--ink-2)}
   .ca-ligne{display:flex;align-items:center;justify-content:space-between;gap:12px}
-  .ca-ligne>b{font-size:1.8rem;letter-spacing:-.02em;white-space:nowrap;min-width:0}
+  .ca-ligne{overflow:hidden}
+  .ca-ligne>b{font-size:1.8rem;letter-spacing:-.02em;white-space:nowrap;flex:none}
   .ca-ligne>b.credit{color:var(--credit)}
   .ca-moy{flex:none;font-size:.85rem;color:var(--ink-2);text-align:right;line-height:1.5;white-space:nowrap}
   .ca-moy b{font-weight:600;color:var(--ink)}
@@ -364,7 +365,8 @@
        padding:6px 4px;text-align:left;color:var(--ink)}
   .ma-ligne i{width:12px;height:12px;border-radius:6px;flex:none}
   .ma-ligne .ma-nom{flex:1;min-width:0}
-  .ma-ligne .ma-nom small{display:block;font-size:.78rem;color:var(--ink-2)}
+  .ma-ligne.choisie{background:var(--brand-soft)}
+  .ma-ligne .ma-nom small{display:block;font-size:.78rem;color:var(--ink-2);white-space:nowrap;overflow:hidden} /* une ligne, police réduite si besoin */
   .ma-ligne .num{font-weight:600}
   .ma-ligne svg{width:16px;height:16px;color:var(--ink-3);flex:none}
   .ma-tete{display:flex;align-items:center;gap:4px;margin:0 -6px 6px}
@@ -372,7 +374,8 @@
   .ma-tete>button svg{width:24px;height:24px}
   .ma-tete small{display:block;font-size:.78rem;color:var(--ink-2)}
   .ma-tete h2{margin:0;font-size:1.25rem}
-  .ma-total{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;column-gap:10px;margin:4px 0 12px}
+  .ma-total{display:flex;align-items:baseline;justify-content:space-between;column-gap:10px;margin:4px 0 12px;overflow:hidden}
+  .ma-total>*{flex:none;white-space:nowrap} /* l'écart reste à droite du montant ; trop long, la police rapetisse */
   .ma-total b,.ma-centre b,.ev-solde b,.mf-montant,.ms-reel{white-space:nowrap}
   .nw{white-space:nowrap}
   /* toucher (téléphone) : plus le rectangle d'Android, mais une surbrillance qui suit les coins arrondis de ce
@@ -476,8 +479,8 @@
   body.mobile .m-gestion{display:block}
   body.mobile #v-tiers>.tablecard,body.mobile #v-categories>.card,body.mobile #v-corbeille>.tablecard,body.mobile #v-corbeille>.top>button{display:none}
   body.mobile #v-corbeille .top .meta,body.mobile #v-categories .top .meta{display:none}
-  .mg-tris{justify-content:flex-start;margin:0 0 10px;flex-wrap:nowrap;gap:6px}
-  .mg-tris button{white-space:nowrap;padding:0 12px;font-size:.82rem;flex:0 1 auto;min-width:0}
+  .mg-tris{justify-content:stretch;margin:0 0 10px;flex-wrap:nowrap;gap:6px}
+  .mg-tris button{white-space:nowrap;padding:0 8px;font-size:.82rem;flex:1 1 auto;min-width:0;justify-content:center} /* toute la largeur */
   .mg-lettre{width:36px;height:36px;border-radius:18px;background:var(--brand-soft);color:var(--brand);font-weight:700;display:flex;align-items:center;justify-content:center;flex:none}
   .mg-ligne{display:flex;align-items:center;gap:10px;min-height:64px;padding:8px 6px 8px 14px;border-bottom:1px solid var(--line)}
   .mg-ligne:last-child{border-bottom:0}
@@ -571,7 +574,8 @@
   .m-comptes button[data-id]{-webkit-touch-callout:none;user-select:none}
   .mg-tiers{display:flex;align-items:center;border-bottom:1px solid var(--line)}
   .mg-tiers:last-child{border-bottom:0}
-  .mg-tiers .me-item{flex:1;min-width:0;border-bottom:0}
+  .mg-tiers .me-item{flex:1;min-width:0;border-bottom:0;-webkit-touch-callout:none;user-select:none}
+  .mg-cat .mg-nom{-webkit-touch-callout:none;user-select:none}
   .mg-plus{font-size:1.2rem}
   /* fenêtre d'une échéance (téléphone) : même présentation que la saisie d'une opération — plein écran, montant en
      grand en haut, type, destinataire, catégories dans un bloc, puis compte, fréquence, dates ; Enregistrer en bas */
