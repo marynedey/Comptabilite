@@ -120,6 +120,16 @@
   .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;margin-bottom:18px}
   .card h3{margin:0 0 6px;font-size:0.93rem;font-weight:600}
   /* « déjà ouvert » (une seule fenêtre à la fois) : recouvre tout, la base n'est pas chargée */
+  /* verrouillage (appli Android) : au-dessus de tout, jusqu'à l'empreinte ou le code */
+  .verrou{position:fixed;inset:0;z-index:65;background:var(--paper);display:flex;flex-direction:column;align-items:center;justify-content:center;
+       gap:6px;padding:env(safe-area-inset-top, 0px) 24px env(safe-area-inset-bottom, 0px);text-align:center}
+  .verrou[hidden]{display:none}
+  .verrou-logo{width:64px;height:64px;border-radius:18px;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;margin-bottom:10px}
+  .verrou-logo svg{width:34px;height:34px}
+  .verrou h1{margin:0;font-size:1.4rem}
+  .verrou p{margin:0;color:var(--ink-2)}
+  .verrou button{margin-top:22px;min-height:52px;min-width:220px;justify-content:center;border-radius:14px;font-size:1rem}
+  .verrou .verrou-msg{min-height:1.4em;font-size:.88rem;margin-top:8px}
   .deja-ouvert{position:fixed;inset:0;z-index:70;background:var(--paper);display:flex;align-items:center;justify-content:center;padding:16px}
   .deja-ouvert[hidden]{display:none}
   .deja-ouvert-carte{max-width:440px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:22px 24px}
@@ -138,6 +148,11 @@
   body.mobile .m-entete{display:flex;align-items:center;gap:6px;position:sticky;top:0;z-index:12;background:var(--paper);
        margin:0 -14px 8px;padding:calc(8px + env(safe-area-inset-top, 0px)) 6px 8px 14px;min-height:56px}
   .m-compte{position:relative;flex:1;min-width:0}
+  /* liste des comptes ouverte : l'en-tête passe au-dessus des onglets ; le voile (transparent) couvre tout
+     l'écran sous la liste, pour qu'un toucher à côté ne fasse que la fermer */
+  body.mobile .m-entete.menu-ouvert{z-index:30}
+  .m-entete.menu-ouvert .m-compte{z-index:2}
+  .voile-dehors{position:fixed;inset:0;z-index:1;background:transparent;touch-action:none}
   .m-compte-btn{border:0;background:none;padding:8px 0;min-height:44px;font-size:1.3rem;font-weight:700;color:var(--ink);gap:6px;max-width:100%}
   .m-compte-btn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .m-compte-btn svg{width:20px;height:20px;flex:none}
@@ -207,9 +222,10 @@
   body.mobile .m-filtres-actifs{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 0 2px}
   .m-puce{display:inline-flex;align-items:center;gap:2px;min-height:34px;padding:0 4px 0 12px;border-radius:17px;background:var(--brand-soft);color:var(--brand);font-size:.85rem;font-weight:600;border:0}
   .m-puce span{display:inline-flex;width:28px;height:28px;align-items:center;justify-content:center}
-  .m-filtrer{margin-left:auto;min-height:40px;border-radius:20px;font-weight:600}
-  .m-nb-ops{margin-left:auto;font-size:.85rem;color:var(--ink-2)}
-  .m-nb-ops+.m-filtrer{margin-left:0}
+  .m-puces{display:flex;flex-wrap:wrap;gap:8px;width:100%}
+  .m-ligne-filtrer{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%}
+  .m-filtrer{min-height:40px;border-radius:20px;font-weight:600;flex:none}
+  .m-nb-ops{padding-left:2px;font-size:.85rem;color:var(--ink-2)}
   body.mobile .m-ops{display:block;padding-bottom:76px} /* la dernière ligne passe au-dessus du bouton + */
   .m-jour{display:flex;justify-content:space-between;font-size:.82rem;font-weight:600;color:var(--ink-2);padding:14px 2px 6px}
   .m-jour .num{font-weight:500}
@@ -234,13 +250,20 @@
   .m-fab{position:fixed;right:18px;bottom:calc(96px + env(safe-area-inset-bottom, 0px));z-index:14;width:60px;height:60px;border-radius:18px;border:0;
        background:var(--brand);color:#fff;align-items:center;justify-content:center;box-shadow:0 6px 18px rgba(15,110,86,.35);padding:0}
   body.mobile #v-registre .bar{position:fixed;left:0;right:0;bottom:0;z-index:38;margin:0;background:var(--card);border-radius:24px 24px 0 0;
-       padding:8px 20px calc(18px + env(safe-area-inset-bottom, 0px));max-height:88vh;overflow-y:auto;flex-direction:column;align-items:stretch;gap:10px;
+       padding:8px 20px calc(18px + env(safe-area-inset-bottom, 0px));max-height:88vh;overflow-y:auto;flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:10px;
        box-shadow:0 -8px 30px rgba(0,0,0,.2);transform:translateY(105%);visibility:hidden;transition:transform .2s ease,visibility .2s}
   body.mobile.filtres-ouverts #v-registre .bar{transform:none;visibility:visible}
   body.mobile.filtres-ouverts .m-voile{display:block;position:fixed;inset:0;z-index:37;background:rgba(15,20,18,.45)}
   body.mobile .m-feuille-tete{display:flex;align-items:center;justify-content:space-between;position:relative;padding-top:14px}
   .m-feuille-tete h2{margin:0;font-size:1.25rem}
   .m-poignee{position:absolute;top:0;left:50%;transform:translateX(-50%);width:36px;height:4px;border-radius:2px;background:var(--line-2)}
+  /* la feuille suit le doigt quand on la fait glisser vers le bas (fermerFiltres au-delà d'un seuil) */
+  body.mobile.filtres-ouverts #v-registre .bar.glisse{transition:none}
+  /* sur PC, les deux dates restent dans la barre ; sur téléphone, « du … au … » sur une ligne */
+  .f-dates{display:contents}
+  body.mobile .f-dates{display:flex;align-items:center;gap:10px}
+  body.mobile .f-dates .dt{flex:1;min-width:0}
+  body.mobile .f-dates:not(:has(.dt:not([style*="none"]))){display:none}
   body.mobile .m-feuille-h{display:block;font-size:.82rem;font-weight:600;color:var(--ink-2);margin-top:6px}
   body.mobile .m-mois{display:flex;align-items:center;gap:8px}
   .m-mois button{width:48px;height:48px;border-radius:24px;justify-content:center;padding:0;flex:none}
@@ -270,8 +293,8 @@
        min-height:50px;font-size:.95rem;margin-bottom:12px;padding:6px 12px;text-align:center}
   .mf-statut i{width:12px;height:12px;border-radius:6px;flex:none}
   .mf-infos{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:0 14px}
-  .mf-infos>div,.mf-infos>button{display:flex;justify-content:space-between;gap:14px;min-height:48px;align-items:center;border-bottom:1px solid var(--line);font-size:.95rem}
-  .mf-infos>button{width:100%;border:0;border-bottom:1px solid var(--line);border-radius:0;background:none;padding:0;color:var(--ink);text-align:left}
+  .mf-infos>div,.mf-infos>button{display:flex;justify-content:space-between;gap:14px;min-height:48px;padding:8px 0;align-items:center;border-bottom:1px solid var(--line);font-size:.95rem}
+  .mf-infos>button{width:100%;border:0;border-bottom:1px solid var(--line);border-radius:0;background:none;padding:8px 0;color:var(--ink);text-align:left}
   .mf-infos>:last-child{border-bottom:0}
   .mf-infos em{font-style:normal;color:var(--ink-3)}
   /* fiche : chaque élément se touche pour être modifié */
@@ -282,8 +305,22 @@
   .mf-champ:active,.mf-infos>button:active{background:var(--brand-soft)}
   button.mf-statut{width:100%;flex-wrap:wrap;color:var(--ink)}
   .mf-statut small{flex-basis:100%;font-size:.75rem;color:var(--ink-2)}
-  .mf-infos span:first-child{color:var(--ink-2);flex:none}
-  .mf-infos span:last-child{text-align:right;overflow-wrap:anywhere}
+  .mf-infos>*>span:first-child{color:var(--ink-2);flex:0 1 auto;min-width:0;overflow-wrap:break-word}
+  .mf-infos>*>span:last-child{flex:0 1 auto;min-width:0;text-align:right;overflow-wrap:anywhere}
+  .mf-infos>*>span.num{flex:none;white-space:nowrap} /* un montant de ventilation ne se coupe jamais */
+  /* analyse d'une catégorie (téléphone) : sous la fenêtre de saisie et la fiche, qui s'ouvrent par-dessus */
+  .m-catana{z-index:19}
+  .ca-titre{text-align:center;padding:0 0 14px}
+  .ca-titre small{font-size:.8rem;color:var(--ink-2)}
+  .ca-titre h2{margin:2px 0 6px;font-size:1.4rem;overflow-wrap:anywhere}
+  .ca-titre p{margin:0;font-size:.9rem;color:var(--ink-2)}
+  .ca-titre b{color:var(--ink)}
+  .ca-unite{align-self:center;margin-bottom:14px}
+  .ca-per{display:block;font-size:.85rem;color:var(--ink-2)}
+  .ca-moy{font-size:.85rem;color:var(--ink-2);text-align:right;line-height:1.5}
+  .ma-total .ca-moy b{font-size:inherit;letter-spacing:0;font-weight:600;color:var(--ink)}
+  .ca-barres{gap:4px;padding:12px 10px 8px;height:130px;margin-bottom:4px}
+  .ma-total b.credit,.ca-titre b.credit,.ma-ligne .num.credit{color:var(--credit)}
   .mf-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:auto;padding-top:18px}
   .mf-actions button{min-height:50px;justify-content:center;border-radius:14px;font-weight:600;font-size:.95rem}
   /* Analyse sur téléphone : mois ‹ ›, Dépenses / Revenus / Évolution, anneau, comparaison avec un mois au choix,
@@ -434,7 +471,9 @@
   .mg-cat.d0 .mg-nom{font-weight:600}
   .mg-cat:not(.d0){background:var(--card-alt)}
   .mg-nom{flex:1;min-width:0;min-height:44px;border:0;background:none;padding:0 4px;text-align:left;justify-content:flex-start;font-size:.95rem;color:var(--ink);overflow-wrap:anywhere}
-  .mg-nb{font-size:.82rem;color:var(--ink-2);white-space:nowrap}
+  .mg-nb{font-size:.78rem;color:var(--ink-2);white-space:nowrap;display:flex;flex-direction:column;align-items:flex-end;line-height:1.25}
+  .mg-nb b{font-size:.9rem;font-weight:600;color:var(--ink)}
+  .mg-nb b.credit{color:var(--credit)}
   .mg-suppr{min-height:36px;font-size:.8rem;padding:0 10px}
   /* Saisie / modification sur téléphone : plein écran, montant en grand en haut, mêmes champs que sur PC
      (les rangées .row2 s'effacent : chaque champ se place par « order ») ; « Enregistrer » reste en bas */
@@ -487,14 +526,14 @@
   body.mobile .vent-l .vx{min-height:44px;justify-content:center}
   body.mobile .ventfoot{flex-wrap:wrap;gap:6px}
   /* liste des catégories proposées (téléphone) : au-dessus du champ, jamais sur le clavier */
-  body.mobile #cat-simple .row3{position:relative}
+  body.mobile .row3.avec-sugg{position:relative}
   .cat-sugg{position:absolute;left:8px;right:8px;z-index:5;overflow:auto;background:var(--card);border:1px solid var(--line-2);
     border-radius:12px;box-shadow:0 -6px 20px rgba(0,0,0,.18);padding:4px}
   .cat-sugg[hidden]{display:none}
   .cat-sugg button{display:block;width:100%;min-height:44px;border:0;border-radius:8px;background:none;text-align:left;padding:0 12px;font-size:.95rem;color:var(--ink);justify-content:flex-start}
   .cat-sugg button:active{background:var(--brand-soft)}
   /* une feuille ou une fenêtre ouverte : l'écran derrière ne défile plus (le doigt fait défiler la feuille seulement) */
-  body.mobile.filtres-ouverts main,body.mobile:has(#overlay.show) main,body.mobile:has(#m-fiche:not([hidden])) main,
+  body.mobile.filtres-ouverts main,body.mobile:has(#overlay.show) main,body.mobile:has(#m-fiche:not([hidden])) main,body.mobile:has(#m-catana:not([hidden])) main,
   body.mobile:has(#dlgBack.show) main,body.mobile:has(#m-comptes:not([hidden])) main{overflow:hidden}
   body.mobile #v-registre .bar,body.mobile .modal,.m-fiche,.dlg,.m-comptes,.cat-sugg{overscroll-behavior:contain}
   /* tablette : l'interface du téléphone, centrée sur une largeur lisible */
@@ -512,6 +551,48 @@
   .mg-tiers:last-child{border-bottom:0}
   .mg-tiers .me-item{flex:1;min-width:0;border-bottom:0}
   .mg-plus{font-size:1.2rem}
+  /* fenêtre d'une échéance (téléphone) : même présentation que la saisie d'une opération — plein écran, montant en
+     grand en haut, type, destinataire, catégories dans un bloc, puis compte, fréquence, dates ; Enregistrer en bas */
+  body.mobile #dlgBack:has(#rc-seg){padding:0;align-items:stretch;background:var(--paper)}
+  body.mobile .dlg:has(#rc-seg){width:100%;max-width:720px;margin:0 auto;max-height:none;height:100%;border:0;border-radius:0;background:var(--paper);
+    padding:env(safe-area-inset-top, 0px) 16px 0;display:flex;flex-direction:column;overscroll-behavior:contain}
+  body.mobile .dlg:has(#rc-seg) #dlgTitle{font-size:1.1rem;margin:14px 0 6px}
+  body.mobile .dlg:has(#rc-seg) #dlgBody{display:flex;flex-wrap:wrap;align-content:flex-start;gap:12px;flex:1 0 auto}
+  body.mobile #dlgBody:has(#rc-seg)>*{width:100%;margin:0} /* l'ordre est donné champ par champ ci-dessous */
+  body.mobile #dlgBody:has(#rc-seg) .row2,body.mobile #dlgBody:has(#rc-seg) .row3:not(#rc-cat-simple .row3){display:contents}
+  body.mobile #dlgBody:has(#rc-seg) .hint{display:none}
+  body.mobile .rc-f-montant{order:1;width:100%;margin:0;display:flex;flex-direction:column;align-items:center;gap:2px}
+  body.mobile .rc-f-montant label{font-size:.82rem;font-weight:400;color:var(--ink-2);margin:0}
+  body.mobile #rc-m{width:240px;max-width:100%;border:0;border-bottom:2px solid var(--brand);border-radius:0;background:none;
+    font-size:2.4rem;font-weight:700;text-align:center;padding:0;height:auto;color:var(--debit)}
+  body.mobile #dlgBody:has(#rc-seg [data-t="credit"].on) #rc-m{color:var(--credit)}
+  body.mobile #dlgBody:has(#rc-seg [data-t="virement"].on) #rc-m{color:var(--ink)}
+  body.mobile #rc-seg{order:2;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));background:var(--line);border-radius:12px;padding:3px;gap:0;margin:0!important}
+  body.mobile #rc-seg button{min-height:42px;border:0;border-radius:10px;background:transparent;justify-content:center;color:var(--ink-2)}
+  body.mobile #rc-seg button.on{background:var(--brand);color:#fff;font-weight:600}
+  body.mobile #rc-dest-field{order:3}
+  body.mobile #rc-vir-field{order:4;width:100%;margin:0}
+  body.mobile #rc-cat-simple{order:5}
+  body.mobile #rc-ventchk{order:6;min-height:44px;font-size:.92rem}
+  body.mobile #rc-vent-box{order:7;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:8px 12px}
+  body.mobile .rc-f-compte{order:8;width:100%;margin:0}
+  body.mobile .rc-f-freq{order:9;width:100%;margin:0}
+  body.mobile #rc-perso{order:10;width:100%;margin:0}
+  body.mobile .rc-f-debut{order:11;width:calc(50% - 6px);margin:0}
+  body.mobile .rc-f-fin{order:12;width:calc(50% - 6px);margin:0}
+  body.mobile .rc-f-com{order:13;width:100%;margin:0}
+  body.mobile .rc-note{order:14}
+  body.mobile #dlgBody:has(#rc-seg) .field label{font-size:.82rem;font-weight:600;color:var(--ink-2)}
+  body.mobile #dlgBody:has(#rc-seg) .field input:not(#rc-m),body.mobile #dlgBody:has(#rc-seg) select{height:50px;border-radius:12px;font-size:1rem;padding:0 14px;width:100%}
+  body.mobile #rc-cat-simple .row3{display:block;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:2px 14px}
+  body.mobile #rc-cat-simple .field{display:flex;align-items:center;gap:10px;min-height:52px;margin:0;border-bottom:1px solid var(--line)}
+  body.mobile #rc-cat-simple .field:last-of-type{border-bottom:0}
+  body.mobile #rc-cat-simple .field label{width:110px;flex:none;font-weight:400;margin:0}
+  body.mobile #rc-cat-simple .field input{flex:1;min-width:0;border:0!important;background:none;padding:0!important;height:44px!important}
+  body.mobile .dlg:has(#rc-seg) .dlg-foot{position:sticky;bottom:0;margin:12px -16px 0;padding:10px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+    background:var(--card);border-top:1px solid var(--line);display:flex;gap:8px}
+  body.mobile .dlg:has(#rc-seg) .dlg-foot button{flex:1;min-height:52px;border-radius:14px;justify-content:center;font-size:1rem}
+  body.mobile .dlg:has(#rc-seg) .dlg-foot button.primary{flex:2}
   .ma-h{font-size:.85rem;font-weight:600;color:var(--ink-2);margin:16px 2px 4px}
   .m-version{text-align:center;font-size:.8rem;color:var(--ink-2);margin:18px 0 0}
 
@@ -558,6 +639,7 @@
 
   .tree .tnode{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)}
   .tree .tname{font-size:0.9rem}
+  .tree .tsomme{font-size:.8rem;margin-left:6px}
   .tree .tcount{font-size:0.72rem;color:var(--ink-3);background:var(--card-alt);border:1px solid var(--line);border-radius:20px;padding:1px 8px}
   .tree .d1 .tname{font-weight:600}
   .tree .d3 .tname{color:var(--ink-2);font-size:0.83rem}

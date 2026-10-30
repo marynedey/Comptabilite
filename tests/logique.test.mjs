@@ -220,10 +220,11 @@ test('téléphone : mois du filtre, ‹ et ›', () => {
 });
 
 test('réglages d\'affichage : valeurs par défaut et valeurs inconnues ignorées', () => {
-  assert.deepEqual(js(app.lireReglages(null)), { theme: 'auto', recherche: 'haut', masquer: false });
-  assert.deepEqual(js(app.lireReglages('{"theme":"sombre","recherche":"bas","masquer":true}')), { theme: 'sombre', recherche: 'bas', masquer: true });
-  assert.deepEqual(js(app.lireReglages('{"theme":"violet","recherche":"gauche","masquer":"oui"}')), { theme: 'auto', recherche: 'haut', masquer: false });
-  assert.deepEqual(js(app.lireReglages('pas du json')), { theme: 'auto', recherche: 'haut', masquer: false });
+  const defaut = { theme: 'auto', recherche: 'haut', masquer: false, verrou: false, verrouDelai: 5 };
+  assert.deepEqual(js(app.lireReglages(null)), defaut);
+  assert.deepEqual(js(app.lireReglages('{"theme":"sombre","recherche":"bas","masquer":true}')), { ...defaut, theme: 'sombre', recherche: 'bas', masquer: true });
+  assert.deepEqual(js(app.lireReglages('{"theme":"violet","recherche":"gauche","masquer":"oui"}')), defaut);
+  assert.deepEqual(js(app.lireReglages('pas du json')), defaut);
 });
 
 test('analyse (téléphone) : périodes, comparaison, regroupement par catégorie', () => {
@@ -353,4 +354,71 @@ test('analyse à l\'année : l\'année en cours s\'arrête au dernier mois entie
   assert.equal(app.limiteAnneeEnCours('2026', new Date(2026, 0, 15)), null);   // en janvier : pas encore de mois entier
   assert.deepEqual({ ...app.bornesPeriodeAna('2025', '09-30') }, { f: '2025-01-01', t: '2025-09-30' });
   assert.equal(app.libellePeriodeAna('2026', '09-30'), '2026 (janv. → sept.)');
+});
+
+test('échéance modifiée : seules celles d\'aujourd\'hui et à venir sont refaites ; une passée supprimée ne revient pas', () => {
+  const avant = app.todayISO;
+  app.todayISO = () => '2026-10-29';
+  app.run("INSERT INTO compte(nom,type,solde_initial) VALUES('Éch','courant',0)");
+  const c = app.lastId();
+  app.run(`INSERT INTO recurrence(compte_id,type,montant,tiers,cat_path,frequence,intervalle,jour,date_debut,prochaine,creer_en)
+           VALUES(?,'debit',-3000,'Gym','Sport','mensuelle',1,1,'2026-09-01','2026-09-01','previsionnel')`, [c]);
+  const r = app.lastId();
+  app.genererRecurrences();
+  const dates = () => [...app.qy('SELECT date_operation d FROM operation WHERE compte_id=? AND supprime=0 ORDER BY d', [c]).map(o => o.d)];
+  assert.deepEqual(dates(), ['2026-09-01', '2026-10-01', '2026-11-01']);
+  app.run("UPDATE operation SET supprime=1 WHERE compte_id=? AND date_operation='2026-09-01'", [c]);   // mise à la corbeille
+  app.run('UPDATE recurrence SET montant=-3500 WHERE id=?', [r]);
+  app.regenererRecurrence(r);
+  assert.deepEqual(dates(), ['2026-10-01', '2026-11-01']);
+  assert.deepEqual([...app.qy('SELECT montant m FROM operation WHERE compte_id=? AND supprime=0 ORDER BY date_operation', [c]).map(o => o.m)], [-3000, -3500]);
+  app.todayISO = avant;
+});
+
+test('échéance modifiée : une échéance passée rapprochée mais datée autrement (ou saisie à la main) n\'est pas recréée', () => {
+  const avant = app.todayISO;
+  app.todayISO = () => '2026-10-29';
+  app.run("INSERT INTO compte(nom,type,solde_initial) VALUES('Éch2','courant',0)");
+  const c = app.lastId();
+  app.run(`INSERT INTO recurrence(compte_id,type,montant,tiers,cat_path,frequence,intervalle,jour,date_debut,prochaine,creer_en)
+           VALUES(?,'debit',-5000,'Assurance','Maison','mensuelle',1,1,'2026-09-01','2026-09-01','previsionnel')`, [c]);
+  const r = app.lastId();
+  app.genererRecurrences();
+  // septembre : prélevé le 3 (date corrigée) puis rapproché ; octobre : rapproché tel quel
+  app.run("UPDATE operation SET date_operation='2026-09-03',statut='rapproche',date_modification='x' WHERE compte_id=? AND date_operation='2026-09-01'", [c]);
+  app.run("UPDATE operation SET statut='rapproche' WHERE compte_id=? AND date_operation='2026-10-01'", [c]);
+  app.regenererRecurrence(r);
+  const dates = [...app.qy('SELECT date_operation d FROM operation WHERE compte_id=? AND supprime=0 ORDER BY d', [c]).map(o => o.d)];
+  assert.deepEqual(dates, ['2026-09-03', '2026-10-01', '2026-11-01']);   // pas de « 1er septembre » en double
+  app.todayISO = avant;
+});
+
+test('analyse d\'une catégorie : 12 derniers mois ou années depuis la 1re opération, moyenne des périodes passées', () => {
+  const auj = new Date(2026, 9, 30);
+  const L = [{ id: 1, d: '2026-10-24', m: 264273 }, { id: 1, d: '2026-10-24', m: -1000 }, { id: 2, d: '2026-09-25', m: 230000 },
+    { id: 3, d: '2024-03-01', m: 5000 }, { id: 4, d: '2025-10-31', m: 999 }];
+  const M = js(app.periodesCategorie(L, 'mois', auj));
+  assert.equal(M.length, 12);
+  assert.deepEqual(M[0], { cle: '2025-11', total: 0, n: 0 });   // octobre 2025 n'y est plus
+  assert.deepEqual(M[11], { cle: '2026-10', total: 263273, n: 1 }); // une opération, ses deux lignes additionnées
+  assert.equal(app.moyenneCategorie(M), Math.round(230000 / 11)); // le mois en cours n'entre pas dans la moyenne
+  const A = js(app.periodesCategorie(L, 'annee', auj));
+  assert.deepEqual(A.map(p => p.cle), ['2024', '2025', '2026']);
+  assert.deepEqual(A.map(p => p.n), [1, 1, 2]);
+  assert.equal(app.moyenneCategorie(A), Math.round((5000 + 999) / 2));
+  assert.deepEqual(js(app.periodesCategorie([], 'annee', auj)), [{ cle: '2026', total: 0, n: 0 }]);
+  assert.equal(app.moyenneCategorie(js(app.periodesCategorie([], 'annee', auj))), null);
+});
+
+test('verrouillage : réglage lu prudemment, verrouillé au retour après le délai choisi', () => {
+  assert.deepEqual([app.lireReglages('{}').verrou, app.lireReglages('{}').verrouDelai], [false, 5]);
+  assert.deepEqual([app.lireReglages('{"verrou":true,"verrouDelai":15}').verrou, app.lireReglages('{"verrou":true,"verrouDelai":15}').verrouDelai], [true, 15]);
+  assert.equal(app.lireReglages('{"verrou":"oui","verrouDelai":7}').verrou, false);
+  assert.equal(app.lireReglages('{"verrouDelai":7}').verrouDelai, 5);
+  const r = { verrou: true, verrouDelai: 5 }, t = 1_000_000;
+  assert.equal(app.doitVerrouiller(r, t, t + 4 * 60000), false);
+  assert.equal(app.doitVerrouiller(r, t, t + 5 * 60000), true);
+  assert.equal(app.doitVerrouiller({ verrou: true, verrouDelai: 0 }, t, t), true);   // tout de suite
+  assert.equal(app.doitVerrouiller({ verrou: false, verrouDelai: 0 }, t, t + 1e9), false);
+  assert.equal(app.doitVerrouiller(r, null, t), false);                              // pas passée en arrière-plan
 });

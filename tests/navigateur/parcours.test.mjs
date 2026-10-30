@@ -62,6 +62,7 @@ const swActif = page => page.evaluate(async () => { await navigator.serviceWorke
 async function fenetreOperationPrete(page) {
   await page.locator('#overlay #i-dest').waitFor({ state: 'visible' });
   await page.waitForFunction(() => ecranTactile() || document.activeElement === document.getElementById('i-dest'));
+  if (await page.evaluate(() => ecranTactile())) await page.waitForTimeout(80); // téléphone : le curseur peut aller dans le montant
 }
 async function ajouterOperation(page, { dest, montant, date, cat }) {
   await page.keyboard.press('a');
@@ -253,6 +254,99 @@ test('appli Android : bienvenue, pas de service worker, sauvegarde native, mise 
   } finally { await navigateur.close(); }
 });
 
+test('appli Android : fond et icônes des barres d\'Android selon le thème de l\'app, pas celui du téléphone', async () => {
+  const { navigateur, page } = await ouvrirAppli();
+  try {
+    await page.locator('#dlgBack.show #dlgTitle:has-text("Bienvenue")').waitFor();
+    await page.click('#dlgFoot button:has-text("Plus tard")');
+    const dernier = async m => (await appels(page, m)).at(-1);
+    // téléphone en clair, app en « Automatique » : fond clair, icônes foncées
+    assert.deepEqual(await dernier('fondBarres'), { sombre: false });
+    assert.deepEqual(await dernier('setStyle'), { style: 'LIGHT' });
+    // app en sombre sur un téléphone en clair : fond sombre, icônes claires (c'était illisible)
+    await page.evaluate(() => changerReglage('theme', 'sombre'));
+    assert.deepEqual(await dernier('fondBarres'), { sombre: true });
+    assert.deepEqual(await dernier('setStyle'), { style: 'DARK' });
+    // « Automatique » : suit le téléphone quand il change de mode
+    await page.evaluate(() => changerReglage('theme', 'auto'));
+    assert.deepEqual(await dernier('fondBarres'), { sombre: false });
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.waitForFunction(() => window.__appels.filter(a => a[1] === 'fondBarres').at(-1)[2].sombre === true);
+    assert.deepEqual(await dernier('setStyle'), { style: 'DARK' });
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
+test('appli Android : verrouillage par empreinte ou code — activé après confirmation, à l\'ouverture, au retour, Retour', async () => {
+  const { navigateur, page } = await ouvrirAppli();
+  const fermerBienvenue = async () => {
+    await page.locator('#dlgBack.show #dlgTitle:has-text("Bienvenue")').waitFor();
+    await page.click('#dlgFoot button:has-text("Plus tard")');
+  };
+  try {
+    await fermerBienvenue();
+    await page.evaluate(() => setView('reglages'));
+    assert.equal(await page.isVisible('#rg-verrou'), true);
+    await page.click('#rg-verrou summary');
+    assert.match(await page.textContent('#rg-verrou-resume'), /Désactivé/);
+    // téléphone sans verrouillage d'écran : expliqué, rien ne change
+    await page.evaluate(() => { window.__natif.verrouDisponible = { ok: false }; });
+    await page.click('#rg-verrou-on');
+    await page.locator('#dlgBack.show #dlgTitle:has-text("Verrouillage")').waitFor();
+    await page.click('#dlgFoot button');
+    assert.equal(await page.isChecked('#rg-verrou-on'), false);
+    // activer : Android confirme d'abord l'identité
+    await page.evaluate(() => { window.__natif.verrouDisponible = { ok: true }; window.__natif.deverrouiller = { ok: true }; });
+    await page.click('#rg-verrou-on');
+    await page.waitForFunction(() => REGLAGES.verrou === true);
+    assert.deepEqual(await appels(page, 'deverrouiller'), [{ titre: 'Activer le verrouillage' }]);
+    assert.equal(await page.isChecked('#rg-verrou-on'), true);
+    assert.match(await page.textContent('#rg-verrou-resume'), /Empreinte ou code · après 5 min/);
+    await page.click('#rg-verrou-delai button:has-text("Tout de suite")');
+    assert.match(await page.textContent('#rg-verrou-resume'), /tout de suite/);
+
+    // à l'ouverture : tout est caché, Android est appelé ; refusé → on reste verrouillé
+    await page.reload();
+    await page.locator('#verrou:not([hidden])').waitFor();
+    await page.waitForFunction(() => window.__appels.some(a => a[1] === 'deverrouiller'));
+    await page.locator('#verrou-msg:has-text("Non confirmé")').waitFor();
+    assert.equal(await page.isVisible('#verrou'), true);
+    // Retour d'Android sur l'écran verrouillé : l'appli passe en arrière-plan, rien ne s'ouvre
+    await page.evaluate(() => window.__retourAndroid({ canGoBack: false }));
+    assert.equal((await appels(page, 'minimizeApp')).length, 1);
+    await page.evaluate(() => { window.__natif.deverrouiller = { ok: true }; });
+    await page.click('#verrou button:has-text("Déverrouiller")');
+    await page.locator('#verrou').waitFor({ state: 'hidden' });
+    await fermerBienvenue();
+
+    // au retour dans l'appli (ici : tout de suite)
+    const premierPlan = visible => page.evaluate(v => {
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => !v });
+      document.dispatchEvent(new Event('visibilitychange'));
+    }, visible);
+    await premierPlan(false);
+    assert.equal(await page.isVisible('#verrou'), false); // rien ne se voit avant le retour
+    await page.evaluate(() => { window.__natif.deverrouiller = {}; }); // Android ne confirme pas (annulé)
+    await premierPlan(true);
+    await page.locator('#verrou-msg:has-text("Non confirmé")').waitFor();
+    await page.evaluate(() => { window.__natif.deverrouiller = { ok: true }; });
+    await page.click('#verrou button:has-text("Déverrouiller")');
+    await page.locator('#verrou').waitFor({ state: 'hidden' });
+    // 5 min : un aller-retour rapide ne verrouille pas
+    await page.evaluate(() => changerReglage('verrouDelai', 5));
+    await premierPlan(false); await premierPlan(true);
+    assert.equal(await page.isVisible('#verrou'), false);
+
+    // désactiver : confirmation aussi
+    await page.evaluate(() => setView('reglages'));
+    if (await page.getAttribute('#rg-verrou', 'open') === null) await page.click('#rg-verrou summary');
+    await page.click('#rg-verrou-on');
+    await page.waitForFunction(() => REGLAGES.verrou === false);
+    assert.equal((await appels(page, 'deverrouiller')).at(-1).titre, 'Désactiver le verrouillage');
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
 test('appli Android : Retour ferme d\'abord la feuille des filtres, puis la fiche d\'une opération', async () => {
   const { navigateur, page } = await ouvrirAppli();
   try {
@@ -386,11 +480,80 @@ test('téléphone : la petite flèche ouvre la liste déroulante des comptes', a
     assert.equal(await page.isVisible('#m-comptes'), false);
     assert.equal(await page.textContent('#m-compte-nom'), 'Livret A');
     assert.equal(await page.evaluate(() => scal('SELECT nom FROM compte WHERE id=?', [state.acc])), 'Livret A');
-    // un toucher ailleurs referme la liste
+    // un toucher à côté referme la liste, et ne fait rien d'autre : ni l'opération, ni l'onglet touchés dessous
+    await page.evaluate(() => { run("INSERT INTO operation(compte_id,date_operation,montant,cat_path,statut,supprime,previsionnel,tiers_id,hay) VALUES(?,?,?,?,'non_pointe',0,0,?,?)",
+      [state.acc, todayISO(), -450, 'Alimentation', upsertTiers('Boulangerie'), makeHay('Boulangerie', 'Alimentation', null, '', -450, todayISO())]); render(); });
+    const toucher = async sel => { const b = await page.locator(sel).first().boundingBox(); await page.touchscreen.tap(b.x + b.width / 2, b.y + b.height / 2); };
     await page.click('#m-compte-btn');
-    await page.click('#m-onglets button[data-o="analyse"]');
+    await toucher('#m-ops .m-op .m-op-corps');
     assert.equal(await page.isVisible('#m-comptes'), false);
+    assert.equal(await page.isVisible('#m-fiche'), false, 'la fiche ne s\'ouvre pas');
+    await page.click('#m-compte-btn');
+    await toucher('#m-onglets button[data-o="analyse"]');
+    assert.equal(await page.isVisible('#m-comptes'), false);
+    assert.equal(await page.evaluate(() => state.view), 'registre', 'l\'onglet ne change pas');
+    // pareil pour la feuille des filtres et une fenêtre qui se ferme à côté
+    await page.evaluate(() => ouvrirFiltres());
+    await toucher('#m-ops .m-op .m-op-corps');
+    assert.equal(await page.evaluate(() => document.body.classList.contains('filtres-ouverts')), false);
+    assert.equal(await page.isVisible('#m-fiche'), false);
+    await page.evaluate(() => { dlgOpen({ title: 'Essai', msg: '', fermeDehors: true, buttons: [{ t: 'Fermer', v: true }] }); });
+    await page.locator('#dlgBack.show').waitFor();
+    await toucher('#m-onglets button[data-o="analyse"]');
+    await page.locator('#dlgBack.show').waitFor({ state: 'hidden' });
+    assert.equal(await page.evaluate(() => state.view), 'registre');
+    // ensuite, un toucher fait ce qu'il doit
+    await toucher('#m-onglets button[data-o="analyse"]');
+    assert.equal(await page.evaluate(() => state.view), 'analyse');
     assert.equal(await page.textContent('#m-compte-nom'), 'Livret A'); // l'analyse suit le compte choisi
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
+test('téléphone, filtres : nombre d\'opérations tout à gauche, dates sur une ligne sans déborder, glisser vers le bas ferme', async () => {
+  const { navigateur, page } = await ouvrirTelephone();
+  try {
+    await opsExemple(page);
+    // le nombre d'opérations tout à gauche, « Filtrer » tout à droite, sur la même ligne
+    const nb = await page.locator('#m-nb-ops').boundingBox(), f = await page.locator('.m-filtrer').boundingBox(), soldes = await page.locator('#m-soldes').boundingBox();
+    assert.ok(Math.abs(nb.x - soldes.x) < 6, 'tout à gauche');
+    assert.ok(Math.abs((nb.y + nb.height / 2) - (f.y + f.height / 2)) < 4, 'même ligne');
+    assert.ok(f.x + f.width > soldes.x + soldes.width - 6, 'Filtrer tout à droite');
+    // « fin du mois prochain » + « Dates… » : tout reste dans une colonne, la feuille défile
+    await page.click('.m-filtrer');
+    await page.selectOption('#f-horizon', 'finmoisprochain');
+    await page.click('#f-periode-wrap button[data-m="perso"]');
+    const feuille = page.locator('#f-zone');
+    const larg = await feuille.evaluate(e => [e.scrollWidth, e.clientWidth]);
+    assert.ok(larg[0] <= larg[1], 'pas de 2e colonne');
+    const de = await page.locator('#f-from').boundingBox(), a = await page.locator('#f-to').boundingBox();
+    assert.ok(Math.abs(de.y - a.y) < 2 && de.x < a.x, 'du … au … sur une ligne');
+    const voir = await page.locator('#m-voir').boundingBox(), zone = await feuille.boundingBox();
+    assert.ok(voir.x >= zone.x && voir.x + voir.width <= zone.x + zone.width + 1, '« Voir » dans la feuille');
+    // glisser la poignée vers le bas : la feuille suit, puis se ferme ; un petit glissement la remet en place
+    const glisser = (dy, sel) => page.evaluate(([dy, sel]) => {
+      const el = document.querySelector(sel), r = el.getBoundingClientRect(), x = r.left + 20, y = r.top + 5;
+      const t = yy => new Touch({ identifier: 1, target: el, clientX: x, clientY: yy });
+      el.dispatchEvent(new TouchEvent('touchstart', { touches: [t(y)], bubbles: true, cancelable: true }));
+      for (let i = 1; i <= 5; i++) el.dispatchEvent(new TouchEvent('touchmove', { touches: [t(y + dy * i / 5)], bubbles: true, cancelable: true }));
+      const suit = document.getElementById('f-zone').style.transform;
+      el.dispatchEvent(new TouchEvent('touchend', { touches: [], changedTouches: [t(y + dy)], bubbles: true, cancelable: true }));
+      return suit;
+    }, [dy, sel]);
+    await feuille.evaluate(e => { e.scrollTop = 0; });
+    assert.equal(await glisser(40, '.m-feuille-tete'), 'translateY(40px)');
+    assert.equal(await page.evaluate(() => document.body.classList.contains('filtres-ouverts')), true, 'petit glissement : reste ouverte');
+    assert.equal(await feuille.evaluate(e => e.style.transform), '');
+    await glisser(200, '.m-feuille-tete');
+    assert.equal(await page.evaluate(() => document.body.classList.contains('filtres-ouverts')), false);
+    // feuille défilée : glisser vers le bas au milieu la fait défiler, sans la fermer
+    await feuille.waitFor({ state: 'hidden' }); // fin de l'animation de fermeture
+    await page.setViewportSize({ width: 390, height: 560 }); // petit écran : la feuille défile
+    await page.click('.m-filtrer');
+    await feuille.evaluate(e => { e.scrollTop = 80; });
+    assert.equal(await feuille.evaluate(e => e.scrollTop), 80);
+    assert.equal(await glisser(200, '#f-statuts'), '');
+    assert.equal(await page.evaluate(() => document.body.classList.contains('filtres-ouverts')), true);
     assert.deepEqual(page.erreurs, []);
   } finally { await navigateur.close(); }
 });
@@ -406,8 +569,15 @@ test('téléphone : écran Plus — sauvegarde en attente, sauvegarder, outils',
     assert.match(telechargement.suggestedFilename(), /^comptes_.*\.sqlite$/);
     await page.locator('#plus-sauvegarde:has-text("Tout est sauvegardé")').waitFor();
     assert.equal(await page.isVisible('#m-point'), false);
-    for (const nom of ['Pointer avec un relevé PDF', 'Importer un fichier QIF', 'Tiers', 'Corbeille', 'Charger une sauvegarde', 'Réglages', 'Annuler la dernière modification'])
+    for (const nom of ['Pointer avec un relevé PDF', 'Importer un fichier QIF', 'Tiers', 'Corbeille', 'Réglages', 'Annuler la dernière modification'])
       assert.equal(await page.isVisible(`#plus-groupes button:has-text("${nom}")`), true, nom);
+    assert.deepEqual(await page.locator('#plus-groupes .m-groupe-h').allTextContents(), ['Pointer et importer', 'Organiser', 'Revenir en arrière', 'Appli']);
+    // charger une sauvegarde : l'icône à côté de « Sauvegarder », en haut
+    assert.equal(await page.locator('#plus-groupes button:has-text("Charger une sauvegarde")').count(), 0);
+    const charger = await page.locator('#m-charger').boundingBox(), sauver = await page.locator('#m-sauver').boundingBox();
+    assert.ok(Math.abs(charger.y - sauver.y) < 2 && charger.x < sauver.x, 'à gauche de Sauvegarder');
+    const [choix] = await Promise.all([page.waitForEvent('filechooser'), page.click('#m-charger')]);
+    assert.equal(await choix.element().evaluate(e => e.id), 'fileDb');
     assert.match(await page.textContent('#plus-version'), new RegExp(VERSION.replaceAll('.', '\\.')));
     assert.deepEqual(page.erreurs, []);
   } finally { await navigateur.close(); }
@@ -532,10 +702,11 @@ test('téléphone, fiche d\'une opération : montant en grand, statut en informa
     await page.click('#dlgFoot button:has-text("Mettre à la corbeille")');
     await fiche.waitFor({ state: 'hidden' });
     assert.equal(await ligne(page, 'Boulangerie').count(), 0);
-    // rapprochée : ni Modifier, ni Corbeille
+    // rapprochée : modifiable sauf le montant, pas de corbeille
     await ligne(page, 'Supermarché').locator('.m-op-corps').click();
-    assert.match(await fiche.locator('.mf-statut').textContent(), /Rapproché — elle ne peut plus être modifiée/);
-    assert.equal(await fiche.locator('button:has-text("Modifier")').count(), 0);
+    assert.match(await fiche.locator('.mf-statut').textContent(), /Rapproché — son montant ne peut plus être modifié/);
+    assert.equal(await fiche.locator('button:has-text("Modifier")').count(), 1);
+    assert.equal(await fiche.locator('button.mf-montant').count(), 0);
     assert.equal(await fiche.locator('button:has-text("corbeille")').count(), 0);
     assert.deepEqual(page.erreurs, []);
   } finally { await navigateur.close(); }
@@ -598,6 +769,95 @@ test('réglages sur PC : pas de rubrique « barres de recherche » (elle ne conc
     await page.click('#rg-affichage summary');
     assert.equal(await page.isVisible('#rg-theme'), true);
     assert.equal(await page.isVisible('#rg-barres'), false);
+  } finally { await navigateur.close(); }
+});
+
+/* une paie rapprochée, répartie entre deux catégories aux noms longs */
+async function paieVentilee(page) {
+  await page.evaluate(() => {
+    const op = (d, m, dest, cat, lignes) => {
+      run("INSERT INTO operation(compte_id,date_operation,montant,cat_path,statut,supprime,previsionnel,tiers_id,hay) VALUES(?,?,?,?,'rapproche',0,0,?,?)",
+        [state.acc, d, m, cat, upsertTiers(dest), makeHay(dest, cat, null, '', m, d)]);
+      const id = scal('SELECT MAX(id) FROM operation');
+      lignes.forEach(([c, v]) => run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)', [id, upsertCategorie(c), v]));
+    };
+    op('2026-10-24', 231676, 'TBF', 'Traitements et salaires : Salaire net',
+      [['Traitements et salaires : Salaire net', 264273], ['Impôts : Impôt sur le revenu prélèvement à la source', -32597]]);
+    op('2026-09-25', 230000, 'TBF', 'Traitements et salaires : Prime', [['Traitements et salaires : Prime', 230000]]);
+    invalidateCaches(); render();
+  });
+}
+
+test('téléphone, opération rapprochée ventilée : la fiche tient dans l\'écran, la répartition se modifie, pas le total', async () => {
+  const { navigateur, page } = await ouvrirTelephone();
+  try {
+    await paieVentilee(page);
+    await ligne(page, 'TBF').first().locator('.m-op-corps').click();
+    const fiche = page.locator('#m-fiche');
+    // rien ne déborde : les libellés longs passent à la ligne, les montants restent entiers
+    assert.ok(await fiche.evaluate(f => f.scrollWidth <= f.clientWidth), 'pas de défilement horizontal');
+    const montants = fiche.locator('.mf-infos span.num');
+    assert.equal(await montants.count(), 2);
+    for (const h of await montants.evaluateAll(es => es.map(e => e.getBoundingClientRect().height))) assert.ok(h < 30, 'montant sur une ligne');
+    assert.equal(await fiche.locator('button.mf-montant').count(), 0); // le total ne se touche pas
+    // toucher une ligne de la répartition : le formulaire, montant verrouillé, répartition modifiable
+    await fiche.locator('.mf-infos button').first().click();
+    assert.equal(await page.isVisible('#m-fiche'), false);
+    assert.equal(await page.locator('#i-montant').evaluate(e => e.readOnly), true);
+    // le curseur se place dans la 1re ligne de la répartition (30 ms après l'ouverture) : l'attendre avant d'écrire
+    await page.waitForFunction(() => document.activeElement === document.querySelector('#vent-list input'));
+    const champs = page.locator('#vent-list .vent-l input[inputmode="decimal"]');
+    await champs.nth(0).fill('2640,00');
+    await champs.nth(1).fill('-323,24');
+    assert.match(await page.textContent('#vent-tot'), /équilibré/);
+    await page.click('#overlay button:has-text("Enregistrer")');
+    await page.click('#dlgFoot button:has-text("Confirmer la modification")');
+    await page.waitForFunction(() => !document.getElementById('overlay').classList.contains('show'));
+    assert.deepEqual(await page.evaluate(() => [...qy("SELECT v.montant m FROM ventilation v JOIN operation o ON o.id=v.operation_id WHERE o.date_operation='2026-10-24' ORDER BY v.montant DESC").map(r => r.m)]), [264000, -32324]);
+    assert.equal(await page.evaluate(() => scal("SELECT montant FROM operation WHERE date_operation='2026-10-24'")), 231676);
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
+test('téléphone, catégories : montant total ; toucher une catégorie → son analyse par mois, par année', async () => {
+  const { navigateur, page } = await ouvrirTelephone();
+  try {
+    await paieVentilee(page);
+    await page.evaluate(() => setView('categories'));
+    const c = page.locator('#m-categories .mg-cat', { hasText: 'Traitements et salaires' });
+    assert.match(await c.locator('.mg-nb').textContent(), /\+4\s942,73\s€2 op\./);
+    assert.match(await page.locator('#m-categories .mg-cat', { hasText: 'Impôts' }).locator('.mg-nb').textContent(), /-325,97\s€1 op\./);
+    await c.locator('.mg-nom').click();
+    const a = page.locator('#m-catana');
+    await a.waitFor();
+    assert.equal(await a.locator('h2').textContent(), 'Traitements et salaires');
+    assert.match(await a.locator('.ca-titre').textContent(), /\+4\s942,73\s€ · 2 opérations en tout/);
+    // par mois : 12 barres, le mois en cours choisi ; la moyenne des mois passés
+    assert.equal(await a.locator('.ca-barres button').count(), 12);
+    assert.match(await a.locator('.ma-total').textContent(), /Octobre 2026 \(en cours\)\+2\s642,73\s€/);
+    assert.match(await a.locator('.ca-moy').textContent(), /moyenne \+209,09\s€ \/ mois/);
+    await a.locator('.ca-barres button[aria-label^="Septembre 2026"]').click();
+    assert.match(await a.locator('.ma-total').textContent(), /Septembre 2026\+2\s300,00\s€/);
+    assert.match(await a.textContent(), /Opérations \(1\)/);
+    // par année
+    await a.locator('button:has-text("Par année")').click();
+    assert.equal(await a.locator('.ca-barres button').count(), 1);
+    assert.match(await a.locator('.ma-total').textContent(), /2026 \(en cours\)\+4\s942,73\s€/);
+    // une sous-catégorie, puis retour
+    await a.locator('.ma-ligne', { hasText: 'Prime' }).click();
+    assert.equal(await a.locator('h2').textContent(), 'Prime');
+    await page.evaluate(() => fermerFeuilles()); // Retour d'Android
+    assert.equal(await a.locator('h2').textContent(), 'Traitements et salaires');
+    // une opération : sa fiche s'ouvre par-dessus
+    await a.locator('.ma-liste .ma-ligne', { hasText: 'TBF' }).first().click();
+    assert.equal(await page.isVisible('#m-fiche'), true);
+    await page.click('#m-fiche .mf-retour');
+    // « Voir les opérations » : la liste filtrée sur la catégorie
+    await a.locator('button:has-text("Voir les opérations")').click();
+    await page.waitForFunction(() => state.view === 'registre');
+    assert.equal(await page.isVisible('#m-catana'), false);
+    assert.equal(await page.locator('#m-ops .m-op').count(), 2);
+    assert.deepEqual(page.erreurs, []);
   } finally { await navigateur.close(); }
 });
 
@@ -773,7 +1033,7 @@ test('téléphone, saisie : plein écran, montant en grand en haut, statut rappe
   const { navigateur, page } = await ouvrirTelephone();
   try {
     await page.click('#m-ajouter');
-    await fenetreOperationPrete(page);
+    await page.waitForFunction(() => document.activeElement && document.activeElement.id === 'i-montant');   // directement dans le montant
     const y = async sel => (await page.locator(sel).boundingBox()).y;
     assert.ok(await y('#i-montant') < await y('#seg'), 'montant au-dessus du type');
     assert.ok(await y('#seg') < await y('#i-dest'), 'type au-dessus du destinataire');
@@ -876,6 +1136,28 @@ test('téléphone, gestion : renommer un tiers, fusionner une catégorie', async
     await page.click('#dlgFoot button:has-text("Fusionner")');
     await page.waitForFunction(() => scal("SELECT COUNT(*) FROM categorie WHERE libelle='Courses' AND parent_id IS NULL") === 0);
     assert.equal(await page.evaluate(() => scal("SELECT cat_path FROM operation o JOIN tiers t ON t.id=o.tiers_id WHERE t.nom='Supermarché'")), 'Alimentation');
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
+test('téléphone, échéance : même présentation que la saisie (montant en haut, plein écran), enregistrée', async () => {
+  const { navigateur, page } = await ouvrirTelephone();
+  try {
+    await page.evaluate(() => { upsertCategorie('Loisirs : Sport');
+      run("INSERT INTO recurrence(compte_id,type,montant,tiers,cat_path,frequence,intervalle,jour,date_debut,prochaine,creer_en) VALUES(?,'debit',-3000,'Salle de sport','Loisirs : Sport','mensuelle',1,1,'2026-09-01','2026-11-01','previsionnel')", [state.acc]);
+      ongletMobile('recurrences'); });
+    await page.locator('#m-echeances .me-item', { hasText: 'Salle de sport' }).click();
+    await page.click('#dlgFoot button:has-text("Modifier")');
+    await page.locator('#rc-m').waitFor();
+    const y = async sel => (await page.locator(sel).boundingBox()).y;
+    assert.ok(await y('#rc-m') < await y('#rc-seg') && await y('#rc-seg') < await y('#rc-t') && await y('#rc-t') < await y('#rc-cpt'), 'montant, type, destinataire, puis compte');
+    assert.ok((await page.locator('#dlgBack .dlg').boundingBox()).width >= 389, 'plein écran');
+    await page.waitForFunction(() => document.getElementById('rc-sugg'));   // branchée à l'ouverture de la fenêtre
+    await page.click('#rc-c1');
+    await page.locator('#rc-sugg button:has-text("Sport")').waitFor();
+    await page.fill('#rc-m', '35');
+    await page.click('#dlgFoot button:has-text("Enregistrer")');
+    await page.waitForFunction(() => scal("SELECT montant FROM recurrence WHERE tiers='Salle de sport'") === -3500);
     assert.deepEqual(page.erreurs, []);
   } finally { await navigateur.close(); }
 });

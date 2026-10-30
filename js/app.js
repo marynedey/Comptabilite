@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.14.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.15.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -148,10 +148,14 @@ async function demarrerAppli(){
   // ne s'ouvrirait pas. Chaque import vérifie de toute façon le contenu du fichier.
   ['fileDb','fileQif','fileAmex'].forEach(id=>{const i=document.getElementById(id);if(i)i.removeAttribute('accept');});
   Capacitor.nativeCallback('App','addListener',{eventName:'backButton'},d=>{
+    if(estVerrouille()){Capacitor.nativePromise('App','minimizeApp').catch(()=>{});return;} // verrouillée : Retour la met de côté
     if(dlgResolve){dlgClose(false);return;}         // une fenêtre ouverte : Retour la ferme
     if(fermerFeuilles())return;                     // filtres, liste des comptes, fiche d'une opération
     if(d&&d.canGoBack)history.back();else demanderQuitter();});
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)verifierMajAppli();});
+  brancherVerrou();
+  // thème « Automatique » : le téléphone passe en clair ou en sombre → les barres suivent
+  if(window.matchMedia)matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(REGLAGES.theme==='auto')majBarresAppli();});
   verifierMajAppli();
   if(!scal('SELECT COUNT(*) FROM operation WHERE supprime=0')){
     const v=await dlgOpen({title:'Bienvenue dans l’appli',msg:'L’appli a son propre stockage : tes comptes enregistrés dans Chrome n’y sont pas encore.\n\n'+
@@ -447,7 +451,12 @@ function ouvrirListeComptes(){
     '<button class="mc-action" onclick="fermerListeComptes();ajouterCompte()">+ Nouveau compte</button>';
   l.querySelectorAll('button[data-id]').forEach(b=>appuiLong(b,()=>{fermerListeComptes();editCompte(+b.dataset.id);}));
   l.hidden=false;document.getElementById('m-compte-btn').setAttribute('aria-expanded','true');
-  setTimeout(()=>document.addEventListener('pointerdown',fermerSiDehors,true),0);
+  // toucher à côté ferme la liste, et rien d'autre : un voile transparent, sous la liste, prend ce toucher
+  // (sans lui, le même toucher ouvrait aussi l'opération ou l'onglet qui se trouvait dessous)
+  const v=document.createElement('div');v.className='voile-dehors';v.id='m-comptes-voile';
+  v.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();fermerListeComptes();});
+  document.getElementById('m-entete').classList.add('menu-ouvert');
+  document.getElementById('m-entete').insertBefore(v,document.getElementById('m-compte-wrap'));
 }
 /* appui long (½ s sans bouger) : action ; le clic qui suit le relâchement est alors ignoré */
 function appuiLong(el,action){
@@ -459,11 +468,11 @@ function appuiLong(el,action){
   el.addEventListener('click',e=>{if(fait){e.preventDefault();e.stopImmediatePropagation();fait=false;}},true);
   el.addEventListener('contextmenu',e=>e.preventDefault());
 }
-function fermerSiDehors(e){if(!document.getElementById('m-compte-wrap').contains(e.target))fermerListeComptes();}
 function fermerListeComptes(){
   const l=document.getElementById('m-comptes');if(!l||l.hidden)return;
   l.hidden=true;document.getElementById('m-compte-btn').setAttribute('aria-expanded','false');
-  document.removeEventListener('pointerdown',fermerSiDehors,true);}
+  const v=document.getElementById('m-comptes-voile');if(v)v.remove();
+  document.getElementById('m-entete').classList.remove('menu-ouvert');}
 function choisirCompteMobile(id){fermerListeComptes();state.acc=id;state.page=1;state.anPath=[];render();remonterEnHaut();}
 /* écran « Plus » : sauvegarde, outils et gestion (ce qui était dans la barre latérale et la barre d'outils du PC) */
 function icoPlus(d){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="'+d+'"/></svg>';}
@@ -484,12 +493,13 @@ function renderPlus(){
       it('Importer un fichier QIF','Opérations exportées par la banque',"document.getElementById('fileQif').click()",'M12 3v12M7 10l5 5 5-5M5 21h14')]],
     ['Organiser',[
       it('Catégories',nb('SELECT COUNT(*) FROM categorie','catégorie'),"setView('categories')",'M3 7l9-4 9 4v10l-9 4-9-4zM3 7l9 4 9-4M12 11v10'),
-      it('Tiers',nb('SELECT COUNT(*) FROM tiers','destinataire'),"setView('tiers')",'M9 11a3 3 0 100-6 3 3 0 000 6zM3 20a6 6 0 0112 0M16 6a3 3 0 010 6'),
-      it('Corbeille',nb('SELECT COUNT(*) FROM operation WHERE supprime=1','opération'),"setView('corbeille')",'M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13')]],
-    ['Données et appli',[
+      it('Tiers',nb('SELECT COUNT(*) FROM tiers','destinataire'),"setView('tiers')",'M9 11a3 3 0 100-6 3 3 0 000 6zM3 20a6 6 0 0112 0M16 6a3 3 0 010 6')]],
+    // charger une sauvegarde : l'icône à côté de « Sauvegarder », en haut de l'écran
+    ['Revenir en arrière',[
       e?it('Annuler la dernière modification',esc('n°'+e.jid+' '+e.label),'annulerDerniere()','M9 14L4 9l5-5M4 9h10a6 6 0 010 12h-3'):'',
-      it('Charger une sauvegarde','Remplace les données de cet appareil',"document.getElementById('fileDb').click()",'M12 21V9M7 14l5-5 5 5M5 3h14'),
-      it('Réglages','Dossier de sauvegarde…',"setView('reglages')",'M12 15a3 3 0 100-6 3 3 0 000 6zM19 12h2M3 12h2M12 3v2M12 19v2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4')]],
+      it('Corbeille',nb('SELECT COUNT(*) FROM operation WHERE supprime=1','opération'),"setView('corbeille')",'M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13')]],
+    ['Appli',[
+      it('Réglages',enAppli()?'Verrouillage, thème, dossier de sauvegarde…':'Thème, recherche, dossier de sauvegarde…',"setView('reglages')",'M12 15a3 3 0 100-6 3 3 0 000 6zM19 12h2M3 12h2M12 3v2M12 19v2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4')]],
   ];
   document.getElementById('plus-groupes').innerHTML=groupes.map(([h,l])=>'<h2 class="m-groupe-h">'+h+'</h2><div class="m-liste">'+l.join('')+'</div>').join('');
   document.getElementById('plus-version').textContent='Mes comptes · version '+VERSION;
@@ -533,6 +543,32 @@ function moisFiltre(delta){
   setPeriode('f',moisDecale(v,delta,new Date()));
 }
 function ouvrirFiltres(){document.body.classList.add('filtres-ouverts');}
+/* glisser une feuille vers le bas la ferme : depuis sa tête (poignée, titre) toujours, ailleurs seulement
+   quand elle est tout en haut (sinon le doigt la fait défiler). Elle suit le doigt, puis se ferme au-delà
+   d'un quart de sa hauteur (120 px au plus), ou revient en place. */
+function glisserPourFermer(feuille,fermer){
+  let y0=null,dy=0,actif=false,tete=false;
+  feuille.addEventListener('touchstart',e=>{
+    if(e.touches.length!==1){y0=null;return;}
+    y0=e.touches[0].clientY;dy=0;actif=false;tete=!!e.target.closest('.m-feuille-tete');
+  },{passive:true});
+  feuille.addEventListener('touchmove',e=>{
+    if(y0==null)return;
+    dy=e.touches[0].clientY-y0;
+    if(!actif){
+      if(Math.abs(dy)<8)return;
+      if(dy<0||!(tete||feuille.scrollTop<=0)||e.target.closest('select,input')){y0=null;return;} // défilement normal
+      actif=true;feuille.classList.add('glisse');
+    }
+    e.preventDefault();feuille.style.transform='translateY('+Math.max(0,dy)+'px)';
+  },{passive:false});
+  const fin=()=>{
+    y0=null;if(!actif)return;actif=false;
+    feuille.classList.remove('glisse');feuille.style.transform='';
+    if(dy>Math.min(120,feuille.offsetHeight/4))fermer();
+  };
+  feuille.addEventListener('touchend',fin);feuille.addEventListener('touchcancel',fin);
+}
 function fermerFiltres(){document.body.classList.remove('filtres-ouverts');}
 /* Retour d'Android : ferme d'abord ce qui est ouvert par-dessus l'écran */
 function fermerFeuilles(){
@@ -540,6 +576,7 @@ function fermerFeuilles(){
   const l=document.getElementById('m-comptes');if(l&&!l.hidden){fermerListeComptes();return true;}
   const ov=document.getElementById('overlay');if(ov&&ov.classList.contains('show')){closeModal();return true;}
   const fi=document.getElementById('m-fiche');if(fi&&!fi.hidden){fermerFiche();return true;}
+  const ca=document.getElementById('m-catana');if(ca&&!ca.hidden){caRetour();return true;}
   if(state.view==='analyse'&&MA.chemin.length){anaMobileRemonter();return true;}
   return false;
 }
@@ -570,10 +607,11 @@ function renderOperationsMobile(){
   // la liste
   const p={};const w=buildWhere(p);
   const total=scal('SELECT COUNT(*) FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id'+w,p)||0;
-  document.getElementById('m-filtres-actifs').innerHTML=actifs.map(([t,f])=>
-      '<span class="m-puce">'+esc(t)+'<button class="ghost" style="padding:0;min-height:0;border:0;background:none;color:inherit" aria-label="Retirer le filtre '+esc(t)+'" onclick="'+f+'"><span>✕</span></button></span>').join('')+
-    '<span class="m-nb-ops" id="m-nb-ops">'+total.toLocaleString('fr-FR')+' opération'+(total>1?'s':'')+'</span>'+
-    '<button class="m-filtrer" onclick="ouvrirFiltres()">Filtrer'+(actifs.length?' · '+actifs.length:'')+'</button>';
+  // les filtres actifs (puces), puis une ligne : le nombre d'opérations tout à gauche, « Filtrer » tout à droite
+  document.getElementById('m-filtres-actifs').innerHTML=(actifs.length?'<div class="m-puces">'+actifs.map(([t,f])=>
+      '<span class="m-puce">'+esc(t)+'<button class="ghost" style="padding:0;min-height:0;border:0;background:none;color:inherit" aria-label="Retirer le filtre '+esc(t)+'" onclick="'+f+'"><span>✕</span></button></span>').join('')+'</div>':'')+
+    '<div class="m-ligne-filtrer"><span class="m-nb-ops" id="m-nb-ops">'+total.toLocaleString('fr-FR')+' opération'+(total>1?'s':'')+'</span>'+
+    '<button class="m-filtrer" onclick="ouvrirFiltres()">Filtrer'+(actifs.length?' · '+actifs.length:'')+'</button></div>';
   const lim=state.mLimite||MOBILE_PAR_LOT;
   const rows=qy(`WITH bal AS (SELECT id, SUM(montant) OVER (ORDER BY date_operation,id) cum
       FROM operation WHERE compte_id=$acc AND supprime=0 AND statut<>'annule')
@@ -607,7 +645,7 @@ function renderOperationsMobile(){
   document.getElementById('m-voir').textContent=total?'Voir '+total.toLocaleString('fr-FR')+' opération'+(total>1?'s':''):'Aucune opération';
 }
 /* fiche d'une opération (téléphone) : on la lit avant de la modifier. Le statut n'est qu'une information
-   (il se change depuis la barre de la liste) ; une opération rapprochée ne se modifie plus. */
+   (il se change depuis la barre de la liste) ; une opération rapprochée garde son montant total. */
 let ficheId=null;
 function lignesVentilation(id){
   return qy(`SELECT v.montant m,(SELECT GROUP_CONCAT(libelle,' : ') FROM (
@@ -634,23 +672,24 @@ function ouvrirFiche(id){
   infos.push(['N° (chèque…)',o.numero?esc(String(o.numero)):'<em>ajouter</em>','num']);
   infos.push(['Commentaire',o.commentaire?esc(o.commentaire):'<em>ajouter</em>','comm']);
   const rapp=o.statut==='rapproche',ann=o.statut==='annule';
-  // toucher un élément : le formulaire s'ouvre directement sur ce champ (pas sur une opération rapprochée)
+  // toucher un élément : le formulaire s'ouvre directement sur ce champ ; une opération rapprochée reste
+  // modifiable (catégories, ventilation, destinataire…), seul son montant total est figé
   const statutTouche=!rapp&&!ann;
+  const champ=(cls,f,v)=>'<button class="mf-champ '+cls+'" onclick="modifierDepuisFiche(\''+f+'\')">'+v+'</button>';
   const fi=document.getElementById('m-fiche');
   fi.innerHTML='<div class="mf-tete"><button class="mf-retour" onclick="fermerFiche()" aria-label="Retour">'+icoPlus('M15 6l-6 6 6 6')+'</button>'+
-      (rapp?'':'<button class="mf-modifier" onclick="modifierDepuisFiche()">Modifier</button>')+'</div>'+
+      '<button class="mf-modifier" onclick="modifierDepuisFiche()">Modifier</button></div>'+
     '<div class="mf-haut"><div class="mf-lettre" aria-hidden="true">'+esc((o.dest||'?').charAt(0).toUpperCase())+'</div>'+
-      (rapp?'<h2 class="mf-dest">'+esc(o.dest||'(sans destinataire)')+'</h2>':'<button class="mf-champ mf-dest" onclick="modifierDepuisFiche(\'dest\')">'+esc(o.dest||'(sans destinataire)')+'</button>')+
+      champ('mf-dest','dest',esc(o.dest||'(sans destinataire)'))+
       (rapp?'<div class="mf-montant num '+(o.montant>0?'credit':'')+'">'+(o.montant>0?'+':'')+eur(o.montant)+'</div>'
-        :'<button class="mf-champ mf-montant num '+(o.montant>0?'credit':'')+'" onclick="modifierDepuisFiche(\'montant\')">'+(o.montant>0?'+':'')+eur(o.montant)+'</button>')+
-      (rapp?'<div class="mf-quand">'+quand+'</div>':'<button class="mf-champ mf-quand" onclick="modifierDepuisFiche(\'date\')">'+quand+'</button>')+'</div>'+
+        :champ('mf-montant num '+(o.montant>0?'credit':''),'montant',(o.montant>0?'+':'')+eur(o.montant)))+
+      champ('mf-quand','date',quand)+'</div>'+
     // le statut se change ici d'un toucher, comme avec la barre de couleur de la liste
     (statutTouche?'<button class="mf-statut" onclick="togglePointe('+id+')" aria-label="'+m.label+' — toucher pour changer">':'<div class="mf-statut">')+
       '<i style="background:'+m.col+'"></i>'+m.label+
-      (rapp?' — elle ne peut plus être modifiée':stt==='previsionnel'?' — prévue, pas encore effective':'')+
+      (rapp?' — son montant ne peut plus être modifié':stt==='previsionnel'?' — prévue, pas encore effective':'')+
       (statutTouche?'<small>Toucher pour changer</small></button>':'</div>')+
-    '<div class="mf-infos">'+infos.map(([k,v,f])=>rapp?'<div><span>'+k+'</span><span>'+v+'</span></div>'
-      :'<button onclick="modifierDepuisFiche(\''+f+'\')"><span>'+k+'</span><span>'+v+'</span></button>').join('')+'</div>'+
+    '<div class="mf-infos">'+infos.map(([k,v,f])=>'<button onclick="modifierDepuisFiche(\''+f+'\')"><span>'+k+'</span><span'+(f==='vent'?' class="num"':'')+'>'+v+'</span></button>').join('')+'</div>'+
     '<div class="mf-actions"><button onclick="dupliquerDepuisFiche()">Dupliquer</button>'+
       (rapp||ann?'':'<button class="danger" onclick="corbeilleDepuisFiche()">Mettre à la corbeille</button>')+'</div>';
   fi.hidden=false;fi.scrollTop=0;
@@ -919,12 +958,14 @@ function repondreAuSigne(){ // fenêtre active : se mettre au premier plan si le
 }
 async function boot(){
   chargerReglages();appliquerReglages(true);
+  if(enAppli()&&REGLAGES.verrou)verrouiller(); // rien ne s'affiche avant l'empreinte ou le code
   if(estTelephone()){
     document.body.classList.add('mobile');
     // la recherche des opérations est directement dans l'écran (pas dans la feuille des filtres)
     const rch=document.getElementById('f-search');document.getElementById('m-recherche').appendChild(rch.parentElement);
     rch.placeholder='Rechercher (destinataire, catégorie, montant…)';
     brancherListeCategories();
+    glisserPourFermer(document.getElementById('f-zone'),fermerFiltres);
     // « Entrée » / « OK » du clavier dans une recherche : le clavier se ferme pour laisser voir les résultats
     ['f-search','ti-search','cat-search'].forEach(id=>{const el=document.getElementById(id);if(!el)return;
       el.setAttribute('enterkeyhint','search');
@@ -975,6 +1016,7 @@ let _navSuppress=false;
 function toggleMenu(){document.body.classList.toggle('menu-open');}
 function closeMenu(){document.body.classList.remove('menu-open');}
 function setView(v,noPush){if(v!=='graphiques'&&document.body.classList.contains('gr-plein'))grPleinEcran(false);state.view=v;
+  if(v!=='categories')fermerAnalyseCategorie();
   document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('on',a.dataset.v===v));
   document.querySelectorAll('.view').forEach(s=>s.classList.toggle('on',s.id==='v-'+v));
   const m=document.querySelector('main');if(m)m.scrollTop=0;render();
@@ -1823,13 +1865,19 @@ function renderCategories(){
   const kids={};cats.forEach(c=>{(kids[c.parent_id==null?0:c.parent_id]=kids[c.parent_id==null?0:c.parent_id]||[]).push(c);});
   const tot={};
   function totOf(id){if(tot[id]!=null)return tot[id];let n=cnt[id]||0;(kids[id]||[]).forEach(k=>n+=totOf(k.id));return tot[id]=n;}
+  // montant total de la catégorie et de ses sous-catégories (opérations effectives : ni annulées, ni prévisionnelles)
+  const som={};qy(`SELECT v.categorie_id c,SUM(v.montant) s FROM ventilation v JOIN operation o ON o.id=v.operation_id
+    WHERE o.supprime=0 AND o.statut<>'annule' AND o.previsionnel=0 GROUP BY v.categorie_id`).forEach(r=>som[r.c]=r.s);
+  const sTot={};
+  function sumOf(id){if(sTot[id]!=null)return sTot[id];let s=som[id]||0;(kids[id]||[]).forEach(k=>s+=sumOf(k.id));return sTot[id]=s;}
   function cheminDe(id){const parts=[];let x=id;const by={};cats.forEach(z=>by[z.id]=z);
     while(x!=null){const z=by[x];if(!z)break;parts.unshift(z.libelle);x=z.parent_id;}return parts.join(' : ');}
-  if(document.body.classList.contains('mobile')){renderCategoriesMobile(cats,kids,totOf);return;}
+  if(document.body.classList.contains('mobile')){renderCategoriesMobile(cats,kids,totOf,sumOf);
+    if(!document.getElementById('m-catana').hidden)renderAnalyseCategorie();return;}
   function renderNode(c,depth){const t=totOf(c.id);
     return '<div class="tnode d'+(depth+1)+'" style="padding-left:'+(depth*22)+'px">'+
       '<span class="tname" style="cursor:pointer" title="Voir les opérations" onclick="voirCategorie('+c.id+')">'+esc(c.libelle)+'</span>'+
-      '<span class="tcount">'+t+'</span>'+
+      '<span class="tcount">'+t+'</span>'+(t?' <span class="tsomme num '+clsSigne(sumOf(c.id))+'">'+eurSigne(sumOf(c.id))+'</span>':'')+
       ' <button class="ghost" style="padding:2px 8px;font-size:.75rem" onclick="modifierCategorie('+c.id+')">Renommer / fusionner</button>'+
       (t===0?' <button class="ghost" style="padding:2px 8px;font-size:.75rem" onclick="supprCategorie('+c.id+')">Supprimer</button>':'')+
       '</div>';}
@@ -1854,7 +1902,8 @@ function renderCategories(){
   document.getElementById('cat-tree').innerHTML=html;
 }
 
-/* Catégories sur téléphone : arbre qui se déplie (flèche), nombre d'opérations ; toucher le nom → ses opérations.
+/* Catégories sur téléphone : arbre qui se déplie (flèche), montant total et nombre d'opérations ;
+   toucher le nom → son analyse (par mois / par année), d'où l'on va à ses opérations.
    Pendant une recherche (ou « vides seulement »), tout ce qui correspond est déplié. */
 function lignesCategoriesMobile(kids,totOf,ouvertes,q,vides){
   const critere=c=>(!q||c.libelle.toLowerCase().includes(q))&&(!vides||totOf(c.id)===0);
@@ -1870,18 +1919,101 @@ function lignesCategoriesMobile(kids,totOf,ouvertes,q,vides){
   return out;
 }
 function basculerCategorie(id){const o=state.catOuvertes||(state.catOuvertes=new Set());if(o.has(id))o.delete(id);else o.add(id);renderCategories();}
-function renderCategoriesMobile(cats,kids,totOf){
+function renderCategoriesMobile(cats,kids,totOf,sumOf){
   const q=((document.getElementById('cat-search')||{}).value||'').trim().toLowerCase();
   const L=lignesCategoriesMobile(kids,totOf,state.catOuvertes||new Set(),q,!!state.catVides);
   const fleche=(o)=>'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="'+(o?'M6 9l6 6 6-6':'M9 6l6 6-6 6')+'"/></svg>';
   document.getElementById('m-categories').innerHTML=(L.length?'<div class="me-liste">'+L.map(l=>
     '<div class="mg-cat d'+l.depth+'" style="padding-left:'+(6+l.depth*22)+'px">'+
       (l.enfants?'<button class="ghost mg-icone" aria-expanded="'+l.ouverte+'" aria-label="'+(l.ouverte?'Replier ':'Déplier ')+esc(l.c.libelle)+'" onclick="basculerCategorie('+l.c.id+')">'+fleche(l.ouverte)+'</button>':'<span class="mg-icone"></span>')+
-      '<button class="mg-nom" onclick="voirCategorie('+l.c.id+')">'+esc(l.c.libelle)+'</button>'+
-      (l.n===0?'<button class="ghost mg-suppr" onclick="supprCategorie('+l.c.id+')">Supprimer</button>':'<span class="mg-nb">'+l.n+' op.</span>')+
+      '<button class="mg-nom" onclick="voirAnalyseCategorie('+l.c.id+')">'+esc(l.c.libelle)+'</button>'+
+      (l.n===0?'<button class="ghost mg-suppr" onclick="supprCategorie('+l.c.id+')">Supprimer</button>'
+        :'<span class="mg-nb"><b class="num '+clsSigne(sumOf(l.c.id))+'">'+eurSigne(sumOf(l.c.id))+'</b>'+l.n+' op.</span>')+
       '<button class="ghost mg-icone mg-plus" aria-label="Renommer ou fusionner '+esc(l.c.libelle)+'" onclick="modifierCategorie('+l.c.id+')">⋯</button></div>').join('')+'</div>'
     :'<div class="m-vide">'+(q||state.catVides?'Aucune catégorie ne correspond.':'Aucune catégorie pour l’instant.')+'</div>')+
-    '<p class="me-aide" style="margin-top:12px">Touche une catégorie pour voir ses opérations ; la flèche montre ses sous-catégories ; « ⋯ » pour la renommer ou la fusionner.</p>';
+    '<p class="me-aide" style="margin-top:12px">Touche une catégorie pour son analyse par mois ou par année, et ses opérations ; la flèche montre ses sous-catégories ; « ⋯ » pour la renommer ou la fusionner.</p>';
+}
+
+/* ---------- Analyse d'une catégorie (téléphone) ----------
+   Tous les comptes, opérations effectives (ni annulées, ni prévisionnelles), sous-catégories comprises.
+   Par mois : les 12 derniers mois ; par année : depuis la 1re opération (10 ans au plus). Toucher une barre
+   choisit la période : son total, la moyenne des périodes passées, ses sous-catégories et ses opérations. */
+const CA={pile:[],unite:'mois',sel:null};
+const eurSigne=c=>(c>0?'+':'')+eur(c);
+function cleCategorie(d,unite){return unite==='annee'?d.slice(0,4):d.slice(0,7);}
+// lignes [{id,d,m}] → [{cle,total (centimes, signé),n (opérations)}] de la plus ancienne à la plus récente
+function periodesCategorie(lignes,unite,auj){
+  const cles=[];
+  if(unite==='annee'){
+    const y0=lignes.reduce((y,l)=>Math.min(y,+l.d.slice(0,4)),auj.getFullYear());
+    for(let y=Math.max(y0,auj.getFullYear()-9);y<=auj.getFullYear();y++)cles.push(String(y));
+  }else for(let i=11;i>=0;i--)cles.push(periodeDecalee(clefMois(auj),-i));
+  const par=new Map(cles.map(k=>[k,{cle:k,total:0,ops:new Set()}]));
+  lignes.forEach(l=>{const e=par.get(cleCategorie(l.d,unite));if(e){e.total+=l.m;e.ops.add(l.id);}});
+  return cles.map(k=>{const e=par.get(k);return {cle:k,total:e.total,n:e.ops.size};});
+}
+// moyenne des périodes passées (la période en cours, commencée, n'y entre pas) ; null s'il n'y en a pas
+function moyenneCategorie(P){const p=P.slice(0,-1);return p.length?Math.round(p.reduce((t,x)=>t+x.total,0)/p.length):null;}
+function voirAnalyseCategorie(id){
+  CA.pile=[id];CA.sel=null;const el=document.getElementById('m-catana');
+  renderAnalyseCategorie();el.hidden=false;el.scrollTop=0;
+}
+function fermerAnalyseCategorie(){const el=document.getElementById('m-catana');if(el)el.hidden=true;CA.pile=[];}
+function caRetour(){CA.pile.pop();if(!CA.pile.length){fermerAnalyseCategorie();return;}renderAnalyseCategorie();document.getElementById('m-catana').scrollTop=0;}
+function caDescendre(id){CA.pile.push(id);renderAnalyseCategorie();document.getElementById('m-catana').scrollTop=0;}
+function caUnite(u){CA.unite=u;CA.sel=null;renderAnalyseCategorie();}
+function caPeriode(k){CA.sel=k;renderAnalyseCategorie();}
+function caOperations(){const id=CA.pile[CA.pile.length-1];fermerAnalyseCategorie();voirCategorie(id);}
+function renderAnalyseCategorie(){
+  const el=document.getElementById('m-catana'),id=CA.pile[CA.pile.length-1],auj=new Date();
+  const by={};qy('SELECT id,libelle,parent_id FROM categorie').forEach(c=>by[c.id]=c);
+  if(!by[id]){fermerAnalyseCategorie();return;} // renommée par fusion, supprimée…
+  const ids=descendantsCategorie(id);
+  const L=qy(`SELECT o.id,o.date_operation d,v.montant m,v.categorie_id c,t.nom ti,cp.nom compte FROM ventilation v
+    JOIN operation o ON o.id=v.operation_id LEFT JOIN tiers t ON t.id=o.tiers_id LEFT JOIN compte cp ON cp.id=o.compte_id
+    WHERE v.categorie_id IN (${ids.map(()=>'?').join(',')}) AND o.supprime=0 AND o.statut<>'annule' AND o.previsionnel=0
+    AND o.date_operation<=?`,[...ids,isoDe(auj)]);
+  const an=CA.unite==='annee',P=periodesCategorie(L,CA.unite,auj),cles=P.map(p=>p.cle);
+  const sel=cles.indexOf(CA.sel)>=0?CA.sel:cles[cles.length-1],p=P[cles.indexOf(sel)],moy=moyenneCategorie(P);
+  const LS=L.filter(l=>cleCategorie(l.d,CA.unite)===sel);
+  const totalTout=L.reduce((t,l)=>t+l.m,0),nTout=new Set(L.map(l=>l.id)).size;
+  const parents=cheminCategorie(id).split(' : ').slice(0,-1),fl=d=>icoPlus(d);
+  const nomPer=k=>an?k:majuscule(MOIS_FR[+k.slice(5)-1])+' '+k.slice(0,4);
+  let h='<div class="mf-tete"><button class="mf-retour" onclick="caRetour()" aria-label="Retour">'+fl('M15 6l-6 6 6 6')+'</button>'+
+    '<button class="mf-modifier" onclick="caOperations()">Voir les opérations</button></div>';
+  h+='<div class="ca-titre"><small>'+esc(parents.length?parents.join(' › '):'Catégorie')+'</small><h2>'+esc(by[id].libelle)+'</h2>'+
+    '<p>'+(nTout?'<b class="num '+clsSigne(totalTout)+'">'+eurSigne(totalTout)+'</b> · '+nTout+' opération'+(nTout>1?'s':'')+' en tout':'Aucune opération')+'</p></div>';
+  h+='<div class="ev-portee ca-unite" role="tablist" aria-label="Par mois ou par année">'+[['mois','Par mois'],['annee','Par année']].map(([k,t])=>
+    '<button role="tab" aria-selected="'+(CA.unite===k)+'" onclick="caUnite(\''+k+'\')">'+t+'</button>').join('')+'</div>';
+  const enCours=sel===cles[cles.length-1];
+  h+='<div class="ma-total"><div><small class="ca-per">'+nomPer(sel)+(enCours?' (en cours)':'')+'</small>'+
+    '<b class="num '+clsSigne(p.total)+'">'+eurSigne(p.total)+'</b></div>'+
+    '<span class="ca-moy">'+p.n+' op.'+(moy!=null?'<br>moyenne <b class="num">'+eurSigne(moy)+'</b> / '+(an?'an':'mois'):'')+'</span></div>';
+  // toucher une barre : le détail de cette période
+  const max=Math.max(1,...P.map(x=>Math.abs(x.total)));
+  h+='<div class="ma-barres ca-barres" style="grid-template-columns:repeat('+P.length+',minmax(0,1fr))">'+P.map(x=>
+    '<button'+(x.cle===sel?' class="actuel" aria-current="true"':'')+' onclick="caPeriode(\''+x.cle+'\')" aria-label="'+esc(nomPer(x.cle)+' : '+eurSigne(x.total))+'">'+
+    '<span style="height:'+Math.round(Math.abs(x.total)/max*100)+'%"></span><small>'+(an?(P.length>6?'’'+x.cle.slice(2):x.cle):MOIS_FR[+x.cle.slice(5)-1].charAt(0).toUpperCase())+'</small></button>').join('')+'</div>';
+  // sous-catégories de la période (au niveau juste en dessous)
+  const enfants=Object.values(by).filter(c=>c.parent_id===id);
+  if(enfants.length){
+    const enfantDe=c=>{let x=c;while(x!=null&&by[x]&&by[x].parent_id!==id)x=by[x].parent_id;return x;};
+    const g=new Map();LS.forEach(l=>{const k=l.c===id?0:enfantDe(l.c)||0,e=g.get(k)||{k,total:0,ops:new Set()};e.total+=l.m;e.ops.add(l.id);g.set(k,e);});
+    const gs=[...g.values()].sort((a,b)=>Math.abs(b.total)-Math.abs(a.total));
+    h+='<h3 class="ma-h">Sous-catégories</h3><div class="ma-liste">'+(gs.length?gs.map(e=>e.k?
+      '<button class="ma-ligne" onclick="caDescendre('+e.k+')"><span class="ma-nom">'+esc(by[e.k].libelle)+'<small>'+e.ops.size+' op.</small></span>'+
+        '<span class="num '+clsSigne(e.total)+'">'+eurSigne(e.total)+'</span>'+fl('M9 6l6 6-6 6')+'</button>'
+      :'<div class="ma-ligne"><span class="ma-nom">Sans sous-catégorie<small>'+e.ops.size+' op.</small></span><span class="num '+clsSigne(e.total)+'">'+eurSigne(e.total)+'</span></div>').join('')
+      :'<div class="m-vide">Rien sur cette période.</div>')+'</div>';
+  }
+  // opérations de la période (une ligne par opération, ses lignes de répartition additionnées)
+  const ops=new Map();LS.forEach(l=>{const o=ops.get(l.id)||{id:l.id,d:l.d,ti:l.ti,compte:l.compte,m:0};o.m+=l.m;ops.set(l.id,o);});
+  const lo=[...ops.values()].sort((a,b)=>b.d.localeCompare(a.d)||b.id-a.id);
+  h+='<h3 class="ma-h">Opérations ('+lo.length+')</h3><div class="ma-liste">'+(lo.length?lo.map(o=>'<button class="ma-ligne" onclick="ouvrirFiche('+o.id+')">'+
+    '<span class="ma-nom">'+esc(o.ti||'(sans destinataire)')+'<small>'+libJour(o.d,auj)+' · '+esc(o.compte||'')+'</small></span>'+
+    '<span class="num '+clsSigne(o.m)+'">'+eurSigne(o.m)+'</span></button>').join('')
+    :'<div class="m-vide">Aucune opération sur cette période.</div>')+'</div>';
+  el.innerHTML=h;
 }
 
 /* ============================================================
@@ -2597,10 +2729,11 @@ function suggestionsCategorie(niveau,valeurs,tape){
   const q=(tape||'').trim().toLowerCase();
   return catEnfants(parent).filter(x=>!q||x.toLowerCase().includes(q)).slice(0,40);
 }
-function majListeCategories(el){
-  const box=document.getElementById('cat-sugg');if(!box)return;
-  const niveau=+el.id.slice(-1),vals=[0,1,2].map(i=>document.getElementById('i-cat'+i).value.trim());
-  const items=suggestionsCategorie(niveau,vals,el.value);
+const idListeCategories=pfx=>({'i-cat':'cat-sugg','rc-c':'rc-sugg'})[pfx]||pfx+'-sugg';
+function majListeCategories(el,tout){
+  const pfx=el.id.slice(0,-1),box=document.getElementById(idListeCategories(pfx));if(!box)return;
+  const niveau=+el.id.slice(-1),vals=[0,1,2].map(i=>document.getElementById(pfx+i).value.trim());
+  const items=suggestionsCategorie(niveau,vals,tout?'':el.value);
   if(!items.length){box.hidden=true;return;}
   box.innerHTML=items.map(x=>'<button type="button" data-v="'+esc(x)+'">'+esc(x)+'</button>').join('');
   box.dataset.pour=el.id;box.hidden=false;
@@ -2608,20 +2741,23 @@ function majListeCategories(el){
   box.style.bottom=(carte.clientHeight-haut+4)+'px'; // le bas de la liste juste au-dessus du champ
   box.style.maxHeight=Math.max(120,Math.min(260,haut+carte.getBoundingClientRect().top-90))+'px';
 }
-function brancherListeCategories(){
-  const carte=document.querySelector('#cat-simple .row3');if(!carte||document.getElementById('cat-sugg'))return;
-  const box=document.createElement('div');box.id='cat-sugg';box.className='cat-sugg';box.hidden=true;carte.appendChild(box);
+/* pfx : 'i-cat' (opération) ou 'rc-c' (échéance) ; apres(niveau) : après un choix (sous-catégories à vider…) */
+function brancherListeCategories(pfx,carte,apres){
+  pfx=pfx||'i-cat';carte=carte||document.querySelector('#cat-simple .row3');apres=apres||(n=>catChangee(n));
+  const idBox=idListeCategories(pfx);
+  if(!carte||document.getElementById(idBox))return;
+  const box=document.createElement('div');box.id=idBox;box.className='cat-sugg';box.hidden=true;carte.appendChild(box);carte.classList.add('avec-sugg');
   box.addEventListener('pointerdown',e=>e.preventDefault()); // le champ garde le clavier
   box.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
-    const el=document.getElementById(box.dataset.pour);if(!el)return;
+    const el=document.getElementById(box.dataset.pour);if(!el)return;const n=+el.id.slice(-1);
     el.value=b.dataset.v;delete el.dataset.avant;if(el.dataset.indice!==undefined){el.placeholder=el.dataset.indice;delete el.dataset.indice;}
-    box.hidden=true;catChangee(+el.id.slice(-1));
-    const suivant=document.getElementById('i-cat'+(+el.id.slice(-1)+1));
-    if(suivant&&catEnfants([0,1,2].slice(0,+el.id.slice(-1)+1).map(i=>document.getElementById('i-cat'+i).value.trim()).join(' : ')).length)suivant.focus();
+    box.hidden=true;apres(n);
+    const suivant=document.getElementById(pfx+(n+1));
+    if(suivant&&catEnfants([0,1,2].slice(0,n+1).map(i=>document.getElementById(pfx+i).value.trim()).join(' : ')).length)suivant.focus();
     else el.blur();});
-  [0,1,2].forEach(i=>{const el=document.getElementById('i-cat'+i);
+  [0,1,2].forEach(i=>{const el=document.getElementById(pfx+i);if(!el)return;
     el.removeAttribute('list');
-    el.addEventListener('focus',()=>majListeCategories(el));
+    el.addEventListener('focus',()=>majListeCategories(el,pfx!=='i-cat'));
     el.addEventListener('input',()=>majListeCategories(el));
     el.addEventListener('blur',()=>setTimeout(()=>{if(document.activeElement!==el&&box.dataset.pour===el.id)box.hidden=true;},150));});
 }
@@ -3016,12 +3152,61 @@ async function dossierSauvegarde(){ // {nom, handle} ou null = Téléchargements
     const h=await idbGetKey('dossierSauvegarde');return h?{nom:h.name,handle:h}:null;
   }catch(e){return null;}
 }
+/* ---------- verrouillage de l'appli (Android) : empreinte, visage ou code du téléphone ----------
+   Réglage de l'appareil (REGLAGES.verrou, REGLAGES.verrouDelai en minutes). À l'ouverture de l'appli, et au
+   retour après verrouDelai minutes passées ailleurs, l'écran #verrou cache tout jusqu'à ce qu'Android confirme
+   l'identité (natif 'deverrouiller' : l'appli ne voit jamais l'empreinte ni le code). Pendant la fenêtre
+   d'Android, l'appli peut passer en arrière-plan (écran du code) : ce va-et-vient ne compte pas. */
+const DELAIS_VERROU=[[0,'Tout de suite'],[1,'Après 1 min'],[5,'Après 5 min'],[15,'Après 15 min']];
+let verrouCacheLe=null,verrouEnCours=false;
+// l'appli revient au premier plan : faut-il la verrouiller ? (cacheLe : quand elle est passée en arrière-plan)
+function doitVerrouiller(r,cacheLe,maintenant){return !!r.verrou&&cacheLe!=null&&maintenant-cacheLe>=r.verrouDelai*60000;}
+const estVerrouille=()=>!document.getElementById('verrou').hidden;
+function verrouiller(){
+  if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
+  document.getElementById('verrou-msg').textContent='';
+  document.getElementById('verrou').hidden=false;
+}
+async function confirmerIdentite(titre){ // true si Android confirme ; sinon le message d'Android
+  verrouEnCours=true;
+  try{const r=await natif('deverrouiller',{titre});return r&&r.ok?true:((r&&r.message)||'Non confirmé');}
+  catch(e){return (e&&e.message)||String(e);}
+  finally{verrouEnCours=false;verrouCacheLe=null;}
+}
+async function deverrouiller(){
+  if(verrouEnCours)return;
+  const r=await confirmerIdentite('Mes comptes');
+  if(r===true)document.getElementById('verrou').hidden=true;
+  else document.getElementById('verrou-msg').textContent=r;
+}
+function brancherVerrou(){
+  document.addEventListener('visibilitychange',()=>{
+    if(verrouEnCours||!REGLAGES.verrou)return;
+    if(document.hidden){if(!estVerrouille())verrouCacheLe=Date.now();return;}
+    if(doitVerrouiller(REGLAGES,verrouCacheLe,Date.now())){verrouiller();deverrouiller();}
+    verrouCacheLe=null;
+  });
+  if(estVerrouille())deverrouiller();
+}
+// activer ou couper le verrouillage : Android confirme d'abord l'identité
+async function basculerVerrou(cb){
+  const voulu=cb.checked;cb.checked=!voulu;
+  if(voulu){
+    let r={};try{r=await natif('verrouDisponible');}catch(e){}
+    if(!r||!r.ok){dlgAlert('Ce téléphone n’a pas de verrouillage d’écran (empreinte, visage, code ou schéma).\n\n'+
+      'Ajoute-en un dans les réglages d’Android (Sécurité), puis reviens ici.','Verrouillage');return;}
+  }
+  const ok=await confirmerIdentite(voulu?'Activer le verrouillage':'Désactiver le verrouillage');
+  if(ok!==true){toast('Verrouillage inchangé');return;}
+  changerReglage('verrou',voulu);toast(voulu?'L’appli se verrouillera avec ton empreinte ou ton code':'Verrouillage désactivé');
+}
 /* ---------- réglages d'affichage de cet appareil : thème, barres de recherche en haut / en bas, montants
    masqués à l'ouverture. Gardés dans le localStorage de l'appareil (jamais dans la base, qui part dans les
    sauvegardes). ---------- */
 function lireReglages(txt){
   let r={};try{r=JSON.parse(txt||'{}')||{};}catch(e){}
-  return {theme:['clair','sombre'].indexOf(r.theme)>=0?r.theme:'auto',recherche:r.recherche==='bas'?'bas':'haut',masquer:r.masquer===true};
+  return {theme:['clair','sombre'].indexOf(r.theme)>=0?r.theme:'auto',recherche:r.recherche==='bas'?'bas':'haut',masquer:r.masquer===true,
+    verrou:r.verrou===true,verrouDelai:DELAIS_VERROU.some(d=>d[0]===r.verrouDelai)?r.verrouDelai:5};
 }
 let REGLAGES=lireReglages(null);
 function chargerReglages(){try{REGLAGES=lireReglages(localStorage.getItem('mc.reglages'));}catch(e){}}
@@ -3032,8 +3217,15 @@ function appliquerReglages(ouverture){
   document.body.classList.toggle('masquer-montants',r.masquer);
   if(ouverture||!r.masquer)document.body.classList.toggle('montants-masques',r.masquer);
   majOeil();
-  // appli : icônes de la barre d'état d'Android lisibles sur le fond choisi
-  if(enAppli())Capacitor.nativePromise('SystemBars','setStyle',{style:r.theme==='sombre'?'DARK':r.theme==='clair'?'LIGHT':'DEFAULT'}).catch(()=>{});
+  if(enAppli())majBarresAppli();
+}
+/* appli : fond derrière les barres d'Android et couleur de leurs icônes, selon le thème de l'app (pas celui du
+   téléphone : l'app en sombre sur un téléphone en clair, sinon, avait des icônes claires sur fond clair) */
+const themeSombre=r=>r.theme==='sombre'||(r.theme==='auto'&&!!(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches));
+function majBarresAppli(){
+  const sombre=themeSombre(REGLAGES);
+  Capacitor.nativePromise('SystemBars','setStyle',{style:sombre?'DARK':'LIGHT'}).catch(()=>{});
+  natif('fondBarres',{sombre}).catch(()=>{});
 }
 function changerReglage(cle,val){
   REGLAGES=Object.assign({},REGLAGES,{[cle]:val});
@@ -3051,6 +3243,12 @@ async function renderReglages(){
   const resume=(id,t)=>{document.getElementById(id+'-resume').textContent=t;};
   resume('rg-affichage',{auto:'Automatique',clair:'Clair',sombre:'Sombre'}[REGLAGES.theme]+(REGLAGES.masquer?' · montants masqués':''));
   resume('rg-barres',REGLAGES.recherche==='bas'?'En bas':'En haut');
+  // verrouillage : seulement dans l'appli Android
+  document.getElementById('rg-verrou').hidden=!enAppli();
+  document.getElementById('rg-verrou-on').checked=REGLAGES.verrou;
+  document.getElementById('rg-verrou-delai-bloc').hidden=!REGLAGES.verrou;
+  document.querySelectorAll('#rg-verrou-delai button').forEach(b=>b.setAttribute('aria-checked',String(+b.dataset.v===REGLAGES.verrouDelai)));
+  resume('rg-verrou',REGLAGES.verrou?'Empreinte ou code · '+DELAIS_VERROU.find(d=>d[0]===REGLAGES.verrouDelai)[1].toLowerCase():'Désactivé');
   document.getElementById('rg-version').textContent='Mes comptes · version '+VERSION;
   const d=await dossierSauvegarde(),possible=choixDossierPossible();
   resume('rg-sauvegarde',d?d.nom:'Téléchargements');
@@ -3424,12 +3622,16 @@ async function demanderDate(titre,defISO){
    on supprime les échéances encore intactes (non pointées, non modifiées, non rapprochées),
    on repositionne la prochaine échéance sur la date de début, puis on régénère.
    Les opérations déjà pointées/rapprochées/ventilées à la main sont conservées. */
+/* échéance modifiée : seules les échéances d'aujourd'hui et à venir sont refaites. Le passé reste tel quel, même
+   non pointé : sinon une échéance passée supprimée ou déplacée à une autre date revenait (« 1er septembre » créé
+   en octobre). */
+function prochaineDepuis(r,auj){let d=r.date_debut,g=0;while(d&&d<auj&&g<2000){d=avancerDate(d,r.frequence,r.jour,r.intervalle);g++;}return d;}
 function regenererRecurrence(id){
-  run(`DELETE FROM ventilation WHERE operation_id IN
-       (SELECT id FROM operation WHERE recurrence_id=? AND statut='non_pointe' AND supprime=0 AND date_modification IS NULL)`,[id]);
-  run("DELETE FROM operation WHERE recurrence_id=? AND statut='non_pointe' AND supprime=0 AND date_modification IS NULL",[id]);
-  const r=qy('SELECT date_debut FROM recurrence WHERE id=?',[id])[0];
-  if(r)run('UPDATE recurrence SET prochaine=? WHERE id=?',[r.date_debut,id]);
+  const auj=todayISO(),w="recurrence_id=? AND statut='non_pointe' AND supprime=0 AND date_modification IS NULL AND date_operation>=?";
+  run('DELETE FROM ventilation WHERE operation_id IN (SELECT id FROM operation WHERE '+w+')',[id,auj]);
+  run('DELETE FROM operation WHERE '+w,[id,auj]);
+  const r=qy('SELECT * FROM recurrence WHERE id=?',[id])[0];
+  if(r)run('UPDATE recurrence SET prochaine=? WHERE id=?',[prochaineDepuis(r,auj),id]);
   return genererRecurrences();
 }
 function recSort(col){
@@ -3610,22 +3812,22 @@ async function editRec(id){
     '</div>'+
     '<datalist id="rc-l0">'+dl(0)+'</datalist><datalist id="rc-l1">'+dl(1)+'</datalist><datalist id="rc-l2">'+dl(2)+'</datalist>'+
     '<div class="row3">'+
-      '<div class="field"><label>Montant (\u20ac)</label><input id="rc-m" inputmode="decimal" value="'+esc(mt)+'" oninput="if(document.getElementById(&#39;rc-vent&#39;).checked)rcVentTotal()"></div>'+
-      '<div class="field"><label id="rc-cpt-lbl">Compte</label><select id="rc-cpt">'+optC+'</select></div>'+
+      '<div class="field rc-f-montant"><label for="rc-m">Montant (\u20ac)</label><input id="rc-m" inputmode="decimal" value="'+esc(mt)+'" oninput="if(document.getElementById(&#39;rc-vent&#39;).checked)rcVentTotal()"></div>'+
+      '<div class="field rc-f-compte"><label id="rc-cpt-lbl">Compte</label><select id="rc-cpt">'+optC+'</select></div>'+
       '<div class="field" id="rc-vir-field" style="display:none"><label>Compte de destination</label><select id="rc-vircompte">'+optVir+'</select></div>'+
     '</div>'+
     '<div class="row2">'+
-      '<div class="field"><label>Fr\u00e9quence</label><select id="rc-f" onchange="rcFreqMaj()">'+optF+'</select></div>'+
+      '<div class="field rc-f-freq"><label>Fr\u00e9quence</label><select id="rc-f" onchange="rcFreqMaj()">'+optF+'</select></div>'+
       '<div class="field" id="rc-perso" style="'+(estPerso?'':'display:none')+'"><label>Tous les\u2026</label>'+
         '<div style="display:flex;gap:6px"><input id="rc-iv" inputmode="numeric" style="width:70px" value="'+(estPerso?(r.intervalle||1):'1')+'">'+
         '<select id="rc-u" style="flex:1">'+optU+'</select></div></div>'+
     '</div>'+
     '<div class="row3">'+
-      '<div class="field"><label>Premi\u00e8re \u00e9ch\u00e9ance</label><input id="rc-d" class="date datef" inputmode="numeric" maxlength="8" placeholder="JJ/MM/AA" value="'+(r?isoToShort(r.date_debut):isoToShort(todayISO()))+'" oninput="maskDate(this)" onblur="fixDate(this)"></div>'+
-      '<div class="field"><label>Fin (facultatif)</label><input id="rc-fin" class="date datef" inputmode="numeric" maxlength="8" placeholder="JJ/MM/AA" value="'+(r&&r.date_fin?isoToShort(r.date_fin):'')+'" oninput="maskDate(this)" onblur="fixDate(this)"></div>'+
-      '<div class="field"><label>Commentaire</label><input id="rc-com" value="'+esc(r&&r.commentaire?r.commentaire:'')+'"></div>'+
+      '<div class="field rc-f-debut"><label>Premi\u00e8re \u00e9ch\u00e9ance</label><input id="rc-d" class="date datef" inputmode="numeric" maxlength="8" placeholder="JJ/MM/AA" value="'+(r?isoToShort(r.date_debut):isoToShort(todayISO()))+'" oninput="maskDate(this)" onblur="fixDate(this)"></div>'+
+      '<div class="field rc-f-fin"><label>Fin (facultatif)</label><input id="rc-fin" class="date datef" inputmode="numeric" maxlength="8" placeholder="JJ/MM/AA" value="'+(r&&r.date_fin?isoToShort(r.date_fin):'')+'" oninput="maskDate(this)" onblur="fixDate(this)"></div>'+
+      '<div class="field rc-f-com"><label>Commentaire</label><input id="rc-com" value="'+esc(r&&r.commentaire?r.commentaire:'')+'"></div>'+
     '</div>'+
-    '<div style="font-size:.8rem;color:var(--ink-3)">Les \u00e9ch\u00e9ances pass\u00e9es sont g\u00e9n\u00e9r\u00e9es automatiquement jusqu\u2019\u00e0 aujourd\u2019hui (en non point\u00e9). La prochaine \u00e9ch\u00e9ance \u00e0 venir est affich\u00e9e d\u2019avance en <b>pr\u00e9visionnel</b>.</div>';
+    '<div class="rc-note" style="font-size:.8rem;color:var(--ink-3)">Les \u00e9ch\u00e9ances pass\u00e9es sont g\u00e9n\u00e9r\u00e9es automatiquement jusqu\u2019\u00e0 aujourd\u2019hui (en non point\u00e9). La prochaine \u00e9ch\u00e9ance \u00e0 venir est affich\u00e9e d\u2019avance en <b>pr\u00e9visionnel</b>.</div>';
   let data=null;
   const ok=await dlgOpen({title:id?'Modifier l’opération récurrente':'Nouvelle opération récurrente',msg:'',html,wide:true,
     buttons:[{t:'Annuler',v:false},{t:'Enregistrer',v:true,p:true,before:()=>{
@@ -3671,6 +3873,9 @@ async function editRec(id){
         creer_en:'previsionnel',ventil:ventil?JSON.stringify(ventil):null,compte_cible:null};
     }}],
     onOpen:()=>{majSousCatsRec();rcFreqMaj();rcSensMaj();
+      if(document.body.classList.contains('mobile')){ // téléphone : même liste de catégories que la saisie d'une opération
+        brancherListeCategories('rc-c',document.querySelector('#rc-cat-simple .row3'),()=>majSousCatsRec());
+        document.querySelector('#dlgBack .dlg').scrollTop=0;}
       state.rcVent=null;const vv=document.getElementById('rc-vent');if(vv)vv.checked=false;
       const cs=document.getElementById('rc-cat-simple'),vb=document.getElementById('rc-vent-box');
       if(cs)cs.style.display='';if(vb)vb.style.display='none';
@@ -3679,7 +3884,9 @@ async function editRec(id){
         state.rcVent=arr.map(l=>{const meme=(l.montant===0)||(Math.sign(l.montant)===opSign);return {cat:l.cat||'',m:(meme?'':'-')+fmt.format(Math.abs(l.montant)/100)};});
         if(vv)vv.checked=true;rcVentToggle(true);
       }}catch(e){}}
-      const vir=document.getElementById('rc-s').value==='virement';const foc=document.getElementById(vir?'rc-m':'rc-t');if(foc)foc.focus();}});
+      // nouvelle échéance sur téléphone : directement dans le montant (le clavier des chiffres s'ouvre)
+      const vir=document.getElementById('rc-s').value==='virement',mob=document.body.classList.contains('mobile');
+      const foc=document.getElementById(vir||(mob&&!id)?'rc-m':'rc-t');if(foc&&(!ecranTactile()||!id))foc.focus();}});
   if(!ok||!data)return;
   if(id){
     run(`UPDATE recurrence SET compte_id=?,type=?,montant=?,tiers=?,cat_path=?,commentaire=?,

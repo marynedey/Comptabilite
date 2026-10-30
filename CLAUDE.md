@@ -15,7 +15,11 @@ App web de comptes personnels, en français, hors ligne. Publiée sur https://ma
 - Appli Android : `mobile/` (Capacitor 8). L'APK contient l'app web (copiée par `mobile/preparer.mjs`, sans
   `sw.js`) ; `js/app.js` détecte l'appli (`enAppli()`) : pas de service worker, sauvegarde par le module natif
   `MesComptes` (Téléchargements), mise à jour proposée d'après `android/version.json` publié avec le site.
-  Module natif limité (nom de sauvegarde et adresse de mise à jour vérifiés) : ne pas l'élargir sans en parler.
+  Module natif limité (nom de sauvegarde et adresse de mise à jour vérifiés, plus `verrouDisponible` / `deverrouiller` :
+  fenêtre d'Android empreinte, visage ou code, androidx.biometric ; `fondBarres` : fond clair / sombre derrière les
+  barres d'Android selon le thème de l'app, `majBarresAppli`) : ne pas l'élargir sans en parler.
+  Verrouillage (`REGLAGES.verrou`, `verrouDelai` en min) : écran `#verrou` à l'ouverture et au retour après le délai
+  (`doitVerrouiller`) ; le va-et-vient pendant la fenêtre d'Android ne compte pas (`verrouEnCours`). Rien sur PC.
   APK construit par le job « Appli Android » ; signé avec les secrets `ANDROID_CLE`, `ANDROID_CLE_MOT_DE_PASSE`.
   Le SDK Android n'est pas téléchargeable dans une session cloud (dl.google.com bloqué) : construire via Actions.
 - Réglages de l’appareil (vue `reglages`, rubriques repliables `<details>` : titre + résumé d’une ligne + flèche) : jamais dans la table `meta` (elle part dans les sauvegardes).
@@ -30,6 +34,11 @@ App web de comptes personnels, en français, hors ligne. Publiée sur https://ma
   720 px max). L'appli dessine sous la barre d'état d'Android (`viewport-fit=cover`) : tout élément fixé en haut
   ajoute `env(safe-area-inset-top)`. Retour (Android ou navigateur) ferme d'abord fenêtre / feuille ouverte (`fermerFeuilles`,
   aussi sur `popstate`). Feuille ou fenêtre ouverte : `main` ne défile plus derrière.
+- Opération rapprochée : seul son montant total est figé (`saveOp` le vérifie) ; catégories, ventilation (même total),
+  destinataire, date, commentaire restent modifiables, depuis la fiche comme depuis le formulaire.
+- Catégories sur téléphone : montant total (opérations effectives, tous comptes) et nombre d'opérations ; toucher une
+  catégorie ouvre `#m-catana` (`renderAnalyseCategorie`, état `CA`) : par mois (12 derniers) ou par année, sous-catégories,
+  opérations. Il est sous la fenêtre de saisie et la fiche (z-index), qui s'ouvrent par-dessus.
 - Tiers et catégories se renomment ou se fusionnent (`renommerTiersDb`, `fusionnerTiersDb`, `renommerCategorieDb`,
   `fusionnerCategoriesDb`) : `cat_path`, `hay` des opérations et échéances suivent ; jamais plus de 3 niveaux.
 - Réglages d'affichage (`REGLAGES` : thème auto/clair/sombre, barres de recherche en haut/bas, montants masqués à

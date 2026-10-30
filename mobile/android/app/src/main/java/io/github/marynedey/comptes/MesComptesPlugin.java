@@ -8,6 +8,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.UriPermission;
 import android.database.Cursor;
+import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.Environment;
 import android.provider.DocumentsContract;
@@ -15,7 +16,11 @@ import android.provider.MediaStore;
 import android.provider.Settings;
 import android.util.Base64;
 import androidx.activity.result.ActivityResult;
+import androidx.biometric.BiometricManager;
+import androidx.biometric.BiometricPrompt;
+import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
+import androidx.fragment.app.FragmentActivity;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -33,7 +38,9 @@ import java.util.regex.Pattern;
 /**
  * Fonctions natives de l'appli, appelées par js/app.js (Capacitor.nativePromise('MesComptes', …)).
  * Volontairement limitées : écrire une sauvegarde dans Téléchargements ou dans le dossier choisi par
- * la personne (fenêtre d'Android), installer une mise à jour venue du site de l'app. Le JavaScript ne
+ * la personne (fenêtre d'Android), installer une mise à jour venue du site de l'app, demander à Android
+ * de confirmer l'identité (empreinte, visage ou code du téléphone) pour le verrouillage, choisir le fond clair
+ * ou sombre derrière les barres d'Android (celui du thème choisi dans l'app). Le JavaScript ne
  * peut ni lister, ni lire, ni supprimer de fichier, ni écrire ailleurs.
  */
 @CapacitorPlugin(name = "MesComptes")
@@ -43,6 +50,9 @@ public class MesComptesPlugin extends Plugin {
     static final Pattern NOM_SAUVEGARDE = Pattern.compile("comptes_\\d{4}-\\d{2}-\\d{2}_\\d{2}h\\d{2}m\\d{2}s?\\.sqlite");
     /** Les mises à jour ne viennent que du site de l'app. */
     static final Pattern ADRESSE_MAJ = Pattern.compile("https://marynedey\\.github\\.io/Comptabilite/android/[A-Za-z0-9._-]+\\.apk");
+
+    /** Verrouillage : empreinte ou visage, ou à défaut le code / schéma du téléphone (valable dès Android 10). */
+    static final int AUTORISES = BiometricManager.Authenticators.BIOMETRIC_WEAK | BiometricManager.Authenticators.DEVICE_CREDENTIAL;
 
     /** Réglage de cet appareil : dossier choisi pour les sauvegardes (adresse donnée par Android). */
     private SharedPreferences reglages() {
@@ -186,6 +196,68 @@ public class MesComptesPlugin extends Plugin {
                 if (uri != null) cr.delete(uri, null, null);
                 call.reject("Échec de l'écriture : " + e.getMessage());
             }
+        });
+    }
+
+    /**
+     * Fond derrière la barre d'état et la barre de navigation : celui du thème choisi dans l'app (variable paper
+     * de css/app.css), même si le téléphone est dans l'autre mode. Sans lui, l'app en sombre sur un téléphone en
+     * clair montrait des icônes claires sur le fond clair de la fenêtre (illisibles).
+     */
+    @PluginMethod
+    public void fondBarres(PluginCall call) {
+        final int couleur = call.getBoolean("sombre", false) ? 0xFF14171A : 0xFFF6F7F4;
+        getActivity().runOnUiThread(() -> {
+            getActivity().getWindow().setBackgroundDrawable(new ColorDrawable(couleur));
+            call.resolve();
+        });
+    }
+
+    /** Le téléphone a-t-il un verrouillage d'écran (empreinte, visage, code, schéma) pour confirmer l'identité ? */
+    @PluginMethod
+    public void verrouDisponible(PluginCall call) {
+        JSObject r = new JSObject();
+        r.put("ok", BiometricManager.from(getContext()).canAuthenticate(AUTORISES) == BiometricManager.BIOMETRIC_SUCCESS);
+        call.resolve(r);
+    }
+
+    /**
+     * Fenêtre d'Android qui demande l'empreinte, le visage ou le code du téléphone.
+     * Résultat : { ok: true } si l'identité est confirmée ; sinon { ok: false, message } (annulé, trop d'essais…).
+     * L'appli ne voit jamais l'empreinte ni le code : seul Android les vérifie.
+     */
+    @PluginMethod
+    public void deverrouiller(PluginCall call) {
+        String titre = call.getString("titre", "Mes comptes");
+        if (titre == null || titre.isEmpty() || titre.length() > 60) titre = "Mes comptes";
+        final String t = titre;
+        FragmentActivity activite = getActivity();
+        activite.runOnUiThread(() -> {
+            BiometricPrompt.PromptInfo info = new BiometricPrompt.PromptInfo.Builder()
+                    .setTitle(t)
+                    .setSubtitle("Empreinte, visage ou code du téléphone")
+                    .setAllowedAuthenticators(AUTORISES)
+                    .build();
+            BiometricPrompt fenetre = new BiometricPrompt(activite, ContextCompat.getMainExecutor(getContext()),
+                    new BiometricPrompt.AuthenticationCallback() {
+                        @Override
+                        public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult resultat) {
+                            JSObject r = new JSObject();
+                            r.put("ok", true);
+                            call.resolve(r);
+                        }
+
+                        @Override
+                        public void onAuthenticationError(int code, CharSequence message) {
+                            JSObject r = new JSObject();
+                            r.put("ok", false);
+                            r.put("code", code);
+                            r.put("message", message != null ? message.toString() : "");
+                            call.resolve(r);
+                        }
+                        // onAuthenticationFailed : un essai raté, la fenêtre reste ouverte pour réessayer
+                    });
+            fenetre.authenticate(info);
         });
     }
 
