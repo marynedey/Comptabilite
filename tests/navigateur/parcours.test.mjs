@@ -407,8 +407,15 @@ test('téléphone : écran Plus — sauvegarde en attente, sauvegarder, outils',
     assert.match(telechargement.suggestedFilename(), /^comptes_.*\.sqlite$/);
     await page.locator('#plus-sauvegarde:has-text("Tout est sauvegardé")').waitFor();
     assert.equal(await page.isVisible('#m-point'), false);
-    for (const nom of ['Pointer avec un relevé PDF', 'Importer un fichier QIF', 'Tiers', 'Corbeille', 'Charger une sauvegarde', 'Réglages', 'Annuler la dernière modification'])
+    for (const nom of ['Pointer avec un relevé PDF', 'Importer un fichier QIF', 'Tiers', 'Corbeille', 'Réglages', 'Annuler la dernière modification'])
       assert.equal(await page.isVisible(`#plus-groupes button:has-text("${nom}")`), true, nom);
+    assert.deepEqual(await page.locator('#plus-groupes .m-groupe-h').allTextContents(), ['Pointer et importer', 'Organiser', 'Revenir en arrière', 'Appli']);
+    // charger une sauvegarde : l'icône à côté de « Sauvegarder », en haut
+    assert.equal(await page.locator('#plus-groupes button:has-text("Charger une sauvegarde")').count(), 0);
+    const charger = await page.locator('#m-charger').boundingBox(), sauver = await page.locator('#m-sauver').boundingBox();
+    assert.ok(Math.abs(charger.y - sauver.y) < 2 && charger.x < sauver.x, 'à gauche de Sauvegarder');
+    const [choix] = await Promise.all([page.waitForEvent('filechooser'), page.click('#m-charger')]);
+    assert.equal(await choix.element().evaluate(e => e.id), 'fileDb');
     assert.match(await page.textContent('#plus-version'), new RegExp(VERSION.replaceAll('.', '\\.')));
     assert.deepEqual(page.erreurs, []);
   } finally { await navigateur.close(); }
