@@ -1154,6 +1154,9 @@ test('téléphone, gestion : tiers (tri, toucher → opérations), catégories (
     await page.evaluate(() => { run("UPDATE operation SET supprime=1,date_suppression='2026-10-22 10:00:00' WHERE tiers_id IN (SELECT id FROM tiers WHERE nom IN ('Pharmacie','Boulangerie'))"); setView('corbeille'); });
     const b = page.locator('#m-corbeille');
     assert.equal(await b.locator('.mg-ligne').count(), 2);
+    // Restaurer et la poubelle l'un sous l'autre
+    const rb = await b.locator('.mg-ligne').first().locator('.mg-restaurer').boundingBox(), pb = await b.locator('.mg-ligne').first().locator('.mg-icone').boundingBox();
+    assert.ok(pb.y >= rb.y + rb.height - 1 && Math.abs((pb.x + pb.width / 2) - (rb.x + rb.width / 2)) < 2, 'l\'un sous l\'autre');
     await b.locator('.mg-ligne', { hasText: 'Pharmacie' }).locator('.mg-restaurer').click();
     assert.equal(await b.locator('.mg-ligne').count(), 1);
     await b.locator('button:has-text("Vider la corbeille")').click();

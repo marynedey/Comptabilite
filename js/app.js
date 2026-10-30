@@ -1627,8 +1627,9 @@ function renderCorbeille(){
       (rows.length?'<div class="me-liste">'+rows.map(o=>'<div class="mg-ligne">'+
         '<span class="me-nom">'+esc(o.dest||'(sans destinataire)')+'<small>Supprimée le '+jour((o.ds||'').slice(0,10))+' · '+esc(o.cpt||'')+' · opération du '+isoToFr(o.d)+'</small></span>'+
         '<span class="num" style="color:'+(o.m<0?'var(--ink)':'var(--credit)')+'">'+eur(o.m)+'</span>'+
-        '<button class="mg-restaurer" onclick="restaurer('+o.id+')">Restaurer</button>'+
-        '<button class="ghost mg-icone" aria-label="Supprimer définitivement" onclick="supprDef('+o.id+')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button></div>').join('')+'</div>'+
+        // Restaurer et la poubelle l'un sous l'autre : la colonne du nom garde de la place
+        '<span class="mg-actions"><button class="mg-restaurer" onclick="restaurer('+o.id+')">Restaurer</button>'+
+        '<button class="ghost mg-icone" aria-label="Supprimer définitivement" onclick="supprDef('+o.id+')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button></span></div>').join('')+'</div>'+
         '<div class="mg-pied"><button class="danger" onclick="viderCorbeille()">Vider la corbeille</button></div>'
       :'<div class="m-vide">La corbeille est vide.</div>');
     return;
