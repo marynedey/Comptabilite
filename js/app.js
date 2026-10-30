@@ -148,10 +148,12 @@ async function demarrerAppli(){
   // ne s'ouvrirait pas. Chaque import vérifie de toute façon le contenu du fichier.
   ['fileDb','fileQif','fileAmex'].forEach(id=>{const i=document.getElementById(id);if(i)i.removeAttribute('accept');});
   Capacitor.nativeCallback('App','addListener',{eventName:'backButton'},d=>{
+    if(estVerrouille()){Capacitor.nativePromise('App','minimizeApp').catch(()=>{});return;} // verrouillée : Retour la met de côté
     if(dlgResolve){dlgClose(false);return;}         // une fenêtre ouverte : Retour la ferme
     if(fermerFeuilles())return;                     // filtres, liste des comptes, fiche d'une opération
     if(d&&d.canGoBack)history.back();else demanderQuitter();});
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)verifierMajAppli();});
+  brancherVerrou();
   verifierMajAppli();
   if(!scal('SELECT COUNT(*) FROM operation WHERE supprime=0')){
     const v=await dlgOpen({title:'Bienvenue dans l’appli',msg:'L’appli a son propre stockage : tes comptes enregistrés dans Chrome n’y sont pas encore.\n\n'+
@@ -490,7 +492,7 @@ function renderPlus(){
       e?it('Annuler la dernière modification',esc('n°'+e.jid+' '+e.label),'annulerDerniere()','M9 14L4 9l5-5M4 9h10a6 6 0 010 12h-3'):'',
       it('Corbeille',nb('SELECT COUNT(*) FROM operation WHERE supprime=1','opération'),"setView('corbeille')",'M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13')]],
     ['Appli',[
-      it('Réglages','Thème, recherche, dossier de sauvegarde…',"setView('reglages')",'M12 15a3 3 0 100-6 3 3 0 000 6zM19 12h2M3 12h2M12 3v2M12 19v2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4')]],
+      it('Réglages',enAppli()?'Verrouillage, thème, dossier de sauvegarde…':'Thème, recherche, dossier de sauvegarde…',"setView('reglages')",'M12 15a3 3 0 100-6 3 3 0 000 6zM19 12h2M3 12h2M12 3v2M12 19v2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4')]],
   ];
   document.getElementById('plus-groupes').innerHTML=groupes.map(([h,l])=>'<h2 class="m-groupe-h">'+h+'</h2><div class="m-liste">'+l.join('')+'</div>').join('');
   document.getElementById('plus-version').textContent='Mes comptes · version '+VERSION;
@@ -922,6 +924,7 @@ function repondreAuSigne(){ // fenêtre active : se mettre au premier plan si le
 }
 async function boot(){
   chargerReglages();appliquerReglages(true);
+  if(enAppli()&&REGLAGES.verrou)verrouiller(); // rien ne s'affiche avant l'empreinte ou le code
   if(estTelephone()){
     document.body.classList.add('mobile');
     // la recherche des opérations est directement dans l'écran (pas dans la feuille des filtres)
@@ -3114,12 +3117,61 @@ async function dossierSauvegarde(){ // {nom, handle} ou null = Téléchargements
     const h=await idbGetKey('dossierSauvegarde');return h?{nom:h.name,handle:h}:null;
   }catch(e){return null;}
 }
+/* ---------- verrouillage de l'appli (Android) : empreinte, visage ou code du téléphone ----------
+   Réglage de l'appareil (REGLAGES.verrou, REGLAGES.verrouDelai en minutes). À l'ouverture de l'appli, et au
+   retour après verrouDelai minutes passées ailleurs, l'écran #verrou cache tout jusqu'à ce qu'Android confirme
+   l'identité (natif 'deverrouiller' : l'appli ne voit jamais l'empreinte ni le code). Pendant la fenêtre
+   d'Android, l'appli peut passer en arrière-plan (écran du code) : ce va-et-vient ne compte pas. */
+const DELAIS_VERROU=[[0,'Tout de suite'],[1,'Après 1 min'],[5,'Après 5 min'],[15,'Après 15 min']];
+let verrouCacheLe=null,verrouEnCours=false;
+// l'appli revient au premier plan : faut-il la verrouiller ? (cacheLe : quand elle est passée en arrière-plan)
+function doitVerrouiller(r,cacheLe,maintenant){return !!r.verrou&&cacheLe!=null&&maintenant-cacheLe>=r.verrouDelai*60000;}
+const estVerrouille=()=>!document.getElementById('verrou').hidden;
+function verrouiller(){
+  if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
+  document.getElementById('verrou-msg').textContent='';
+  document.getElementById('verrou').hidden=false;
+}
+async function confirmerIdentite(titre){ // true si Android confirme ; sinon le message d'Android
+  verrouEnCours=true;
+  try{const r=await natif('deverrouiller',{titre});return r&&r.ok?true:((r&&r.message)||'Non confirmé');}
+  catch(e){return (e&&e.message)||String(e);}
+  finally{verrouEnCours=false;verrouCacheLe=null;}
+}
+async function deverrouiller(){
+  if(verrouEnCours)return;
+  const r=await confirmerIdentite('Mes comptes');
+  if(r===true)document.getElementById('verrou').hidden=true;
+  else document.getElementById('verrou-msg').textContent=r;
+}
+function brancherVerrou(){
+  document.addEventListener('visibilitychange',()=>{
+    if(verrouEnCours||!REGLAGES.verrou)return;
+    if(document.hidden){if(!estVerrouille())verrouCacheLe=Date.now();return;}
+    if(doitVerrouiller(REGLAGES,verrouCacheLe,Date.now())){verrouiller();deverrouiller();}
+    verrouCacheLe=null;
+  });
+  if(estVerrouille())deverrouiller();
+}
+// activer ou couper le verrouillage : Android confirme d'abord l'identité
+async function basculerVerrou(cb){
+  const voulu=cb.checked;cb.checked=!voulu;
+  if(voulu){
+    let r={};try{r=await natif('verrouDisponible');}catch(e){}
+    if(!r||!r.ok){dlgAlert('Ce téléphone n’a pas de verrouillage d’écran (empreinte, visage, code ou schéma).\n\n'+
+      'Ajoute-en un dans les réglages d’Android (Sécurité), puis reviens ici.','Verrouillage');return;}
+  }
+  const ok=await confirmerIdentite(voulu?'Activer le verrouillage':'Désactiver le verrouillage');
+  if(ok!==true){toast('Verrouillage inchangé');return;}
+  changerReglage('verrou',voulu);toast(voulu?'L’appli se verrouillera avec ton empreinte ou ton code':'Verrouillage désactivé');
+}
 /* ---------- réglages d'affichage de cet appareil : thème, barres de recherche en haut / en bas, montants
    masqués à l'ouverture. Gardés dans le localStorage de l'appareil (jamais dans la base, qui part dans les
    sauvegardes). ---------- */
 function lireReglages(txt){
   let r={};try{r=JSON.parse(txt||'{}')||{};}catch(e){}
-  return {theme:['clair','sombre'].indexOf(r.theme)>=0?r.theme:'auto',recherche:r.recherche==='bas'?'bas':'haut',masquer:r.masquer===true};
+  return {theme:['clair','sombre'].indexOf(r.theme)>=0?r.theme:'auto',recherche:r.recherche==='bas'?'bas':'haut',masquer:r.masquer===true,
+    verrou:r.verrou===true,verrouDelai:DELAIS_VERROU.some(d=>d[0]===r.verrouDelai)?r.verrouDelai:5};
 }
 let REGLAGES=lireReglages(null);
 function chargerReglages(){try{REGLAGES=lireReglages(localStorage.getItem('mc.reglages'));}catch(e){}}
@@ -3149,6 +3201,12 @@ async function renderReglages(){
   const resume=(id,t)=>{document.getElementById(id+'-resume').textContent=t;};
   resume('rg-affichage',{auto:'Automatique',clair:'Clair',sombre:'Sombre'}[REGLAGES.theme]+(REGLAGES.masquer?' · montants masqués':''));
   resume('rg-barres',REGLAGES.recherche==='bas'?'En bas':'En haut');
+  // verrouillage : seulement dans l'appli Android
+  document.getElementById('rg-verrou').hidden=!enAppli();
+  document.getElementById('rg-verrou-on').checked=REGLAGES.verrou;
+  document.getElementById('rg-verrou-delai-bloc').hidden=!REGLAGES.verrou;
+  document.querySelectorAll('#rg-verrou-delai button').forEach(b=>b.setAttribute('aria-checked',String(+b.dataset.v===REGLAGES.verrouDelai)));
+  resume('rg-verrou',REGLAGES.verrou?'Empreinte ou code · '+DELAIS_VERROU.find(d=>d[0]===REGLAGES.verrouDelai)[1].toLowerCase():'Désactivé');
   document.getElementById('rg-version').textContent='Mes comptes · version '+VERSION;
   const d=await dossierSauvegarde(),possible=choixDossierPossible();
   resume('rg-sauvegarde',d?d.nom:'Téléchargements');

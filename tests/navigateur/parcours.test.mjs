@@ -254,6 +254,76 @@ test('appli Android : bienvenue, pas de service worker, sauvegarde native, mise 
   } finally { await navigateur.close(); }
 });
 
+test('appli Android : verrouillage par empreinte ou code — activé après confirmation, à l\'ouverture, au retour, Retour', async () => {
+  const { navigateur, page } = await ouvrirAppli();
+  const fermerBienvenue = async () => {
+    await page.locator('#dlgBack.show #dlgTitle:has-text("Bienvenue")').waitFor();
+    await page.click('#dlgFoot button:has-text("Plus tard")');
+  };
+  try {
+    await fermerBienvenue();
+    await page.evaluate(() => setView('reglages'));
+    assert.equal(await page.isVisible('#rg-verrou'), true);
+    await page.click('#rg-verrou summary');
+    assert.match(await page.textContent('#rg-verrou-resume'), /Désactivé/);
+    // téléphone sans verrouillage d'écran : expliqué, rien ne change
+    await page.evaluate(() => { window.__natif.verrouDisponible = { ok: false }; });
+    await page.click('#rg-verrou-on');
+    await page.locator('#dlgBack.show #dlgTitle:has-text("Verrouillage")').waitFor();
+    await page.click('#dlgFoot button');
+    assert.equal(await page.isChecked('#rg-verrou-on'), false);
+    // activer : Android confirme d'abord l'identité
+    await page.evaluate(() => { window.__natif.verrouDisponible = { ok: true }; window.__natif.deverrouiller = { ok: true }; });
+    await page.click('#rg-verrou-on');
+    await page.waitForFunction(() => REGLAGES.verrou === true);
+    assert.deepEqual(await appels(page, 'deverrouiller'), [{ titre: 'Activer le verrouillage' }]);
+    assert.equal(await page.isChecked('#rg-verrou-on'), true);
+    assert.match(await page.textContent('#rg-verrou-resume'), /Empreinte ou code · après 5 min/);
+    await page.click('#rg-verrou-delai button:has-text("Tout de suite")');
+    assert.match(await page.textContent('#rg-verrou-resume'), /tout de suite/);
+
+    // à l'ouverture : tout est caché, Android est appelé ; refusé → on reste verrouillé
+    await page.reload();
+    await page.locator('#verrou:not([hidden])').waitFor();
+    await page.waitForFunction(() => window.__appels.some(a => a[1] === 'deverrouiller'));
+    await page.locator('#verrou-msg:has-text("Non confirmé")').waitFor();
+    assert.equal(await page.isVisible('#verrou'), true);
+    // Retour d'Android sur l'écran verrouillé : l'appli passe en arrière-plan, rien ne s'ouvre
+    await page.evaluate(() => window.__retourAndroid({ canGoBack: false }));
+    assert.equal((await appels(page, 'minimizeApp')).length, 1);
+    await page.evaluate(() => { window.__natif.deverrouiller = { ok: true }; });
+    await page.click('#verrou button:has-text("Déverrouiller")');
+    await page.locator('#verrou').waitFor({ state: 'hidden' });
+    await fermerBienvenue();
+
+    // au retour dans l'appli (ici : tout de suite)
+    const premierPlan = visible => page.evaluate(v => {
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => !v });
+      document.dispatchEvent(new Event('visibilitychange'));
+    }, visible);
+    await premierPlan(false);
+    assert.equal(await page.isVisible('#verrou'), false); // rien ne se voit avant le retour
+    await page.evaluate(() => { window.__natif.deverrouiller = {}; }); // Android ne confirme pas (annulé)
+    await premierPlan(true);
+    await page.locator('#verrou-msg:has-text("Non confirmé")').waitFor();
+    await page.evaluate(() => { window.__natif.deverrouiller = { ok: true }; });
+    await page.click('#verrou button:has-text("Déverrouiller")');
+    await page.locator('#verrou').waitFor({ state: 'hidden' });
+    // 5 min : un aller-retour rapide ne verrouille pas
+    await page.evaluate(() => changerReglage('verrouDelai', 5));
+    await premierPlan(false); await premierPlan(true);
+    assert.equal(await page.isVisible('#verrou'), false);
+
+    // désactiver : confirmation aussi
+    await page.evaluate(() => setView('reglages'));
+    if (await page.getAttribute('#rg-verrou', 'open') === null) await page.click('#rg-verrou summary');
+    await page.click('#rg-verrou-on');
+    await page.waitForFunction(() => REGLAGES.verrou === false);
+    assert.equal((await appels(page, 'deverrouiller')).at(-1).titre, 'Désactiver le verrouillage');
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
 test('appli Android : Retour ferme d\'abord la feuille des filtres, puis la fiche d\'une opération', async () => {
   const { navigateur, page } = await ouvrirAppli();
   try {
@@ -642,6 +712,8 @@ test('téléphone, opération rapprochée ventilée : la fiche tient dans l\'éc
     await fiche.locator('.mf-infos button').first().click();
     assert.equal(await page.isVisible('#m-fiche'), false);
     assert.equal(await page.locator('#i-montant').evaluate(e => e.readOnly), true);
+    // le curseur se place dans la 1re ligne de la répartition (30 ms après l'ouverture) : l'attendre avant d'écrire
+    await page.waitForFunction(() => document.activeElement === document.querySelector('#vent-list input'));
     const champs = page.locator('#vent-list .vent-l input[inputmode="decimal"]');
     await champs.nth(0).fill('2640,00');
     await champs.nth(1).fill('-323,24');

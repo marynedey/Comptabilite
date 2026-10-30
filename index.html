@@ -342,6 +342,23 @@
         <div class="meta">Pour toutes les barres de recherche : opérations, tiers, catégories. En bas, elles se placent juste au-dessus des onglets.</div>
       </div>
     </details>
+    <details class="reglage" id="rg-verrou" hidden>
+      <summary><svg class="rg-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg><span><b>Verrouillage</b><small class="rg-resume" id="rg-verrou-resume">Désactivé</small></span><svg class="rg-fleche" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></summary>
+      <div class="rg-corps">
+        <label class="rg-case"><input type="checkbox" id="rg-verrou-on" onchange="basculerVerrou(this)">
+          <span>Verrouiller l’appli<small>Empreinte, visage ou code du téléphone, à l’ouverture et au retour dans l’appli.</small></span></label>
+        <div id="rg-verrou-delai-bloc">
+          <div class="rg-ligne">Au retour dans l’appli</div>
+          <div class="rg-choix" role="radiogroup" aria-label="Verrouiller au retour" id="rg-verrou-delai">
+            <button role="radio" data-v="0" onclick="changerReglage('verrouDelai',0)">Tout de suite</button>
+            <button role="radio" data-v="1" onclick="changerReglage('verrouDelai',1)">1 min</button>
+            <button role="radio" data-v="5" onclick="changerReglage('verrouDelai',5)">5 min</button>
+            <button role="radio" data-v="15" onclick="changerReglage('verrouDelai',15)">15 min</button>
+          </div>
+          <div class="meta">Temps passé hors de l’appli avant qu’elle se verrouille. À l’ouverture, elle est toujours verrouillée.</div>
+        </div>
+      </div>
+    </details>
     </div>
     <div class="rg-version" id="rg-version"></div>
   </section>
@@ -427,6 +444,13 @@
   <button data-o="recurrences" onclick="ongletMobile('recurrences')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 2l4 4-4 4M3 11V9a4 4 0 014-4h14M7 22l-4-4 4-4M21 13v2a4 4 0 01-4 4H3"/></svg><span>Échéances</span></button>
   <button data-o="plus" onclick="ongletMobile('plus')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg><span>Plus</span></button>
 </nav>
+<div class="verrou" id="verrou" role="dialog" aria-modal="true" aria-labelledby="verrou-titre" hidden>
+  <span class="verrou-logo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg></span>
+  <h1 id="verrou-titre">Mes comptes</h1>
+  <p>Verrouillé</p>
+  <button class="primary" onclick="deverrouiller()">Déverrouiller</button>
+  <p class="verrou-msg" id="verrou-msg" role="status"></p>
+</div>
 <div class="deja-ouvert" id="deja-ouvert" hidden><div class="deja-ouvert-carte">
   <h2>Mes comptes est déjà ouvert</h2>
   <p>L’app est ouverte dans une autre fenêtre ou un autre onglet de ce navigateur. Pour ne jamais mélanger tes modifications, elle ne s’ouvre qu’une fois.</p>

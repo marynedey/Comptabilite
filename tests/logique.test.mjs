@@ -220,10 +220,11 @@ test('téléphone : mois du filtre, ‹ et ›', () => {
 });
 
 test('réglages d\'affichage : valeurs par défaut et valeurs inconnues ignorées', () => {
-  assert.deepEqual(js(app.lireReglages(null)), { theme: 'auto', recherche: 'haut', masquer: false });
-  assert.deepEqual(js(app.lireReglages('{"theme":"sombre","recherche":"bas","masquer":true}')), { theme: 'sombre', recherche: 'bas', masquer: true });
-  assert.deepEqual(js(app.lireReglages('{"theme":"violet","recherche":"gauche","masquer":"oui"}')), { theme: 'auto', recherche: 'haut', masquer: false });
-  assert.deepEqual(js(app.lireReglages('pas du json')), { theme: 'auto', recherche: 'haut', masquer: false });
+  const defaut = { theme: 'auto', recherche: 'haut', masquer: false, verrou: false, verrouDelai: 5 };
+  assert.deepEqual(js(app.lireReglages(null)), defaut);
+  assert.deepEqual(js(app.lireReglages('{"theme":"sombre","recherche":"bas","masquer":true}')), { ...defaut, theme: 'sombre', recherche: 'bas', masquer: true });
+  assert.deepEqual(js(app.lireReglages('{"theme":"violet","recherche":"gauche","masquer":"oui"}')), defaut);
+  assert.deepEqual(js(app.lireReglages('pas du json')), defaut);
 });
 
 test('analyse (téléphone) : périodes, comparaison, regroupement par catégorie', () => {
@@ -407,4 +408,17 @@ test('analyse d\'une catégorie : 12 derniers mois ou années depuis la 1re opé
   assert.equal(app.moyenneCategorie(A), Math.round((5000 + 999) / 2));
   assert.deepEqual(js(app.periodesCategorie([], 'annee', auj)), [{ cle: '2026', total: 0, n: 0 }]);
   assert.equal(app.moyenneCategorie(js(app.periodesCategorie([], 'annee', auj))), null);
+});
+
+test('verrouillage : réglage lu prudemment, verrouillé au retour après le délai choisi', () => {
+  assert.deepEqual([app.lireReglages('{}').verrou, app.lireReglages('{}').verrouDelai], [false, 5]);
+  assert.deepEqual([app.lireReglages('{"verrou":true,"verrouDelai":15}').verrou, app.lireReglages('{"verrou":true,"verrouDelai":15}').verrouDelai], [true, 15]);
+  assert.equal(app.lireReglages('{"verrou":"oui","verrouDelai":7}').verrou, false);
+  assert.equal(app.lireReglages('{"verrouDelai":7}').verrouDelai, 5);
+  const r = { verrou: true, verrouDelai: 5 }, t = 1_000_000;
+  assert.equal(app.doitVerrouiller(r, t, t + 4 * 60000), false);
+  assert.equal(app.doitVerrouiller(r, t, t + 5 * 60000), true);
+  assert.equal(app.doitVerrouiller({ verrou: true, verrouDelai: 0 }, t, t), true);   // tout de suite
+  assert.equal(app.doitVerrouiller({ verrou: false, verrouDelai: 0 }, t, t + 1e9), false);
+  assert.equal(app.doitVerrouiller(r, null, t), false);                              // pas passée en arrière-plan
 });
