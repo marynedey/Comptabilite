@@ -30,6 +30,11 @@ App web de comptes personnels, en français, hors ligne. Publiée sur https://ma
   720 px max). L'appli dessine sous la barre d'état d'Android (`viewport-fit=cover`) : tout élément fixé en haut
   ajoute `env(safe-area-inset-top)`. Retour (Android ou navigateur) ferme d'abord fenêtre / feuille ouverte (`fermerFeuilles`,
   aussi sur `popstate`). Feuille ou fenêtre ouverte : `main` ne défile plus derrière.
+- Opération rapprochée : seul son montant total est figé (`saveOp` le vérifie) ; catégories, ventilation (même total),
+  destinataire, date, commentaire restent modifiables, depuis la fiche comme depuis le formulaire.
+- Catégories sur téléphone : montant total (opérations effectives, tous comptes) et nombre d'opérations ; toucher une
+  catégorie ouvre `#m-catana` (`renderAnalyseCategorie`, état `CA`) : par mois (12 derniers) ou par année, sous-catégories,
+  opérations. Il est sous la fenêtre de saisie et la fiche (z-index), qui s'ouvrent par-dessus.
 - Tiers et catégories se renomment ou se fusionnent (`renommerTiersDb`, `fusionnerTiersDb`, `renommerCategorieDb`,
   `fusionnerCategoriesDb`) : `cat_path`, `hay` des opérations et échéances suivent ; jamais plus de 3 niveaux.
 - Réglages d'affichage (`REGLAGES` : thème auto/clair/sombre, barres de recherche en haut/bas, montants masqués à

@@ -533,10 +533,11 @@ test('téléphone, fiche d\'une opération : montant en grand, statut en informa
     await page.click('#dlgFoot button:has-text("Mettre à la corbeille")');
     await fiche.waitFor({ state: 'hidden' });
     assert.equal(await ligne(page, 'Boulangerie').count(), 0);
-    // rapprochée : ni Modifier, ni Corbeille
+    // rapprochée : modifiable sauf le montant, pas de corbeille
     await ligne(page, 'Supermarché').locator('.m-op-corps').click();
-    assert.match(await fiche.locator('.mf-statut').textContent(), /Rapproché — elle ne peut plus être modifiée/);
-    assert.equal(await fiche.locator('button:has-text("Modifier")').count(), 0);
+    assert.match(await fiche.locator('.mf-statut').textContent(), /Rapproché — son montant ne peut plus être modifié/);
+    assert.equal(await fiche.locator('button:has-text("Modifier")').count(), 1);
+    assert.equal(await fiche.locator('button.mf-montant').count(), 0);
     assert.equal(await fiche.locator('button:has-text("corbeille")').count(), 0);
     assert.deepEqual(page.erreurs, []);
   } finally { await navigateur.close(); }
@@ -599,6 +600,93 @@ test('réglages sur PC : pas de rubrique « barres de recherche » (elle ne conc
     await page.click('#rg-affichage summary');
     assert.equal(await page.isVisible('#rg-theme'), true);
     assert.equal(await page.isVisible('#rg-barres'), false);
+  } finally { await navigateur.close(); }
+});
+
+/* une paie rapprochée, répartie entre deux catégories aux noms longs */
+async function paieVentilee(page) {
+  await page.evaluate(() => {
+    const op = (d, m, dest, cat, lignes) => {
+      run("INSERT INTO operation(compte_id,date_operation,montant,cat_path,statut,supprime,previsionnel,tiers_id,hay) VALUES(?,?,?,?,'rapproche',0,0,?,?)",
+        [state.acc, d, m, cat, upsertTiers(dest), makeHay(dest, cat, null, '', m, d)]);
+      const id = scal('SELECT MAX(id) FROM operation');
+      lignes.forEach(([c, v]) => run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)', [id, upsertCategorie(c), v]));
+    };
+    op('2026-10-24', 231676, 'TBF', 'Traitements et salaires : Salaire net',
+      [['Traitements et salaires : Salaire net', 264273], ['Impôts : Impôt sur le revenu prélèvement à la source', -32597]]);
+    op('2026-09-25', 230000, 'TBF', 'Traitements et salaires : Prime', [['Traitements et salaires : Prime', 230000]]);
+    invalidateCaches(); render();
+  });
+}
+
+test('téléphone, opération rapprochée ventilée : la fiche tient dans l\'écran, la répartition se modifie, pas le total', async () => {
+  const { navigateur, page } = await ouvrirTelephone();
+  try {
+    await paieVentilee(page);
+    await ligne(page, 'TBF').first().locator('.m-op-corps').click();
+    const fiche = page.locator('#m-fiche');
+    // rien ne déborde : les libellés longs passent à la ligne, les montants restent entiers
+    assert.ok(await fiche.evaluate(f => f.scrollWidth <= f.clientWidth), 'pas de défilement horizontal');
+    const montants = fiche.locator('.mf-infos span.num');
+    assert.equal(await montants.count(), 2);
+    for (const h of await montants.evaluateAll(es => es.map(e => e.getBoundingClientRect().height))) assert.ok(h < 30, 'montant sur une ligne');
+    assert.equal(await fiche.locator('button.mf-montant').count(), 0); // le total ne se touche pas
+    // toucher une ligne de la répartition : le formulaire, montant verrouillé, répartition modifiable
+    await fiche.locator('.mf-infos button').first().click();
+    assert.equal(await page.isVisible('#m-fiche'), false);
+    assert.equal(await page.locator('#i-montant').evaluate(e => e.readOnly), true);
+    const champs = page.locator('#vent-list .vent-l input[inputmode="decimal"]');
+    await champs.nth(0).fill('2640,00');
+    await champs.nth(1).fill('-323,24');
+    assert.match(await page.textContent('#vent-tot'), /équilibré/);
+    await page.click('#overlay button:has-text("Enregistrer")');
+    await page.click('#dlgFoot button:has-text("Confirmer la modification")');
+    await page.waitForFunction(() => !document.getElementById('overlay').classList.contains('show'));
+    assert.deepEqual(await page.evaluate(() => [...qy("SELECT v.montant m FROM ventilation v JOIN operation o ON o.id=v.operation_id WHERE o.date_operation='2026-10-24' ORDER BY v.montant DESC").map(r => r.m)]), [264000, -32324]);
+    assert.equal(await page.evaluate(() => scal("SELECT montant FROM operation WHERE date_operation='2026-10-24'")), 231676);
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
+test('téléphone, catégories : montant total ; toucher une catégorie → son analyse par mois, par année', async () => {
+  const { navigateur, page } = await ouvrirTelephone();
+  try {
+    await paieVentilee(page);
+    await page.evaluate(() => setView('categories'));
+    const c = page.locator('#m-categories .mg-cat', { hasText: 'Traitements et salaires' });
+    assert.match(await c.locator('.mg-nb').textContent(), /\+4\s942,73\s€2 op\./);
+    assert.match(await page.locator('#m-categories .mg-cat', { hasText: 'Impôts' }).locator('.mg-nb').textContent(), /-325,97\s€1 op\./);
+    await c.locator('.mg-nom').click();
+    const a = page.locator('#m-catana');
+    await a.waitFor();
+    assert.equal(await a.locator('h2').textContent(), 'Traitements et salaires');
+    assert.match(await a.locator('.ca-titre').textContent(), /\+4\s942,73\s€ · 2 opérations en tout/);
+    // par mois : 12 barres, le mois en cours choisi ; la moyenne des mois passés
+    assert.equal(await a.locator('.ca-barres button').count(), 12);
+    assert.match(await a.locator('.ma-total').textContent(), /Octobre 2026 \(en cours\)\+2\s642,73\s€/);
+    assert.match(await a.locator('.ca-moy').textContent(), /moyenne \+209,09\s€ \/ mois/);
+    await a.locator('.ca-barres button[aria-label^="Septembre 2026"]').click();
+    assert.match(await a.locator('.ma-total').textContent(), /Septembre 2026\+2\s300,00\s€/);
+    assert.match(await a.textContent(), /Opérations \(1\)/);
+    // par année
+    await a.locator('button:has-text("Par année")').click();
+    assert.equal(await a.locator('.ca-barres button').count(), 1);
+    assert.match(await a.locator('.ma-total').textContent(), /2026 \(en cours\)\+4\s942,73\s€/);
+    // une sous-catégorie, puis retour
+    await a.locator('.ma-ligne', { hasText: 'Prime' }).click();
+    assert.equal(await a.locator('h2').textContent(), 'Prime');
+    await page.evaluate(() => fermerFeuilles()); // Retour d'Android
+    assert.equal(await a.locator('h2').textContent(), 'Traitements et salaires');
+    // une opération : sa fiche s'ouvre par-dessus
+    await a.locator('.ma-liste .ma-ligne', { hasText: 'TBF' }).first().click();
+    assert.equal(await page.isVisible('#m-fiche'), true);
+    await page.click('#m-fiche .mf-retour');
+    // « Voir les opérations » : la liste filtrée sur la catégorie
+    await a.locator('button:has-text("Voir les opérations")').click();
+    await page.waitForFunction(() => state.view === 'registre');
+    assert.equal(await page.isVisible('#m-catana'), false);
+    assert.equal(await page.locator('#m-ops .m-op').count(), 2);
+    assert.deepEqual(page.erreurs, []);
   } finally { await navigateur.close(); }
 });
 

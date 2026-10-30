@@ -391,3 +391,20 @@ test('échéance modifiée : une échéance passée rapprochée mais datée autr
   assert.deepEqual(dates, ['2026-09-03', '2026-10-01', '2026-11-01']);   // pas de « 1er septembre » en double
   app.todayISO = avant;
 });
+
+test('analyse d\'une catégorie : 12 derniers mois ou années depuis la 1re opération, moyenne des périodes passées', () => {
+  const auj = new Date(2026, 9, 30);
+  const L = [{ id: 1, d: '2026-10-24', m: 264273 }, { id: 1, d: '2026-10-24', m: -1000 }, { id: 2, d: '2026-09-25', m: 230000 },
+    { id: 3, d: '2024-03-01', m: 5000 }, { id: 4, d: '2025-10-31', m: 999 }];
+  const M = js(app.periodesCategorie(L, 'mois', auj));
+  assert.equal(M.length, 12);
+  assert.deepEqual(M[0], { cle: '2025-11', total: 0, n: 0 });   // octobre 2025 n'y est plus
+  assert.deepEqual(M[11], { cle: '2026-10', total: 263273, n: 1 }); // une opération, ses deux lignes additionnées
+  assert.equal(app.moyenneCategorie(M), Math.round(230000 / 11)); // le mois en cours n'entre pas dans la moyenne
+  const A = js(app.periodesCategorie(L, 'annee', auj));
+  assert.deepEqual(A.map(p => p.cle), ['2024', '2025', '2026']);
+  assert.deepEqual(A.map(p => p.n), [1, 1, 2]);
+  assert.equal(app.moyenneCategorie(A), Math.round((5000 + 999) / 2));
+  assert.deepEqual(js(app.periodesCategorie([], 'annee', auj)), [{ cle: '2026', total: 0, n: 0 }]);
+  assert.equal(app.moyenneCategorie(js(app.periodesCategorie([], 'annee', auj))), null);
+});
