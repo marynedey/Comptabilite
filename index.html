@@ -121,9 +121,11 @@
         <button type="button" class="pchip" data-m="annee" onclick="setPeriode('f','annee')">Cette année</button>
         <button type="button" class="pchip" data-m="perso" onclick="setPeriode('f','perso')">Dates…</button>
       </span>
-      <input type="text" id="f-from" class="dt datef" style="display:none" maxlength="8" inputmode="numeric" placeholder="JJ/MM/AA" oninput="maskDate(this)" onblur="fixDate(this)">
-      <span id="f-sep" style="display:none;align-self:center;color:var(--ink-3)">au</span>
-      <input type="text" id="f-to" class="dt datef" style="display:none" maxlength="8" inputmode="numeric" placeholder="JJ/MM/AA" oninput="maskDate(this)" onblur="fixDate(this)">
+      <span class="f-dates">
+        <input type="text" id="f-from" class="dt datef" style="display:none" maxlength="8" inputmode="numeric" placeholder="JJ/MM/AA" oninput="maskDate(this)" onblur="fixDate(this)">
+        <span id="f-sep" style="display:none;align-self:center;color:var(--ink-3)">au</span>
+        <input type="text" id="f-to" class="dt datef" style="display:none" maxlength="8" inputmode="numeric" placeholder="JJ/MM/AA" oninput="maskDate(this)" onblur="fixDate(this)">
+      </span>
       <button class="ghost f-effacer" onclick="resetFilters()">Effacer les filtres</button>
       <button class="primary m-voir" id="m-voir" onclick="fermerFiltres()">Voir les opérations</button>
     </div>

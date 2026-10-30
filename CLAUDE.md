@@ -16,7 +16,8 @@ App web de comptes personnels, en français, hors ligne. Publiée sur https://ma
   `sw.js`) ; `js/app.js` détecte l'appli (`enAppli()`) : pas de service worker, sauvegarde par le module natif
   `MesComptes` (Téléchargements), mise à jour proposée d'après `android/version.json` publié avec le site.
   Module natif limité (nom de sauvegarde et adresse de mise à jour vérifiés, plus `verrouDisponible` / `deverrouiller` :
-  fenêtre d'Android empreinte, visage ou code, androidx.biometric) : ne pas l'élargir sans en parler.
+  fenêtre d'Android empreinte, visage ou code, androidx.biometric ; `fondBarres` : fond clair / sombre derrière les
+  barres d'Android selon le thème de l'app, `majBarresAppli`) : ne pas l'élargir sans en parler.
   Verrouillage (`REGLAGES.verrou`, `verrouDelai` en min) : écran `#verrou` à l'ouverture et au retour après le délai
   (`doitVerrouiller`) ; le va-et-vient pendant la fenêtre d'Android ne compte pas (`verrouEnCours`). Rien sur PC.
   APK construit par le job « Appli Android » ; signé avec les secrets `ANDROID_CLE`, `ANDROID_CLE_MOT_DE_PASSE`.

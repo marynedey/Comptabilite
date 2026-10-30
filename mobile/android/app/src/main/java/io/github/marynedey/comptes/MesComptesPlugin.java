@@ -8,6 +8,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.UriPermission;
 import android.database.Cursor;
+import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.Environment;
 import android.provider.DocumentsContract;
@@ -38,7 +39,8 @@ import java.util.regex.Pattern;
  * Fonctions natives de l'appli, appelées par js/app.js (Capacitor.nativePromise('MesComptes', …)).
  * Volontairement limitées : écrire une sauvegarde dans Téléchargements ou dans le dossier choisi par
  * la personne (fenêtre d'Android), installer une mise à jour venue du site de l'app, demander à Android
- * de confirmer l'identité (empreinte, visage ou code du téléphone) pour le verrouillage. Le JavaScript ne
+ * de confirmer l'identité (empreinte, visage ou code du téléphone) pour le verrouillage, choisir le fond clair
+ * ou sombre derrière les barres d'Android (celui du thème choisi dans l'app). Le JavaScript ne
  * peut ni lister, ni lire, ni supprimer de fichier, ni écrire ailleurs.
  */
 @CapacitorPlugin(name = "MesComptes")
@@ -194,6 +196,20 @@ public class MesComptesPlugin extends Plugin {
                 if (uri != null) cr.delete(uri, null, null);
                 call.reject("Échec de l'écriture : " + e.getMessage());
             }
+        });
+    }
+
+    /**
+     * Fond derrière la barre d'état et la barre de navigation : celui du thème choisi dans l'app (variable paper
+     * de css/app.css), même si le téléphone est dans l'autre mode. Sans lui, l'app en sombre sur un téléphone en
+     * clair montrait des icônes claires sur le fond clair de la fenêtre (illisibles).
+     */
+    @PluginMethod
+    public void fondBarres(PluginCall call) {
+        final int couleur = call.getBoolean("sombre", false) ? 0xFF14171A : 0xFFF6F7F4;
+        getActivity().runOnUiThread(() -> {
+            getActivity().getWindow().setBackgroundDrawable(new ColorDrawable(couleur));
+            call.resolve();
         });
     }
 

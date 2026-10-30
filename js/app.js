@@ -154,6 +154,8 @@ async function demarrerAppli(){
     if(d&&d.canGoBack)history.back();else demanderQuitter();});
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)verifierMajAppli();});
   brancherVerrou();
+  // thème « Automatique » : le téléphone passe en clair ou en sombre → les barres suivent
+  if(window.matchMedia)matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(REGLAGES.theme==='auto')majBarresAppli();});
   verifierMajAppli();
   if(!scal('SELECT COUNT(*) FROM operation WHERE supprime=0')){
     const v=await dlgOpen({title:'Bienvenue dans l’appli',msg:'L’appli a son propre stockage : tes comptes enregistrés dans Chrome n’y sont pas encore.\n\n'+
@@ -541,6 +543,32 @@ function moisFiltre(delta){
   setPeriode('f',moisDecale(v,delta,new Date()));
 }
 function ouvrirFiltres(){document.body.classList.add('filtres-ouverts');}
+/* glisser une feuille vers le bas la ferme : depuis sa tête (poignée, titre) toujours, ailleurs seulement
+   quand elle est tout en haut (sinon le doigt la fait défiler). Elle suit le doigt, puis se ferme au-delà
+   d'un quart de sa hauteur (120 px au plus), ou revient en place. */
+function glisserPourFermer(feuille,fermer){
+  let y0=null,dy=0,actif=false,tete=false;
+  feuille.addEventListener('touchstart',e=>{
+    if(e.touches.length!==1){y0=null;return;}
+    y0=e.touches[0].clientY;dy=0;actif=false;tete=!!e.target.closest('.m-feuille-tete');
+  },{passive:true});
+  feuille.addEventListener('touchmove',e=>{
+    if(y0==null)return;
+    dy=e.touches[0].clientY-y0;
+    if(!actif){
+      if(Math.abs(dy)<8)return;
+      if(dy<0||!(tete||feuille.scrollTop<=0)||e.target.closest('select,input')){y0=null;return;} // défilement normal
+      actif=true;feuille.classList.add('glisse');
+    }
+    e.preventDefault();feuille.style.transform='translateY('+Math.max(0,dy)+'px)';
+  },{passive:false});
+  const fin=()=>{
+    y0=null;if(!actif)return;actif=false;
+    feuille.classList.remove('glisse');feuille.style.transform='';
+    if(dy>Math.min(120,feuille.offsetHeight/4))fermer();
+  };
+  feuille.addEventListener('touchend',fin);feuille.addEventListener('touchcancel',fin);
+}
 function fermerFiltres(){document.body.classList.remove('filtres-ouverts');}
 /* Retour d'Android : ferme d'abord ce qui est ouvert par-dessus l'écran */
 function fermerFeuilles(){
@@ -579,10 +607,11 @@ function renderOperationsMobile(){
   // la liste
   const p={};const w=buildWhere(p);
   const total=scal('SELECT COUNT(*) FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id'+w,p)||0;
-  document.getElementById('m-filtres-actifs').innerHTML=actifs.map(([t,f])=>
-      '<span class="m-puce">'+esc(t)+'<button class="ghost" style="padding:0;min-height:0;border:0;background:none;color:inherit" aria-label="Retirer le filtre '+esc(t)+'" onclick="'+f+'"><span>✕</span></button></span>').join('')+
-    '<span class="m-nb-ops" id="m-nb-ops">'+total.toLocaleString('fr-FR')+' opération'+(total>1?'s':'')+'</span>'+
-    '<button class="m-filtrer" onclick="ouvrirFiltres()">Filtrer'+(actifs.length?' · '+actifs.length:'')+'</button>';
+  // les filtres actifs (puces), puis une ligne : le nombre d'opérations tout à gauche, « Filtrer » tout à droite
+  document.getElementById('m-filtres-actifs').innerHTML=(actifs.length?'<div class="m-puces">'+actifs.map(([t,f])=>
+      '<span class="m-puce">'+esc(t)+'<button class="ghost" style="padding:0;min-height:0;border:0;background:none;color:inherit" aria-label="Retirer le filtre '+esc(t)+'" onclick="'+f+'"><span>✕</span></button></span>').join('')+'</div>':'')+
+    '<div class="m-ligne-filtrer"><span class="m-nb-ops" id="m-nb-ops">'+total.toLocaleString('fr-FR')+' opération'+(total>1?'s':'')+'</span>'+
+    '<button class="m-filtrer" onclick="ouvrirFiltres()">Filtrer'+(actifs.length?' · '+actifs.length:'')+'</button></div>';
   const lim=state.mLimite||MOBILE_PAR_LOT;
   const rows=qy(`WITH bal AS (SELECT id, SUM(montant) OVER (ORDER BY date_operation,id) cum
       FROM operation WHERE compte_id=$acc AND supprime=0 AND statut<>'annule')
@@ -936,6 +965,7 @@ async function boot(){
     const rch=document.getElementById('f-search');document.getElementById('m-recherche').appendChild(rch.parentElement);
     rch.placeholder='Rechercher (destinataire, catégorie, montant…)';
     brancherListeCategories();
+    glisserPourFermer(document.getElementById('f-zone'),fermerFiltres);
     // « Entrée » / « OK » du clavier dans une recherche : le clavier se ferme pour laisser voir les résultats
     ['f-search','ti-search','cat-search'].forEach(id=>{const el=document.getElementById(id);if(!el)return;
       el.setAttribute('enterkeyhint','search');
@@ -3187,8 +3217,15 @@ function appliquerReglages(ouverture){
   document.body.classList.toggle('masquer-montants',r.masquer);
   if(ouverture||!r.masquer)document.body.classList.toggle('montants-masques',r.masquer);
   majOeil();
-  // appli : icônes de la barre d'état d'Android lisibles sur le fond choisi
-  if(enAppli())Capacitor.nativePromise('SystemBars','setStyle',{style:r.theme==='sombre'?'DARK':r.theme==='clair'?'LIGHT':'DEFAULT'}).catch(()=>{});
+  if(enAppli())majBarresAppli();
+}
+/* appli : fond derrière les barres d'Android et couleur de leurs icônes, selon le thème de l'app (pas celui du
+   téléphone : l'app en sombre sur un téléphone en clair, sinon, avait des icônes claires sur fond clair) */
+const themeSombre=r=>r.theme==='sombre'||(r.theme==='auto'&&!!(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches));
+function majBarresAppli(){
+  const sombre=themeSombre(REGLAGES);
+  Capacitor.nativePromise('SystemBars','setStyle',{style:sombre?'DARK':'LIGHT'}).catch(()=>{});
+  natif('fondBarres',{sombre}).catch(()=>{});
 }
 function changerReglage(cle,val){
   REGLAGES=Object.assign({},REGLAGES,{[cle]:val});

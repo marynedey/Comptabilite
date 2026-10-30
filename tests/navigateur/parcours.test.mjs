@@ -254,6 +254,29 @@ test('appli Android : bienvenue, pas de service worker, sauvegarde native, mise 
   } finally { await navigateur.close(); }
 });
 
+test('appli Android : fond et icônes des barres d\'Android selon le thème de l\'app, pas celui du téléphone', async () => {
+  const { navigateur, page } = await ouvrirAppli();
+  try {
+    await page.locator('#dlgBack.show #dlgTitle:has-text("Bienvenue")').waitFor();
+    await page.click('#dlgFoot button:has-text("Plus tard")');
+    const dernier = async m => (await appels(page, m)).at(-1);
+    // téléphone en clair, app en « Automatique » : fond clair, icônes foncées
+    assert.deepEqual(await dernier('fondBarres'), { sombre: false });
+    assert.deepEqual(await dernier('setStyle'), { style: 'LIGHT' });
+    // app en sombre sur un téléphone en clair : fond sombre, icônes claires (c'était illisible)
+    await page.evaluate(() => changerReglage('theme', 'sombre'));
+    assert.deepEqual(await dernier('fondBarres'), { sombre: true });
+    assert.deepEqual(await dernier('setStyle'), { style: 'DARK' });
+    // « Automatique » : suit le téléphone quand il change de mode
+    await page.evaluate(() => changerReglage('theme', 'auto'));
+    assert.deepEqual(await dernier('fondBarres'), { sombre: false });
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.waitForFunction(() => window.__appels.filter(a => a[1] === 'fondBarres').at(-1)[2].sombre === true);
+    assert.deepEqual(await dernier('setStyle'), { style: 'DARK' });
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
 test('appli Android : verrouillage par empreinte ou code — activé après confirmation, à l\'ouverture, au retour, Retour', async () => {
   const { navigateur, page } = await ouvrirAppli();
   const fermerBienvenue = async () => {
@@ -483,6 +506,54 @@ test('téléphone : la petite flèche ouvre la liste déroulante des comptes', a
     await toucher('#m-onglets button[data-o="analyse"]');
     assert.equal(await page.evaluate(() => state.view), 'analyse');
     assert.equal(await page.textContent('#m-compte-nom'), 'Livret A'); // l'analyse suit le compte choisi
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
+test('téléphone, filtres : nombre d\'opérations tout à gauche, dates sur une ligne sans déborder, glisser vers le bas ferme', async () => {
+  const { navigateur, page } = await ouvrirTelephone();
+  try {
+    await opsExemple(page);
+    // le nombre d'opérations tout à gauche, « Filtrer » tout à droite, sur la même ligne
+    const nb = await page.locator('#m-nb-ops').boundingBox(), f = await page.locator('.m-filtrer').boundingBox(), soldes = await page.locator('#m-soldes').boundingBox();
+    assert.ok(Math.abs(nb.x - soldes.x) < 6, 'tout à gauche');
+    assert.ok(Math.abs((nb.y + nb.height / 2) - (f.y + f.height / 2)) < 4, 'même ligne');
+    assert.ok(f.x + f.width > soldes.x + soldes.width - 6, 'Filtrer tout à droite');
+    // « fin du mois prochain » + « Dates… » : tout reste dans une colonne, la feuille défile
+    await page.click('.m-filtrer');
+    await page.selectOption('#f-horizon', 'finmoisprochain');
+    await page.click('#f-periode-wrap button[data-m="perso"]');
+    const feuille = page.locator('#f-zone');
+    const larg = await feuille.evaluate(e => [e.scrollWidth, e.clientWidth]);
+    assert.ok(larg[0] <= larg[1], 'pas de 2e colonne');
+    const de = await page.locator('#f-from').boundingBox(), a = await page.locator('#f-to').boundingBox();
+    assert.ok(Math.abs(de.y - a.y) < 2 && de.x < a.x, 'du … au … sur une ligne');
+    const voir = await page.locator('#m-voir').boundingBox(), zone = await feuille.boundingBox();
+    assert.ok(voir.x >= zone.x && voir.x + voir.width <= zone.x + zone.width + 1, '« Voir » dans la feuille');
+    // glisser la poignée vers le bas : la feuille suit, puis se ferme ; un petit glissement la remet en place
+    const glisser = (dy, sel) => page.evaluate(([dy, sel]) => {
+      const el = document.querySelector(sel), r = el.getBoundingClientRect(), x = r.left + 20, y = r.top + 5;
+      const t = yy => new Touch({ identifier: 1, target: el, clientX: x, clientY: yy });
+      el.dispatchEvent(new TouchEvent('touchstart', { touches: [t(y)], bubbles: true, cancelable: true }));
+      for (let i = 1; i <= 5; i++) el.dispatchEvent(new TouchEvent('touchmove', { touches: [t(y + dy * i / 5)], bubbles: true, cancelable: true }));
+      const suit = document.getElementById('f-zone').style.transform;
+      el.dispatchEvent(new TouchEvent('touchend', { touches: [], changedTouches: [t(y + dy)], bubbles: true, cancelable: true }));
+      return suit;
+    }, [dy, sel]);
+    await feuille.evaluate(e => { e.scrollTop = 0; });
+    assert.equal(await glisser(40, '.m-feuille-tete'), 'translateY(40px)');
+    assert.equal(await page.evaluate(() => document.body.classList.contains('filtres-ouverts')), true, 'petit glissement : reste ouverte');
+    assert.equal(await feuille.evaluate(e => e.style.transform), '');
+    await glisser(200, '.m-feuille-tete');
+    assert.equal(await page.evaluate(() => document.body.classList.contains('filtres-ouverts')), false);
+    // feuille défilée : glisser vers le bas au milieu la fait défiler, sans la fermer
+    await feuille.waitFor({ state: 'hidden' }); // fin de l'animation de fermeture
+    await page.setViewportSize({ width: 390, height: 560 }); // petit écran : la feuille défile
+    await page.click('.m-filtrer');
+    await feuille.evaluate(e => { e.scrollTop = 80; });
+    assert.equal(await feuille.evaluate(e => e.scrollTop), 80);
+    assert.equal(await glisser(200, '#f-statuts'), '');
+    assert.equal(await page.evaluate(() => document.body.classList.contains('filtres-ouverts')), true);
     assert.deepEqual(page.erreurs, []);
   } finally { await navigateur.close(); }
 });
