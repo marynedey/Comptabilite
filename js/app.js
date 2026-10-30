@@ -449,7 +449,12 @@ function ouvrirListeComptes(){
     '<button class="mc-action" onclick="fermerListeComptes();ajouterCompte()">+ Nouveau compte</button>';
   l.querySelectorAll('button[data-id]').forEach(b=>appuiLong(b,()=>{fermerListeComptes();editCompte(+b.dataset.id);}));
   l.hidden=false;document.getElementById('m-compte-btn').setAttribute('aria-expanded','true');
-  setTimeout(()=>document.addEventListener('pointerdown',fermerSiDehors,true),0);
+  // toucher à côté ferme la liste, et rien d'autre : un voile transparent, sous la liste, prend ce toucher
+  // (sans lui, le même toucher ouvrait aussi l'opération ou l'onglet qui se trouvait dessous)
+  const v=document.createElement('div');v.className='voile-dehors';v.id='m-comptes-voile';
+  v.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();fermerListeComptes();});
+  document.getElementById('m-entete').classList.add('menu-ouvert');
+  document.getElementById('m-entete').insertBefore(v,document.getElementById('m-compte-wrap'));
 }
 /* appui long (½ s sans bouger) : action ; le clic qui suit le relâchement est alors ignoré */
 function appuiLong(el,action){
@@ -461,11 +466,11 @@ function appuiLong(el,action){
   el.addEventListener('click',e=>{if(fait){e.preventDefault();e.stopImmediatePropagation();fait=false;}},true);
   el.addEventListener('contextmenu',e=>e.preventDefault());
 }
-function fermerSiDehors(e){if(!document.getElementById('m-compte-wrap').contains(e.target))fermerListeComptes();}
 function fermerListeComptes(){
   const l=document.getElementById('m-comptes');if(!l||l.hidden)return;
   l.hidden=true;document.getElementById('m-compte-btn').setAttribute('aria-expanded','false');
-  document.removeEventListener('pointerdown',fermerSiDehors,true);}
+  const v=document.getElementById('m-comptes-voile');if(v)v.remove();
+  document.getElementById('m-entete').classList.remove('menu-ouvert');}
 function choisirCompteMobile(id){fermerListeComptes();state.acc=id;state.page=1;state.anPath=[];render();remonterEnHaut();}
 /* écran « Plus » : sauvegarde, outils et gestion (ce qui était dans la barre latérale et la barre d'outils du PC) */
 function icoPlus(d){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="'+d+'"/></svg>';}

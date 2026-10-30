@@ -457,10 +457,31 @@ test('téléphone : la petite flèche ouvre la liste déroulante des comptes', a
     assert.equal(await page.isVisible('#m-comptes'), false);
     assert.equal(await page.textContent('#m-compte-nom'), 'Livret A');
     assert.equal(await page.evaluate(() => scal('SELECT nom FROM compte WHERE id=?', [state.acc])), 'Livret A');
-    // un toucher ailleurs referme la liste
+    // un toucher à côté referme la liste, et ne fait rien d'autre : ni l'opération, ni l'onglet touchés dessous
+    await page.evaluate(() => { run("INSERT INTO operation(compte_id,date_operation,montant,cat_path,statut,supprime,previsionnel,tiers_id,hay) VALUES(?,?,?,?,'non_pointe',0,0,?,?)",
+      [state.acc, todayISO(), -450, 'Alimentation', upsertTiers('Boulangerie'), makeHay('Boulangerie', 'Alimentation', null, '', -450, todayISO())]); render(); });
+    const toucher = async sel => { const b = await page.locator(sel).first().boundingBox(); await page.touchscreen.tap(b.x + b.width / 2, b.y + b.height / 2); };
     await page.click('#m-compte-btn');
-    await page.click('#m-onglets button[data-o="analyse"]');
+    await toucher('#m-ops .m-op .m-op-corps');
     assert.equal(await page.isVisible('#m-comptes'), false);
+    assert.equal(await page.isVisible('#m-fiche'), false, 'la fiche ne s\'ouvre pas');
+    await page.click('#m-compte-btn');
+    await toucher('#m-onglets button[data-o="analyse"]');
+    assert.equal(await page.isVisible('#m-comptes'), false);
+    assert.equal(await page.evaluate(() => state.view), 'registre', 'l\'onglet ne change pas');
+    // pareil pour la feuille des filtres et une fenêtre qui se ferme à côté
+    await page.evaluate(() => ouvrirFiltres());
+    await toucher('#m-ops .m-op .m-op-corps');
+    assert.equal(await page.evaluate(() => document.body.classList.contains('filtres-ouverts')), false);
+    assert.equal(await page.isVisible('#m-fiche'), false);
+    await page.evaluate(() => { dlgOpen({ title: 'Essai', msg: '', fermeDehors: true, buttons: [{ t: 'Fermer', v: true }] }); });
+    await page.locator('#dlgBack.show').waitFor();
+    await toucher('#m-onglets button[data-o="analyse"]');
+    await page.locator('#dlgBack.show').waitFor({ state: 'hidden' });
+    assert.equal(await page.evaluate(() => state.view), 'registre');
+    // ensuite, un toucher fait ce qu'il doit
+    await toucher('#m-onglets button[data-o="analyse"]');
+    assert.equal(await page.evaluate(() => state.view), 'analyse');
     assert.equal(await page.textContent('#m-compte-nom'), 'Livret A'); // l'analyse suit le compte choisi
     assert.deepEqual(page.erreurs, []);
   } finally { await navigateur.close(); }
