@@ -719,13 +719,24 @@ function ouvrirFiche(id){
 function fermerFiche(){const fi=document.getElementById('m-fiche');if(fi)fi.hidden=true;ficheId=null;}
 /* clavier ouvert (la partie visible de l'écran rapetisse) : de la place sous les fenêtres pour pouvoir remonter, et le
    champ en cours de saisie remonte juste au-dessus du clavier (la liste des catégories s'ouvre au-dessus de lui) */
+let hauteurPleine=0;
 function champAuDessusDuClavier(){
   const vv=window.visualViewport;if(!vv)return;
-  const clavier=vv.height<window.innerHeight*0.8;document.body.classList.toggle('clavier',clavier);
-  const a=document.activeElement;if(!clavier||!a||!/^(INPUT|TEXTAREA)$/.test(a.tagName))return;
+  // dans l'appli, Android rétrécit toute la page quand le clavier s'ouvre : on compare à la plus grande hauteur vue
+  hauteurPleine=Math.max(hauteurPleine,window.innerHeight,vv.height);
+  const clavier=vv.height<hauteurPleine*0.8;document.body.classList.toggle('clavier',clavier);
+  const a=document.activeElement;if(!a||!/^(INPUT|TEXTAREA)$/.test(a.tagName))return;
   const sc=a.closest('.modal,.dlg');if(!sc)return;
-  setTimeout(()=>{const r=a.getBoundingClientRect(),bas=vv.offsetTop+vv.height-16;
-    if(r.bottom>bas)sc.scrollTop+=r.bottom-bas+Math.min(120,vv.height*0.2);},60);
+  setTimeout(()=>{
+    // le bas visible : le haut du clavier, ou plus haut celui des boutons du bas (Dupliquer, Enregistrer…) qui restent au-dessus
+    let bas=vv.offsetTop+vv.height;
+    const pied=sc.querySelector('.modal-foot')||(sc.classList.contains('dlg')?document.getElementById('dlgFoot'):null);
+    if(pied){const p=pied.getBoundingClientRect();if(p.height&&p.top<bas&&p.top>vv.offsetTop+vv.height*0.3)bas=p.top;}
+    bas-=12;
+    const r=a.getBoundingClientRect(),haut=vv.offsetTop+12;
+    if(r.bottom>bas)sc.scrollTop+=r.bottom-bas;      // juste au-dessus des boutons
+    else if(r.top<haut)sc.scrollTop-=haut-r.top;      // ou pas caché en haut
+  },60);
 }
 // depuis la fiche : en fermant le formulaire (Retour, croix, Enregistrer), on revient à la fiche, pas à la liste
 function modifierDepuisFiche(champ){const id=ficheId;fermerFiche();openModal(id,champ);state.retourFiche=id;}
@@ -1045,6 +1056,8 @@ async function boot(){
     brancherListeVentilation('vent-box');
     // le clavier s'ouvre : le champ en cours de saisie remonte au-dessus de lui (sinon il restait caché dessous)
     if(window.visualViewport)visualViewport.addEventListener('resize',champAuDessusDuClavier);
+    window.addEventListener('resize',champAuDessusDuClavier);
+    document.addEventListener('focusin',e=>{if(e.target.closest&&e.target.closest('.modal,.dlg'))champAuDessusDuClavier();}); // clavier déjà ouvert
     // « Entrée » / « OK » du clavier dans une recherche : le clavier se ferme pour laisser voir les résultats
     ['f-search','ti-search','cat-search'].forEach(id=>{const el=document.getElementById(id);if(!el)return;
       el.setAttribute('enterkeyhint','search');

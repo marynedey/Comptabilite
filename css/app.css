@@ -287,6 +287,8 @@
   .m-fiche{position:fixed;inset:0;z-index:36;background:var(--paper);overflow-y:auto;display:flex;flex-direction:column;
        padding:env(safe-area-inset-top, 0px) 16px calc(20px + env(safe-area-inset-bottom, 0px))}
   .m-fiche[hidden]{display:none}
+  /* colonne qui défile : ses blocs gardent leur taille (sinon une longue liste écrasait la zone des barres) */
+  .m-fiche>*{flex-shrink:0}
   .mf-tete{display:flex;align-items:center;justify-content:space-between;min-height:56px;margin:0 -8px}
   .mf-tete button{min-height:44px;border:0;background:none;font-weight:600;font-size:1rem}
   .mf-tete .mf-retour{width:44px;justify-content:center;padding:0;color:var(--ink)}
@@ -561,8 +563,6 @@
   .cat-sugg[hidden]{display:none}
   .cat-sugg button{display:block;width:100%;min-height:44px;border:0;border-radius:8px;background:none;text-align:left;padding:0 12px;font-size:.95rem;color:var(--ink);justify-content:flex-start}
   .cat-sugg button:active{background:var(--brand-soft)}
-  /* clavier ouvert : de la place sous le contenu, pour que le dernier champ puisse remonter au-dessus du clavier */
-  body.mobile.clavier .modal,body.mobile.clavier .dlg{padding-bottom:50vh}
   /* une feuille ou une fenêtre ouverte : l'écran derrière ne défile plus (le doigt fait défiler la feuille seulement) */
   body.mobile.filtres-ouverts main,body.mobile:has(#overlay.show) main,body.mobile:has(#m-fiche:not([hidden])) main,body.mobile:has(#m-catana:not([hidden])) main,
   body.mobile:has(#dlgBack.show) main,body.mobile:has(#m-comptes:not([hidden])) main{overflow:hidden}
