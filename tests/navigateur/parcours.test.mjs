@@ -1251,8 +1251,15 @@ test('téléphone, gestion : tiers (tri, toucher → opérations), catégories (
     assert.equal(await c.locator('.mg-nom', { hasText: 'Courses' }).count(), 0, 'repliée pendant la recherche');
     await c.locator('button[aria-label="Déplier Alimentation"]').click();
     assert.equal(await c.locator('.mg-nom', { hasText: 'Courses' }).count(), 1);
-    await page.fill('#cat-search', '');
-    await page.evaluate(() => renderCategories());
+    // la croix vide la recherche (absente quand le champ est vide), assez grande pour le doigt
+    const croix = page.locator('#v-categories .croix');
+    assert.ok(await croix.isVisible(), 'croix visible avec du texte');
+    const cb = await croix.boundingBox(), sb = await page.locator('#cat-search').boundingBox();
+    assert.ok(cb.width >= 44 && cb.x + cb.width <= sb.x + sb.width + 1, 'croix dans le champ, 44 px');
+    await croix.click();
+    assert.equal(await page.inputValue('#cat-search'), '');
+    assert.ok(!(await croix.isVisible()), 'croix cachée champ vide');
+    assert.equal(await c.locator('.mg-nom', { hasText: 'Courses' }).count(), 0, 'liste revenue sans recherche');
     // corbeille : restaurer, vider
     await page.evaluate(() => { run("UPDATE operation SET supprime=1,date_suppression='2026-10-22 10:00:00' WHERE tiers_id IN (SELECT id FROM tiers WHERE nom IN ('Pharmacie','Boulangerie'))"); setView('corbeille'); });
     const b = page.locator('#m-corbeille');

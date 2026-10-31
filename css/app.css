@@ -217,6 +217,9 @@
   /* croix pour vider la recherche : assez grande pour le doigt */
   body.mobile #f-clear{width:44px;height:44px;right:2px!important;padding:0!important;font-size:1.6rem!important;justify-content:center;border-radius:22px!important}
   body.mobile #f-search{padding-right:48px!important}
+  body.mobile .croix-zone{max-width:none!important;width:100%}
+  body.mobile .croix-zone .croix{width:44px;height:44px;right:2px;font-size:1.6rem;border-radius:22px}
+  body.mobile .croix-zone input{padding-right:48px}
   body.mobile .m-soldes{display:block;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 16px}
   .m-soldes .ms-k{font-size:.82rem;color:var(--ink-2)}
   .m-soldes .ms-reel{font-size:2rem;font-weight:700;letter-spacing:-.02em;line-height:1.2}
@@ -1006,3 +1009,9 @@
   .spin{width:22px;height:22px;border:2.5px solid var(--line-2);border-top-color:var(--brand);border-radius:50%;margin:0 auto 10px;animation:sp .8s linear infinite}
   @keyframes sp{to{transform:rotate(360deg)}}
   @media (prefers-reduced-motion: reduce){.spin{animation-duration:2s}}
+  /* croix des barres de recherche (ajouterCroix) : visible seulement quand le champ n'est pas vide */
+  .croix-zone{position:relative;display:flex}
+  .croix-zone input{flex:1;width:100%;min-width:0;padding-right:30px}
+  .croix-zone .croix{position:absolute;right:4px;top:50%;transform:translateY(-50%);border:0;background:transparent;
+       padding:2px 6px;font-size:1rem;line-height:1;color:var(--ink-3);display:flex;align-items:center;justify-content:center}
+  .croix-zone input:placeholder-shown+.croix{display:none}

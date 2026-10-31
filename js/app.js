@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.18.1'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.18.2'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -1063,6 +1063,7 @@ async function boot(){
       el.setAttribute('enterkeyhint','search');
       el.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();el.blur();}});});
   }
+  ['ti-search','cat-search'].forEach(id=>ajouterCroix(document.getElementById(id)));
   if(!(await prendreLaFenetre())){dejaOuvert();return;}
   if(canalFenetre)canalFenetre.onmessage=e=>{if(e.data==='montre-toi')repondreAuSigne();};
   busy('Démarrage du moteur…');
@@ -4718,7 +4719,7 @@ async function relChercherOp(rel){
     '<div id="rlist" class="rlues" style="max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:8px"></div>';
   const ok=await dlgOpen({title:'Lier à une opération du registre',msg:'',html,wide:true,
     buttons:[{t:'Annuler',v:false},{t:'Lier',v:true,p:true,before:()=>{if(!REL._pick){toast('Choisis une opération dans la liste');return false;}}}],
-    onOpen:()=>{const q=document.getElementById('rq');if(q){q.value='';relRechFiltrer();q.focus();}}});
+    onOpen:()=>{const q=document.getElementById('rq');if(q){ajouterCroix(q);q.value='';relRechFiltrer();q.focus();}}});
   return ok?REL._pick:null;
 }
 async function relLier(section,i){
@@ -4831,6 +4832,20 @@ function toastDurable(msg){const t=document.getElementById('toast');t.textConten
 
 function syncClear(){const v=document.getElementById('f-search').value;
   document.getElementById('f-clear').style.display=v?'block':'none';}
+// croix pour vider une barre de recherche : affichée seulement quand le champ n'est pas vide (CSS :placeholder-shown,
+// donc juste aussi quand le texte est remis par le code) ; vider = comme si on avait effacé au clavier (événement input)
+function ajouterCroix(input){
+  if(!input||input.parentElement.classList.contains('croix-zone'))return;
+  const z=document.createElement('span');z.className='croix-zone';
+  ['width','maxWidth','minWidth','flex'].forEach(k=>{if(input.style[k]){z.style[k]=input.style[k];input.style[k]='';}});
+  input.parentElement.insertBefore(z,input);z.appendChild(input);
+  if(!input.placeholder)input.placeholder=' ';
+  const b=document.createElement('button');b.type='button';b.className='croix';b.textContent='×';
+  b.title='Effacer la recherche (Échap)';b.setAttribute('aria-label','Effacer la recherche');
+  b.addEventListener('click',()=>{input.value='';input.dispatchEvent(new Event('input',{bubbles:true}));
+    if(!ecranTactile())input.focus();});
+  z.appendChild(b);
+}
 function clearSearch(){const e=document.getElementById('f-search');e.value='';syncClear();goPage(1);if(!ecranTactile())e.focus();}
 bindDate('f-from',()=>goPage(1));bindDate('f-to',()=>goPage(1));
 bindDate('an-from',()=>renderAnalyse());bindDate('an-to',()=>renderAnalyse());
