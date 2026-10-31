@@ -30,6 +30,7 @@
     <a data-v="releve" onclick="setView('releve')" id="nav-releve" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h10l6 6v10H4z"/><path d="M9 14l2 2 4-4"/></svg>Relevé en cours</a>
     <a data-v="recurrences" title="Opérations récurrentes (touche 5)" onclick="setView('recurrences')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>Opérations récurrentes</a>
     <a data-v="corbeille" title="Corbeille (touche 6)" onclick="setView('corbeille')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg>Corbeille <span id="nav-trash-n" style="margin-left:auto;font-size:.75rem;opacity:.8"></span></a>
+    <a data-v="guide" title="Comment se servir de l'app" onclick="setView('guide')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 114 2c-1 .6-1.5 1.1-1.5 2.2M12 17h.01"/></svg>Guide</a>
     <a data-v="reglages" title="Réglages de cet appareil" onclick="setView('reglages')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>Réglages</a>
   </nav>
 </aside>
@@ -302,6 +303,11 @@
     <p class="m-version" id="plus-version"></p>
   </section>
 
+  <section class="view" id="v-guide">
+    <div class="top"><div><h1>Guide</h1><div class="meta">Les principales fonctions de l'app, écran par écran.</div></div></div>
+    <div class="rg-liste" id="guide-liste"></div>
+  </section>
+
   <section class="view" id="v-reglages">
     <div class="top">
       <div><h1>Réglages</h1>
@@ -363,6 +369,7 @@
     </details>
     </div>
     <div class="rg-version" id="rg-version"></div>
+    <div class="rg-version"><button id="rg-maj" onclick="rechercherMaj(this)">Rechercher une mise à jour</button></div>
   </section>
 </main>
 

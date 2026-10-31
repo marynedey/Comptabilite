@@ -239,6 +239,13 @@ test('appli Android : bienvenue, pas de service worker, sauvegarde native, mise 
     assert.deepEqual(await appels(page, 'installer'), [{ url: SITE_APPLI + 'mes-comptes-9.9.9.apk' }]);
     await page.click('#maj-appli button:has-text("Plus tard")');
     assert.equal(await page.isVisible('#maj-appli'), false);
+    // « Rechercher une mise à jour » (Plus) : la version remise à plus tard est reproposée tout de suite
+    await page.click('#m-onglets button[data-o="plus"]');
+    await page.click('#plus-groupes button:has-text("Rechercher une mise à jour")');
+    await page.locator('#maj-appli:has-text("9.9.9")').waitFor();
+    await page.locator('#toast:has-text("Version 9.9.9 disponible")').waitFor();
+    await page.click('#maj-appli button:has-text("Plus tard")');
+    await page.click('#m-onglets button[data-o="registre"]');
 
     // Sauvegarde : le fichier part au module natif (Téléchargements), pas en téléchargement.
     await ajouterOperation(page, { dest: 'Boulangerie du coin', montant: '4,50', date: '05/01/26', cat: 'Alimentation' });
@@ -795,8 +802,41 @@ test('téléphone : écran Plus — sauvegarde en attente, sauvegarder, outils',
     const [choix] = await Promise.all([page.waitForEvent('filechooser'), page.click('#m-charger')]);
     assert.equal(await choix.element().evaluate(e => e.id), 'fileDb');
     assert.match(await page.textContent('#plus-version'), new RegExp(VERSION.replaceAll('.', '\\.')));
+    // « Rechercher une mise à jour » et « Guide » dans le groupe Appli
+    const appli = page.locator('#plus-groupes .m-liste').last();
+    for (const nom of ['Rechercher une mise à jour', 'Guide', 'Réglages']) assert.equal(await appli.locator(`button:has-text("${nom}")`).count(), 1, nom);
+    await page.click('#plus-groupes button:has-text("Guide")');
+    assert.equal(await page.textContent('#m-titre'), 'Guide');
+    assert.equal(await page.getAttribute('#m-onglets button[data-o="plus"]', 'aria-current'), 'page');
+    const rubriques = page.locator('#guide-liste details');
+    assert.deepEqual(await rubriques.locator('summary b').allTextContents(),
+      ['Opérations', 'Fiche d’une opération', 'Analyse', 'Échéances', 'Catégories et tiers', 'Sauvegarder', 'Relevé de banque', 'Réglages et mises à jour']);
+    assert.equal(await page.isVisible('#guide-liste li'), false, 'tout replié');
+    await rubriques.locator('summary', { hasText: 'Opérations' }).first().click();
+    assert.match(await rubriques.first().textContent(), /Le bouton \+ en bas à droite/);
+    assert.equal(await page.evaluate(() => document.querySelector('main').scrollWidth <= innerWidth), true);
     assert.deepEqual(page.erreurs, []);
   } finally { await navigateur.close(); }
+});
+test('rechercher une mise à jour (navigateur) : « dernière version », puis la nouvelle version proposée ; guide sur PC', async () => {
+  const { navigateur, page } = await ouvrir();
+  try {
+    if (!await swActif(page)) await allerA(page);
+    await page.evaluate(() => setView('reglages'));
+    await page.click('#rg-maj');
+    await page.locator('#toast:has-text("Tu as la dernière version")').waitFor();
+    assert.ok(await page.isHidden('#maj'));
+    versionPubliee = '99.0.0';
+    await page.click('#rg-maj');
+    await page.locator('#toast:has-text("Nouvelle version prête")').waitFor();
+    assert.ok(await page.isVisible('#maj'), 'bandeau affiché');
+    assert.match(await page.textContent('#brandver'), new RegExp(`v${VERSION.replaceAll('.', '\\.')}`), 'pas installée toute seule');
+    // le guide, depuis la barre de gauche, avec les mots du PC
+    await page.click('.nav a[data-v="guide"]');
+    await page.click('#guide-liste summary:has-text("Opérations")');
+    assert.match(await page.textContent('#guide-liste'), /Le bouton Ajouter \(ou la touche A\)/);
+    assert.deepEqual(page.erreurs, []);
+  } finally { versionPubliee = null; await navigateur.close(); }
 });
 
 /* opérations d'exemple (le 26/10/2026) */

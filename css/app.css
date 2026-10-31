@@ -1015,3 +1015,10 @@
   .croix-zone .croix{position:absolute;right:4px;top:50%;transform:translateY(-50%);border:0;background:transparent;
        padding:2px 6px;font-size:1rem;line-height:1;color:var(--ink-3);display:flex;align-items:center;justify-content:center}
   .croix-zone input:placeholder-shown+.croix{display:none}
+  /* guide (écran Plus › Guide, barre latérale sur PC) */
+  .guide-corps{margin:0;padding:2px 16px 16px 52px;display:flex;flex-direction:column;gap:8px;font-size:.94rem;line-height:1.45}
+  .guide-corps li::marker{color:var(--brand)}
+  body.mobile #v-guide .top{display:none}
+  /* « Rechercher une mise à jour » : l'icône tourne pendant la recherche */
+  .cherche svg:first-child{animation:sp 1s linear infinite}
+  #rg-maj.cherche{opacity:.6}
