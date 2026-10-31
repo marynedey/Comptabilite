@@ -455,3 +455,17 @@ test('analyse d\'une catégorie : fenêtre choisie (‹ ›), moyenne sur toute 
   assert.equal(app.moyenneCategorie(M), Math.round(-1200 / 11));         // sinon sans le dernier (en cours)
   assert.deepEqual(js(app.periodesCategorie(L, 'annee', auj, '2025')).map(p => p.cle), ['2025']);
 });
+
+test('soldes du jour : seulement les opérations affichées, mêmes valeurs que le calcul sur tout le compte', () => {
+  app.run("INSERT INTO compte(nom,type,solde_initial) VALUES('Soldes','courant',10000)");
+  const c = app.lastId();
+  for (let i = 0; i < 300; i++) app.run("INSERT INTO operation(compte_id,date_operation,montant,statut,supprime,previsionnel) VALUES(?,?,?,?,?,0)",
+    [c, '2026-' + String(1 + (i * 7) % 12).padStart(2, '0') + '-' + String(1 + (i * 13) % 28).padStart(2, '0'), (i % 7 - 3) * 1000 + i, i % 11 === 0 ? 'annule' : 'pointe', i % 17 === 0 ? 1 : 0]);
+  const tous = new Map([...app.qy(`SELECT id,(SELECT solde_initial FROM compte WHERE id=$a)+SUM(montant) OVER (ORDER BY date_operation,id) s
+    FROM operation WHERE compte_id=$a AND supprime=0 AND statut<>'annule'`, { $a: c })].map(r => [r.id, r.s]));
+  const page = [...app.qy(`SELECT id,date_operation d,montant m,statut st FROM operation WHERE compte_id=? AND supprime=0
+    AND montant>0 ORDER BY date_operation DESC,id DESC LIMIT 40`, [c])]; // une liste filtrée : des trous entre les lignes
+  const sol = app.soldesApres(c, page);
+  for (const o of page) assert.equal(sol.get(o.id), o.st === 'annule' ? undefined : tous.get(o.id), 'opération ' + o.id);
+  assert.equal(app.soldesApres(c, []).size, 0);
+});

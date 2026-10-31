@@ -47,6 +47,10 @@ App web de comptes personnels, en français, hors ligne. Publiée sur https://ma
 - Montants et textes qui ne doivent pas passer à la ligne (anneau, comparaisons de l'analyse, total d'une catégorie) :
   `ajusterTaille` réduit la police ; mesurer sur un écran affiché (pas `hidden`).
 - Plein écran dans l'appli : pas `requestFullscreen` ; barres d'Android cachées par SystemBars (`barresAppliCachees`).
+- Fluidité : l'écran affiché se garde dans `localStorage` (`mc.nav`), jamais dans la base (sinon réécriture complète de la
+  base à chaque navigation) ; soldes du jour de la liste calculés pour les seules lignes affichées (`soldesApres`) ;
+  pas de `:hover` sans `@media (hover:hover)` (il reste collé au doigt sur Android) ; pas de sélecteur `[style*=…]`
+  dans un `:has()` (recalcul de toute la page à chaque changement de style).
 - Barres (analyse, analyse d'une catégorie) : hauteurs en px (`hauteurBarre`), pas en % (pas toujours suivi sur Android).
 - Réglages d'affichage (`REGLAGES` : thème auto/clair/sombre, barres de recherche en haut/bas, montants masqués à
   l'ouverture) : `localStorage` `mc.reglages` de l'appareil. Thème forcé = `html[data-theme]` ; toute couleur sombre

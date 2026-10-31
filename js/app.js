@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.17.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.18.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -318,6 +318,8 @@ document.addEventListener('focusin',e=>{
 const fmt=new Intl.NumberFormat('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2});
 const fmt0=new Intl.NumberFormat('fr-FR',{maximumFractionDigits:0});
 const eur=c=>(c<0?'-':'')+fmt.format(Math.abs(c)/100)+' €';
+// montant resserré (centre de l'anneau) : espace fine avant « € », sans signe
+const eurSerre=c=>eur(Math.abs(c)).replace(/\s€$/,'\u202F€');
 const eur0=c=>fmt0.format(Math.round(c/100))+' €';
 const clsSigne=c=>c>0?'credit':c<0?'debit':'zero';
 const catParts=c=>(c||'').split(/\s*:\s*/).filter(Boolean);
@@ -547,12 +549,14 @@ function moisFiltre(delta){
   const v=document.getElementById('f-periode').value;
   setPeriode('f',moisDecale(v,delta,new Date()));
 }
+// la ligne « du … au … » de la feuille des filtres n'occupe de place que si les dates sont affichées
+function majDatesFiltre(){const w=document.querySelector('.f-dates'),d=document.getElementById('f-from');if(w&&d)w.classList.toggle('vide',d.style.display==='none');}
 function ouvrirFiltres(){document.body.classList.add('filtres-ouverts');}
 /* glisser une feuille vers le bas la ferme : depuis sa tête (poignée, titre) toujours, ailleurs seulement
    quand elle est tout en haut (sinon le doigt la fait défiler). Elle suit le doigt, puis se ferme au-delà
    d'un quart de sa hauteur (120 px au plus), ou revient en place. */
 function glisserPourFermer(feuille,fermer){
-  let y0=null,dy=0,actif=false,tete=false;
+  let y0=null,dy=0,actif=false,tete=false,img=0;
   feuille.addEventListener('touchstart',e=>{
     if(e.touches.length!==1){y0=null;return;}
     y0=e.touches[0].clientY;dy=0;actif=false;tete=!!e.target.closest('.m-feuille-tete');
@@ -565,10 +569,12 @@ function glisserPourFermer(feuille,fermer){
       if(dy<0||!(tete||feuille.scrollTop<=0)||e.target.closest('select,input')){y0=null;return;} // défilement normal
       actif=true;feuille.classList.add('glisse');
     }
-    e.preventDefault();feuille.style.transform='translateY('+Math.max(0,dy)+'px)';
+    e.preventDefault();
+    if(!img)img=requestAnimationFrame(()=>{img=0;feuille.style.transform='translate3d(0,'+Math.max(0,dy)+'px,0)';}); // une fois par image
   },{passive:false});
   const fin=()=>{
     y0=null;if(!actif)return;actif=false;
+    if(img){cancelAnimationFrame(img);img=0;}
     feuille.classList.remove('glisse');feuille.style.transform='';
     if(dy>Math.min(120,feuille.offsetHeight/4))fermer();
   };
@@ -597,6 +603,19 @@ function filtresActifsMobile(){
   if(state.fCat)out.push(['Catégorie : '+state.fCat,'retirerFiltreCat()']);
   return out;
 }
+/* solde du compte juste après chaque opération affichée (ordre date, id ; ni supprimées ni annulées).
+   Calculé seulement entre la plus ancienne et la plus récente opération affichée, au lieu de tout le compte. */
+function soldesApres(acc,rows){
+  const res=new Map(),k=o=>o.d+'|'+String(o.id).padStart(12,'0');
+  const v=rows.filter(o=>o.st!=='annule');if(!v.length)return res;
+  let hi=v[0],lo=v[0];v.forEach(o=>{if(k(o)>k(hi))hi=o;if(k(o)<k(lo))lo=o;});
+  let cum=scal(`SELECT (SELECT solde_initial FROM compte WHERE id=$a)+COALESCE(SUM(montant),0) FROM operation
+    WHERE compte_id=$a AND supprime=0 AND statut<>'annule' AND (date_operation<$hd OR (date_operation=$hd AND id<=$hi))`,{$a:acc,$hd:hi.d,$hi:hi.id})||0;
+  qy(`SELECT id,montant m FROM operation WHERE compte_id=$a AND supprime=0 AND statut<>'annule'
+    AND (date_operation>$ld OR (date_operation=$ld AND id>=$li)) AND (date_operation<$hd OR (date_operation=$hd AND id<=$hi))
+    ORDER BY date_operation DESC,id DESC`,{$a:acc,$ld:lo.d,$li:lo.id,$hd:hi.d,$hi:hi.id}).forEach(o=>{res.set(o.id,cum);cum-=o.m;});
+  return res;
+}
 function renderOperationsMobile(){
   const a=state.acc,r=soldesCompte(a),hz=document.getElementById('f-horizon').value;
   document.getElementById('m-soldes').innerHTML=
@@ -618,12 +637,10 @@ function renderOperationsMobile(){
     '<div class="m-ligne-filtrer"><span class="m-nb-ops" id="m-nb-ops">'+total.toLocaleString('fr-FR')+' opération'+(total>1?'s':'')+'</span>'+
     '<button class="m-filtrer" onclick="ouvrirFiltres()">Filtrer'+(actifs.length?' · '+actifs.length:'')+'</button></div>';
   const lim=state.mLimite||MOBILE_PAR_LOT;
-  const rows=qy(`WITH bal AS (SELECT id, SUM(montant) OVER (ORDER BY date_operation,id) cum
-      FROM operation WHERE compte_id=$acc AND supprime=0 AND statut<>'annule')
-    SELECT o.id,o.date_operation d,o.montant m,o.statut st,o.previsionnel pv,o.cat_path cat,t.nom dest,
-      (SELECT solde_initial FROM compte WHERE id=$acc)+b.cum solde
-    FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id LEFT JOIN bal b ON b.id=o.id
+  const rows=qy(`SELECT o.id,o.date_operation d,o.montant m,o.statut st,o.previsionnel pv,o.cat_path cat,t.nom dest
+    FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id
     `+w+` ORDER BY `+orderClause()+` LIMIT $lim`,Object.assign({},p,{$lim:lim}));
+  const sol=soldesApres(state.acc,rows);rows.forEach(o=>{o.solde=sol.get(o.id);});
   const auj=new Date(),parJour=state.sort==='date';
   let html='',jour=null;
   rows.forEach(o=>{
@@ -700,7 +717,18 @@ function ouvrirFiche(id){
   fi.hidden=false;fi.scrollTop=0;
 }
 function fermerFiche(){const fi=document.getElementById('m-fiche');if(fi)fi.hidden=true;ficheId=null;}
-function modifierDepuisFiche(champ){const id=ficheId;fermerFiche();openModal(id,champ);}
+/* clavier ouvert (la partie visible de l'écran rapetisse) : de la place sous les fenêtres pour pouvoir remonter, et le
+   champ en cours de saisie remonte juste au-dessus du clavier (la liste des catégories s'ouvre au-dessus de lui) */
+function champAuDessusDuClavier(){
+  const vv=window.visualViewport;if(!vv)return;
+  const clavier=vv.height<window.innerHeight*0.8;document.body.classList.toggle('clavier',clavier);
+  const a=document.activeElement;if(!clavier||!a||!/^(INPUT|TEXTAREA)$/.test(a.tagName))return;
+  const sc=a.closest('.modal,.dlg');if(!sc)return;
+  setTimeout(()=>{const r=a.getBoundingClientRect(),bas=vv.offsetTop+vv.height-16;
+    if(r.bottom>bas)sc.scrollTop+=r.bottom-bas+Math.min(120,vv.height*0.2);},60);
+}
+// depuis la fiche : en fermant le formulaire (Retour, croix, Enregistrer), on revient à la fiche, pas à la liste
+function modifierDepuisFiche(champ){const id=ficheId;fermerFiche();openModal(id,champ);state.retourFiche=id;}
 function dupliquerDepuisFiche(){const id=ficheId;fermerFiche();openModal(id);dupliquerOp();}
 async function corbeilleDepuisFiche(){
   const id=ficheId;state.editing=id;await deleteOp();
@@ -744,6 +772,8 @@ function lignesSens(lignes,sens,vir,chemin){
     if(l.vir&&!vir)return false;
     if(sens==='debit'?l.m>=0:l.m<=0)return false;
     const p=catParts(l.vir?'Virements : '+(l.ti||'Virement'):l.cat);
+    // dernier niveau « Sans sous-catégorie » : les opérations rangées directement dans la catégorie du dessus
+    if(chemin[chemin.length-1]===SANS_SOUS){const base=chemin.slice(0,-1);return p.length===base.length&&base.every((c,i)=>p[i]===c);}
     return chemin.every((c,i)=>p[i]===c);
   });
 }
@@ -764,6 +794,14 @@ function ecartPct(a,b){if(!b)return null;const p=Math.round((a-b)/b*100);return 
 /* barres du détail d'une catégorie : dernière période affichée (fin) quand on choisit la période sel.
    Hors de la fenêtre : sel tout à droite. Dans la moitié droite : rien ne bouge. Dans la moitié gauche : les
    barres se décalent pour mettre sel au milieu, sans dépasser la période en cours (max). */
+const NB_BARRES=7; // nombre impair : la barre choisie peut être au milieu
+/* les barres glissent d'autant de crans que la fenêtre s'est décalée (au lieu de sauter d'un coup) */
+function animerDecalage(c,d){
+  if(!c||!d||!c.animate||(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches))return;
+  const b=c.querySelectorAll('button');if(b.length<2)return;
+  const pas=b[1].getBoundingClientRect().left-b[0].getBoundingClientRect().left;
+  b.forEach(x=>x.animate([{transform:'translateX('+(d*pas)+'px)'},{transform:'none'}],{duration:280,easing:'cubic-bezier(.2,.7,.3,1)'}));
+}
 const rangPeriode=k=>k.length===4?+k:(+k.slice(0,4))*12+(+k.slice(5))-1;
 function fenetreBarres(fin,sel,n,max){
   if(!fin||rangPeriode(sel)>rangPeriode(fin)||rangPeriode(fin)-rangPeriode(sel)>=n)return sel;
@@ -776,8 +814,8 @@ function anaMobileSens(s){MA.sens=s;MA.chemin=[];if(state.view!=='analyse')setVi
 function anaMobileAller(k){MA.debut=k;MA.comp=null;renderAnalyseMobile();}
 function anaMobileDecaler(d){MA.debut=periodeDecalee(MA.debut,d);MA.comp=null;MA.fin=null;renderAnalyseMobile();}
 function anaMobileUnite(u){const auj=new Date();MA.unite=u;MA.debut=u==='annee'?String(auj.getFullYear()):clefMois(auj);MA.comp=null;MA.chemin=[];MA.fin=null;renderAnalyseMobile();}
-function anaMobileDescendre(nom){MA.direct=false;MA.chemin.push(nom);if(MA.chemin.length===1)MA.fin=null;renderAnalyseMobile();document.querySelector('main').scrollTop=0;}
-function anaMobileRemonter(){MA.direct=false;MA.chemin.pop();renderAnalyseMobile();}
+function anaMobileDescendre(nom){MA.chemin.push(nom);if(MA.chemin.length===1)MA.fin=null;renderAnalyseMobile();document.querySelector('main').scrollTop=0;}
+function anaMobileRemonter(){MA.chemin.pop();renderAnalyseMobile();}
 /* périodes proposées pour la comparaison : tous les mois (ou années) depuis la 1re opération du compte */
 function periodesDuCompte(acc,unite,auj){
   const d0=scal('SELECT MIN(date_operation) FROM operation WHERE compte_id=? AND supprime=0',[acc]);
@@ -884,7 +922,7 @@ function renderEvolutionMobile(acc,auj){
   document.getElementById('m-analyse').innerHTML=h;
 }
 function renderAnalyseMobile(){
-  const acc=state.acc,auj=new Date();if(!acc)return;
+  const acc=state.acc,auj=new Date();if(!acc)return;let decalageBarres=0;
   if(MA.sens==='evolution'){renderEvolutionMobile(acc,auj);return;}
   if(!MA.debut)MA.debut=clefMois(auj);
   const comp=MA.comp||periodeDecalee(MA.debut,-1),lim=limiteAnneeEnCours(MA.debut,auj);
@@ -900,7 +938,7 @@ function renderAnalyseMobile(){
     optsComp.map(k=>'<option value="'+k+'"'+(k===comp?' selected':'')+'>'+libellePeriodeAna(k)+'</option>').join('')+'</select>';
   // « vs 2025 (janv. → sept.) » reste d'un seul tenant : la ligne se coupe avant, pas au milieu
   // « vs 2025 » sans répéter « (janv. → sept.) » : les mêmes mois que la période affichée en haut
-  const nomCc=libellePeriodeAna(comp).toLowerCase();
+  const nomCc=comp.length===4?comp:comp.slice(5)+'/'+comp.slice(0,4); // « 09/2025 » plutôt que « septembre 2025 »
   const ecartLigne=(v,vc)=>{const d=v-vc;return d===0?'<span class="nw">comme en '+nomCc+'</span>'
     :(d>0?'+':'−')+eur(Math.abs(d)).replace('-','')+' <span class="nw">vs '+nomCc+'</span>';};
   let h='';
@@ -918,7 +956,7 @@ function renderAnalyseMobile(){
     const arcs=parts.map(p=>{const pc=tot?p.v/tot*100:0,a='<circle cx="21" cy="21" r="15.9" fill="none" stroke="'+p.col+'" stroke-width="5" pathLength="100" stroke-dasharray="'+pc.toFixed(2)+' '+(100-pc).toFixed(2)+'" stroke-dashoffset="'+(-pos).toFixed(2)+'"/>';pos+=pc;return a;}).join('');
     h+='<div class="ma-anneau"><svg viewBox="0 0 42 42" role="img" aria-label="'+esc(motSens+' : '+parts.map(p=>p.nom+' '+Math.round(tot?p.v/tot*100:0)+' %').join(', '))+'">'+
       '<circle cx="21" cy="21" r="15.9" fill="none" stroke="var(--line)" stroke-width="5"/>'+arcs+'</svg>'+
-      '<div class="ma-centre"><b class="num">'+eur(tot).replace('-','')+'</b><small>'+motSens.toLowerCase()+'</small></div></div>';
+      '<div class="ma-centre"><b>'+eurSerre(tot)+'</b><small>'+motSens.toLowerCase()+'</small></div></div>';
     h+='<div class="ma-compare">'+(ec?'<span class="ma-ecart '+classeEc+'">'+ec+'</span>':'')+'<span>par rapport à</span>'+selComp+'</div>';
     h+='<div class="ma-puces"><button aria-pressed="'+MA.vir+'" onclick="MA.vir=!MA.vir;renderAnalyseMobile()">Inclure les virements</button></div>';
     h+='<div class="ma-liste">'+(groupes.length?groupes.map((g,i)=>'<button class="ma-ligne" onclick="anaMobileDescendre('+esc(JSON.stringify(g.nom))+')">'+
@@ -932,25 +970,28 @@ function renderAnalyseMobile(){
       '<div><small>'+esc([motSens].concat(MA.chemin.slice(0,-1)).join(' › '))+' › '+nomP+'</small><h2>'+esc(nom)+'</h2></div></div>';
     h+='<div class="ma-total"><b class="num">'+eur(tot).replace('-','')+'</b><span class="ma-ecart '+classeEc+'">'+ecartLigne(tot,totC)+'</span></div>';
     // 6 mois (ou années) de cette catégorie ; la fenêtre ne bouge que si la barre choisie passe dans la moitié gauche
-    MA.fin=fenetreBarres(MA.fin,MA.debut,6,MA.unite==='annee'?String(auj.getFullYear()):clefMois(auj));
-    const ps=[];for(let i=5;i>=0;i--)ps.push(periodeDecalee(MA.fin,-i));
+    // 7 barres : la barre choisie au milieu (sauf vers la période en cours, qu'on ne dépasse pas)
+    const finAvant=MA.fin;
+    MA.fin=fenetreBarres(MA.fin,MA.debut,NB_BARRES,MA.unite==='annee'?String(auj.getFullYear()):clefMois(auj));
+    decalageBarres=finAvant&&finAvant.length===MA.fin.length?rangPeriode(MA.fin)-rangPeriode(finAvant):0;
+    const ps=[];for(let i=NB_BARRES-1;i>=0;i--)ps.push(periodeDecalee(MA.fin,-i));
     const vals=ps.map(k=>totalAnalyse(lignesAnalyse(acc,k,lim),MA.sens,MA.vir,MA.chemin)),max=Math.max(1,...vals);
     // toucher une barre : le détail de ce mois (ou de cette année), dans la même catégorie
-    h+='<div class="ma-barres">'+
+    h+='<div class="ma-barres" style="grid-template-columns:repeat('+NB_BARRES+',minmax(0,1fr))">'+
       ps.map((k,i)=>'<button'+(k===MA.debut?' class="actuel" aria-current="true"':'')+' onclick="anaMobileAller(\''+k+'\')" aria-label="'+esc(libellePeriodeAna(k)+' : '+eur(vals[i]).replace('-',''))+'">'+
         '<span style="height:'+hauteurBarre(vals[i],max,66)+'px"></span><small>'+(k.length===4?k:MOIS_COURT[+k.slice(5)-1])+'</small></button>').join('')+'</div>';
-    if(groupes.some(g=>!(g.nom==='Sans sous-catégorie'&&g.feuille)||groupes.length>1))
-      // « Sans sous-catégorie » : les opérations rangées directement dans la catégorie ; la toucher ne garde qu'elles en dessous
-      h+='<h3 class="ma-h">Sous-catégories</h3><div class="ma-liste">'+groupes.map(g=>{const direct=g.nom===SANS_SOUS;
-        return '<button class="ma-ligne'+(direct&&MA.direct?' choisie':'')+'" onclick="'+(direct?'MA.direct=!MA.direct;renderAnalyseMobile()':'anaMobileDescendre('+esc(JSON.stringify(g.nom))+')')+'"'+(direct?' aria-pressed="'+!!MA.direct+'"':'')+'>'+
-        '<span class="ma-nom">'+esc(g.nom)+'<small>'+Math.round(tot?g.total/tot*100:0)+' %'+(direct?' · '+(MA.direct?'toucher pour tout revoir':'toucher pour ne voir qu’elles'):'')+'</small></span><span class="num">'+eur(g.total).replace('-','')+'</span>'+
-        (direct?'':fl('M9 6l6 6-6 6'))+'</button>';}).join('')+'</div>';
-    const sousDe=o=>catParts(o.vir?'Virements : '+(o.ti||'Virement'):o.cat)[MA.chemin.length]; // sa sous-catégorie (ou rien)
-    const ops=lignesSens(L,MA.sens,MA.vir,MA.chemin).filter(o=>!MA.direct||!sousDe(o)).sort((a,b)=>b.d.localeCompare(a.d));
-    h+='<h3 class="ma-h">'+(MA.direct?'Opérations sans sous-catégorie':'Opérations')+' ('+ops.length+')</h3><div class="ma-liste">'+ops.map(o=>'<button class="ma-ligne" onclick="ouvrirFiche('+o.id+')">'+
-      '<span class="ma-nom">'+esc(o.ti||'(sans destinataire)')+'<small>'+libJour(o.d,auj)+(groupes.length>1||sousDe(o)?' · '+esc(sousDe(o)||'sans sous-catégorie'):'')+'</small></span><span class="num">'+eur(Math.abs(o.m))+'</span></button>').join('')+'</div>';
+    // des sous-catégories (dont « Sans sous-catégorie ») : on y descend ; sinon, les opérations de la période
+    if(groupes.some(g=>!(g.nom===SANS_SOUS&&g.feuille))||groupes.length>1)
+      h+='<h3 class="ma-h">Sous-catégories</h3><div class="ma-liste">'+groupes.map(g=>'<button class="ma-ligne" onclick="anaMobileDescendre('+esc(JSON.stringify(g.nom))+')">'+
+        '<span class="ma-nom">'+esc(g.nom)+'<small>'+Math.round(tot?g.total/tot*100:0)+' %</small></span><span class="num">'+eur(g.total).replace('-','')+'</span>'+fl('M9 6l6 6-6 6')+'</button>').join('')+'</div>';
+    else{
+      const ops=lignesSens(L,MA.sens,MA.vir,MA.chemin).sort((a,b)=>b.d.localeCompare(a.d));
+      h+='<h3 class="ma-h">Opérations ('+ops.length+')</h3><div class="ma-liste">'+ops.map(o=>'<button class="ma-ligne" onclick="ouvrirFiche('+o.id+')">'+
+        '<span class="ma-nom">'+esc(o.ti||'(sans destinataire)')+'<small>'+libJour(o.d,auj)+'</small></span><span class="num">'+eur(Math.abs(o.m))+'</span></button>').join('')+'</div>';
+    }
   }
   document.getElementById('m-analyse').innerHTML=h;
+  if(MA.chemin.length)animerDecalage(document.querySelector('#m-analyse .ma-barres'),decalageBarres);
   // le total au centre de l'anneau tient dans le cercle : plus petit pour un grand montant
   // (le trou de l'anneau : environ 60 % de la largeur du dessin, pas de toute la ligne)
   const c=document.querySelector('#m-analyse .ma-centre b'),sv=document.querySelector('#m-analyse .ma-anneau svg');
@@ -1002,6 +1043,8 @@ async function boot(){
     brancherListeCategories();
     glisserPourFermer(document.getElementById('f-zone'),fermerFiltres);
     brancherListeVentilation('vent-box');
+    // le clavier s'ouvre : le champ en cours de saisie remonte au-dessus de lui (sinon il restait caché dessous)
+    if(window.visualViewport)visualViewport.addEventListener('resize',champAuDessusDuClavier);
     // « Entrée » / « OK » du clavier dans une recherche : le clavier se ferme pour laisser voir les résultats
     ['f-search','ti-search','cat-search'].forEach(id=>{const el=document.getElementById(id);if(!el)return;
       el.setAttribute('enterkeyhint','search');
@@ -1027,7 +1070,7 @@ async function boot(){
       if(!hasStat&&scal('SELECT COUNT(*) FROM operation')>500)run('ANALYZE');}catch(_){}
   state.acc=+scal('SELECT id FROM compte WHERE actif=1 ORDER BY ordre_affichage,id LIMIT 1');
   remplirMois();brancherMasqueDates();setTimeout(()=>setHauteurRegistre(+getMeta('regRows',12)),0);setTimeout(appliquerLargeurs,0);
-  setTimeout(()=>{try{const nav=getMeta('nav');if(nav){const s=JSON.parse(nav);
+  setTimeout(()=>{try{let nav=null;try{nav=localStorage.getItem('mc.nav');}catch(e){}nav=nav||getMeta('nav');if(nav){const s=JSON.parse(nav);
     if(s.view==='releve'&&!(REL&&REL.res))s.view='registre';
     if(s.view==='plus'&&!document.body.classList.contains('mobile'))s.view='registre'; // « Plus » n'existe que sur téléphone
     _navSuppress=true;restoreNav(s);_navSuppress=false;}}catch(e){}syncHist();installerGardeRetour();},0);
@@ -1070,10 +1113,11 @@ function snapshotNav(){
     tiSearch:(document.getElementById('ti-search')||{}).value||'',
     catVides:!!state.catVides,fSens:state.fSens||null,fCat:state.fCat||null};
 }
-let _navFlush=null;
+/* l'écran affiché, retrouvé à la prochaine ouverture : dans le localStorage de l'appareil. Avant, il était écrit dans la
+   base, ce qui la faisait réécrire en entier (plusieurs Mo) 0,8 s après chaque changement d'écran ou retour : l'appli
+   se figeait un instant. */
 function persistNav(){try{const s=snapshotNav();if(s.view==='releve')return; // on ne restaure pas une comparaison en cours
-    setMeta('nav',JSON.stringify(s));
-    clearTimeout(_navFlush);_navFlush=setTimeout(()=>{try{flushIDB();}catch(e){}},800);
+    localStorage.setItem('mc.nav',JSON.stringify(s));
   }catch(e){}}
 function pushHist(){try{history.pushState(snapshotNav(),'');}catch(e){}persistNav();}
 function syncHist(){try{history.replaceState(Object.assign(snapshotNav(),estBase()?{__base:true}:{}),'');}catch(e){}persistNav();}
@@ -1111,7 +1155,7 @@ function restoreNav(s){
 function navBack(){history.back();}
 function navFwd(){history.forward();}
 function render(){
-  sidebar();
+  if(!document.body.classList.contains('mobile'))sidebar(); // cachée sur téléphone : inutile de la redessiner
   if(state.view==='registre')renderRegistre();
   else if(state.view==='analyse')renderAnalyse();
   else if(state.view==='graphiques')renderGraphiques();
@@ -1276,6 +1320,7 @@ function periodeChanged(pfx){
   const mode=document.getElementById(pfx+'-periode').value,show=mode==='perso'?'':'none';
   const from=document.getElementById(pfx+'-from'),to=document.getElementById(pfx+'-to'),sep=document.getElementById(pfx+'-sep');
   from.style.display=show;to.style.display=show;if(sep)sep.style.display=show;
+  if(pfx==='f')majDatesFiltre();
   if(mode==='perso'){
     // bornes par défaut, visibles et modifiables : 1re opération du compte -> aujourd'hui
     if(!from.value){const d=scal('SELECT MIN(date_operation) FROM operation WHERE compte_id=? AND supprime=0',[state.acc]);
@@ -1436,6 +1481,7 @@ function voirDepuisAnalyse(chemin){
   const mode=document.getElementById('f-periode').value,perso=mode==='perso'?'':'none';
   document.querySelectorAll('#f-periode-wrap .pchip').forEach(b=>b.classList.toggle('on',b.dataset.m===mode));
   ['f-from','f-to','f-sep'].forEach(i=>{const e=document.getElementById(i);if(e)e.style.display=perso;});
+  majDatesFiltre();
   statutsChips().forEach(c=>c.classList.toggle('on',['non_pointe','pointe','rapproche'].indexOf(c.dataset.s)>=0));
   const s=document.getElementById('f-search');
   if(sens==='virement'){state.fCat=null;state.fSens='virement';s.value=chemin;}   // virements : regroupés par compte
@@ -1449,6 +1495,7 @@ function setFSens(v){state.fSens=(state.fSens===v)?null:v;goPage(1);
 function retirerFiltreCat(){state.fCat=null;goPage(1);}
 function resetFilters(){state.fSens=null;state.fCat=null;document.getElementById('f-search').value='';setStatutsTous();setPeriode('f','tout');
   ['f-from','f-to','f-sep'].forEach(i=>{const e=document.getElementById(i);if(e){if(e.value!==undefined)e.value='';e.style.display='none';if(e.classList)e.classList.remove('bad');}});
+  majDatesFiltre();
   state.sort='date';state.dir=-1;syncClear();goPage(1);}
 function filtreAttente(){const chips=statutsChips();
   const sel=chips.filter(c=>c.classList.contains('on')).map(c=>c.dataset.s);
@@ -2035,23 +2082,25 @@ function periodesCategorie(lignes,unite,auj,fin){
 function moyenneCategorie(P,avecDerniere){const p=avecDerniere?P:P.slice(0,-1);return p.length?Math.round(p.reduce((t,x)=>t+x.total,0)/p.length):null;}
 // ‹ › : les barres défilent d'un cran (un mois, ou un an), jamais au-delà de la période en cours
 function caDecaler(d){const auj=new Date(),cur=CA.unite==='annee'?String(auj.getFullYear()):clefMois(auj);
-  const f=periodeDecalee(CA.fin||cur,d);
-  CA.fin=rangPeriode(f)>=rangPeriode(cur)?null:f;renderAnalyseCategorie();}
+  const f=periodeDecalee(CA.fin||cur,d),avant=CA.fin||cur;
+  CA.fin=rangPeriode(f)>=rangPeriode(cur)?null:f;renderAnalyseCategorie();
+  animerDecalage(document.querySelector('#m-catana .ca-barres'),rangPeriode(CA.fin||cur)-rangPeriode(avant));}
 function voirAnalyseCategorie(id){
-  CA.pile=[id];CA.sel=null;CA.fin=null;CA.direct=false;const el=document.getElementById('m-catana');
+  CA.pile=[id];CA.sel=null;CA.fin=null;const el=document.getElementById('m-catana');
   el.hidden=false;renderAnalyseCategorie();el.scrollTop=0; // affiché d'abord : les tailles se mesurent sur un écran visible
 }
 function fermerAnalyseCategorie(){const el=document.getElementById('m-catana');if(el)el.hidden=true;CA.pile=[];}
-function caRetour(){CA.direct=false;CA.pile.pop();if(!CA.pile.length){fermerAnalyseCategorie();return;}renderAnalyseCategorie();document.getElementById('m-catana').scrollTop=0;}
-function caDescendre(id){CA.direct=false;CA.pile.push(id);renderAnalyseCategorie();document.getElementById('m-catana').scrollTop=0;}
+function caRetour(){CA.pile.pop();if(!CA.pile.length){fermerAnalyseCategorie();return;}renderAnalyseCategorie();document.getElementById('m-catana').scrollTop=0;}
+function caDescendre(id){CA.pile.push(id);renderAnalyseCategorie();document.getElementById('m-catana').scrollTop=0;}
 function caUnite(u){CA.unite=u;CA.sel=null;CA.fin=null;renderAnalyseCategorie();}
 function caPeriode(k){CA.sel=k;renderAnalyseCategorie();}
-function caOperations(){const id=CA.pile[CA.pile.length-1];fermerAnalyseCategorie();voirCategorie(id);}
+function caOperations(){const id=Math.abs(CA.pile[CA.pile.length-1]);fermerAnalyseCategorie();voirCategorie(id);}
 function renderAnalyseCategorie(){
-  const el=document.getElementById('m-catana'),id=CA.pile[CA.pile.length-1],auj=new Date();
+  // un niveau négatif = « Sans sous-catégorie » de cette catégorie : ses opérations rangées directement dedans
+  const el=document.getElementById('m-catana'),haut=CA.pile[CA.pile.length-1],direct=haut<0,id=Math.abs(haut),auj=new Date();
   const by={};qy('SELECT id,libelle,parent_id FROM categorie').forEach(c=>by[c.id]=c);
   if(!by[id]){fermerAnalyseCategorie();return;} // renommée par fusion, supprimée…
-  const ids=descendantsCategorie(id);
+  const ids=direct?[id]:descendantsCategorie(id);
   const L=qy(`SELECT o.id,o.date_operation d,v.montant m,v.categorie_id c,t.nom ti,cp.nom compte FROM ventilation v
     JOIN operation o ON o.id=v.operation_id LEFT JOIN tiers t ON t.id=o.tiers_id LEFT JOIN compte cp ON cp.id=o.compte_id
     WHERE v.categorie_id IN (${ids.map(()=>'?').join(',')}) AND o.supprime=0 AND o.statut<>'annule' AND o.previsionnel=0
@@ -2062,11 +2111,11 @@ function renderAnalyseCategorie(){
   const premiere=L.reduce((m,l)=>!m||l.d<m?l.d:m,null),avant=!!premiere&&cleCategorie(premiere,CA.unite)<cles[0];
   const LS=L.filter(l=>cleCategorie(l.d,CA.unite)===sel);
   const totalTout=L.reduce((t,l)=>t+l.m,0),nTout=new Set(L.map(l=>l.id)).size;
-  const parents=cheminCategorie(id).split(' : ').slice(0,-1),fl=d=>icoPlus(d);
+  const parents=cheminCategorie(id).split(' : ').slice(0,direct?undefined:-1),fl=d=>icoPlus(d);
   const nomPer=k=>an?k:majuscule(MOIS_FR[+k.slice(5)-1])+' '+k.slice(0,4);
   let h='<div class="mf-tete"><button class="mf-retour" onclick="caRetour()" aria-label="Retour">'+fl('M15 6l-6 6 6 6')+'</button>'+
     '<button class="mf-modifier" onclick="caOperations()">Voir les opérations</button></div>';
-  h+='<div class="ca-titre"><small>'+esc(parents.length?parents.join(' › '):'Catégorie')+'</small><h2>'+esc(by[id].libelle)+'</h2>'+
+  h+='<div class="ca-titre"><small>'+esc(parents.length?parents.join(' › '):'Catégorie')+'</small><h2>'+esc(direct?SANS_SOUS:by[id].libelle)+'</h2>'+
     '<p>'+(nTout?'<b class="num '+clsSigne(totalTout)+'">'+eurSigne(totalTout)+'</b> · '+nTout+' opération'+(nTout>1?'s':'')+' en tout':'Aucune opération')+'</p></div>';
   h+='<div class="ev-portee ca-unite" role="tablist" aria-label="Par mois ou par année">'+[['mois','Par mois'],['annee','Par année']].map(([k,t])=>
     '<button role="tab" aria-selected="'+(CA.unite===k)+'" onclick="caUnite(\''+k+'\')">'+t+'</button>').join('')+'</div>';
@@ -2086,29 +2135,26 @@ function renderAnalyseCategorie(){
     '<button'+(x.cle===sel?' class="actuel" aria-current="true"':'')+' onclick="caPeriode(\''+x.cle+'\')" aria-label="'+esc(nomPer(x.cle)+' : '+eurSigne(x.total))+'">'+
     '<span style="height:'+hauteurBarre(x.total,max,96)+'px"></span><small>'+(an?(P.length>6?'’'+x.cle.slice(2):x.cle):MOIS_FR[+x.cle.slice(5)-1].charAt(0).toUpperCase())+'</small></button>').join('')+'</div>';
   // sous-catégories de la période (au niveau juste en dessous)
-  const enfants=Object.values(by).filter(c=>c.parent_id===id);
-  const enfantDe2=c=>{let x=c;while(x!=null&&by[x]&&by[x].parent_id!==id)x=by[x].parent_id;return x;}; // la sous-catégorie directe
+  const enfants=direct?[]:Object.values(by).filter(c=>c.parent_id===id);
   if(enfants.length){
-    const enfantDe=enfantDe2;
+    const enfantDe=c=>{let x=c;while(x!=null&&by[x]&&by[x].parent_id!==id)x=by[x].parent_id;return x;}; // la sous-catégorie directe
     const g=new Map();LS.forEach(l=>{const k=l.c===id?0:enfantDe(l.c)||0,e=g.get(k)||{k,total:0,ops:new Set()};e.total+=l.m;e.ops.add(l.id);g.set(k,e);});
     const gs=[...g.values()].sort((a,b)=>Math.abs(b.total)-Math.abs(a.total));
     h+='<h3 class="ma-h">Sous-catégories</h3><div class="ma-liste">'+(gs.length?gs.map(e=>e.k?
       '<button class="ma-ligne" onclick="caDescendre('+e.k+')"><span class="ma-nom">'+esc(by[e.k].libelle)+'<small>'+e.ops.size+' op.</small></span>'+
         '<span class="num '+clsSigne(e.total)+'">'+eurSigne(e.total)+'</span>'+fl('M9 6l6 6-6 6')+'</button>'
-      :'<button class="ma-ligne'+(CA.direct?' choisie':'')+'" aria-pressed="'+!!CA.direct+'" onclick="CA.direct=!CA.direct;renderAnalyseCategorie()"><span class="ma-nom">'+SANS_SOUS+
-        '<small>'+e.ops.size+' op. · '+(CA.direct?'toucher pour tout revoir':'toucher pour ne voir qu’elles')+'</small></span><span class="num '+clsSigne(e.total)+'">'+eurSigne(e.total)+'</span></button>').join('')
+      :'<button class="ma-ligne" onclick="caDescendre('+(-id)+')"><span class="ma-nom">'+SANS_SOUS+'<small>'+e.ops.size+' op.</small></span>'+
+        '<span class="num '+clsSigne(e.total)+'">'+eurSigne(e.total)+'</span>'+fl('M9 6l6 6-6 6')+'</button>').join('')
       :'<div class="m-vide">Rien sur cette période.</div>')+'</div>';
+  }else{
+    // plus de sous-catégorie (ou « Sans sous-catégorie ») : ses opérations de la période, une ligne par opération
+    const ops=new Map();LS.forEach(l=>{const o=ops.get(l.id)||{id:l.id,d:l.d,ti:l.ti,compte:l.compte,m:0};o.m+=l.m;ops.set(l.id,o);});
+    const lo=[...ops.values()].sort((a,b)=>b.d.localeCompare(a.d)||b.id-a.id);
+    h+='<h3 class="ma-h">Opérations ('+lo.length+')</h3><div class="ma-liste">'+(lo.length?lo.map(o=>'<button class="ma-ligne" onclick="ouvrirFiche('+o.id+')">'+
+      '<span class="ma-nom">'+esc(o.ti||'(sans destinataire)')+'<small>'+libJour(o.d,auj)+' · '+esc(o.compte||'')+'</small></span>'+
+      '<span class="num '+clsSigne(o.m)+'">'+eurSigne(o.m)+'</span></button>').join('')
+      :'<div class="m-vide">Aucune opération sur cette période.</div>')+'</div>';
   }
-  // opérations de la période (une ligne par opération, ses lignes de répartition additionnées)
-  // chaque opération dit sa sous-catégorie : les totaux du dessus se retrouvent ; « Sans sous-catégorie » touchée → elles seules
-  const sous=l=>l.c===id?null:by[enfantDe2(l.c)]?by[enfantDe2(l.c)].libelle:null;
-  const ops=new Map();LS.filter(l=>!CA.direct||!sous(l)).forEach(l=>{const o=ops.get(l.id)||{id:l.id,d:l.d,ti:l.ti,compte:l.compte,m:0,sous:new Set()};
-    o.m+=l.m;o.sous.add(sous(l)||'sans sous-catégorie');ops.set(l.id,o);});
-  const lo=[...ops.values()].sort((a,b)=>b.d.localeCompare(a.d)||b.id-a.id);
-  h+='<h3 class="ma-h">'+(CA.direct?'Opérations sans sous-catégorie':'Opérations')+' ('+lo.length+')</h3><div class="ma-liste">'+(lo.length?lo.map(o=>'<button class="ma-ligne" onclick="ouvrirFiche('+o.id+')">'+
-    '<span class="ma-nom">'+esc(o.ti||'(sans destinataire)')+'<small>'+libJour(o.d,auj)+' · '+(enfants.length?esc([...o.sous].join(', '))+' · ':'')+esc(o.compte||'')+'</small></span>'+
-    '<span class="num '+clsSigne(o.m)+'">'+eurSigne(o.m)+'</span></button>').join('')
-    :'<div class="m-vide">Aucune opération sur cette période.</div>')+'</div>';
   el.innerHTML=h;
   const l=el.querySelector('.ca-ligne');ajusterTaille(l.querySelector('b'),()=>l.scrollWidth>l.clientWidth); // le montant ne chevauche plus la moyenne
 }
@@ -2915,6 +2961,7 @@ function setType(t){state.addType=t;document.querySelectorAll('#seg button').for
 }
 
 function openModal(id,focus){
+  state.retourFiche=null;
   const o=id?qy(`SELECT o.*,t.nom dest FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id WHERE o.id=?`,[id])[0]:null;
   if(id&&!o)return;
   state.editing=o?o.id:null;
@@ -3015,7 +3062,9 @@ function dupliquerOp(){
   document.getElementById('modal-title').textContent='Nouvelle opération (copie)';
   toast('Copie prête : vérifie la date, puis Enregistrer');
 }
-function closeModal(){document.getElementById('overlay').classList.remove('show');state.editing=null;closeAC();}
+function closeModal(){document.getElementById('overlay').classList.remove('show');state.editing=null;closeAC();
+  const f=state.retourFiche;state.retourFiche=null;
+  if(f&&scal('SELECT COUNT(*) FROM operation WHERE id=? AND supprime=0',[f]))ouvrirFiche(f);}
 function prefill(){const idx=tiersIndex(),v=destEl().value.trim();if(idx[v])setCatFields(idx[v]);}
 function acRender(){
   const box=document.getElementById('ac');
