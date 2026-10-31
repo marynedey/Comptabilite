@@ -471,3 +471,13 @@ test('soldes du jour : seulement les opérations affichées, mêmes valeurs que 
   for (const o of page) assert.equal(sol.get(o.id), o.st === 'annule' ? undefined : tous.get(o.id), 'opération ' + o.id);
   assert.equal(app.soldesApres(c, []).size, 0);
 });
+
+test('guide : mêmes rubriques sur PC et téléphone, mots adaptés à chacun', () => {
+  const tel = js(app.sectionsGuide(true)), pc = js(app.sectionsGuide(false));
+  assert.deepEqual(tel.map(s => s[0]).filter(t => t !== 'Fiche d’une opération'), pc.map(s => s[0]).filter(t => t !== 'Modifier une opération'));
+  assert.equal(tel.length, 8);
+  const texte = s => s.map(r => r[2].join(' ')).join(' ');
+  assert.match(texte(tel), /Appui long/); assert.doesNotMatch(texte(tel), /touche A\b/);
+  assert.match(texte(pc), /touche A\b/); assert.doesNotMatch(texte(pc), /Appui long|Touche une/);
+  for (const [, , lignes] of [...tel, ...pc]) assert.ok(lignes.length && lignes.every(l => typeof l === 'string' && l.length > 10));
+});

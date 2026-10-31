@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.18.2'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.19.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -101,21 +101,23 @@ function majAppliDisponible(info,actuelle){
 /* octets → base64, par morceaux (une base de plusieurs Mo dépasserait la pile en un seul appel) */
 function enBase64(u8){let s='';for(let i=0;i<u8.length;i+=0x8000)s+=String.fromCharCode.apply(null,u8.subarray(i,i+0x8000));return btoa(s);}
 let majAppli=null,majAppliPlusTard=null,majAppliVue=0;
+// → true : nouvelle version (bandeau affiché), false : rien de neuf, null : pas pu vérifier (ou déjà vérifié il y a peu)
 async function verifierMajAppli(){
-  if(Date.now()-majAppliVue<3600e3)return; // au plus une fois par heure
+  if(Date.now()-majAppliVue<3600e3)return null; // au plus une fois par heure
   majAppliVue=Date.now();
   let info;
-  try{const r=await fetch(SITE_APPLI+'version.json',{cache:'no-store'});if(!r.ok)return;info=await r.json();}
-  catch(e){majAppliVue=0;return;} // hors ligne : on réessaiera au prochain retour dans l'appli
+  try{const r=await fetch(SITE_APPLI+'version.json',{cache:'no-store'});if(!r.ok){majAppliVue=0;return null;}info=await r.json();}
+  catch(e){majAppliVue=0;return null;} // hors ligne : on réessaiera au prochain retour dans l'appli
   majAppli=majAppliDisponible(info,VERSION);
   const b=document.getElementById('maj-appli');
-  if(!majAppli||majAppliPlusTard===majAppli.version){b.hidden=true;document.body.classList.remove('maj-appli-visible');return;}
+  if(!majAppli||majAppliPlusTard===majAppli.version){b.hidden=true;document.body.classList.remove('maj-appli-visible');return !!majAppli;}
   document.getElementById('maj-appli-v').textContent=majAppli.version;b.hidden=false;
   document.body.classList.add('maj-appli-visible'); // sur téléphone, le bouton + remonte au-dessus du bandeau
   // le message « N opérations chargées » de l'ouverture passe dans le bandeau au lieu de le chevaucher
   if(msgChargement&&Date.now()-msgChargement.t<6000){document.getElementById('toast').classList.remove('show');}
   document.getElementById('maj-appli-info').textContent=(msgChargement?msgChargement.texte+' · ':'')+'Tes données sont gardées.';
   hauteurBandeauMaj();
+  return true;
 }
 // le bouton + se place au-dessus du bandeau avec le même écart qu'entre le bandeau et les onglets : il suit sa hauteur
 function hauteurBandeauMaj(){const b=document.getElementById('maj-appli');
@@ -432,7 +434,7 @@ const estTelephone=()=>enAppli()||(typeof matchMedia==='function'&&matchMedia('(
   &&!matchMedia('(any-pointer: fine)').matches);
 /* onglet du bas allumé pour chaque écran : ce qui n'a pas d'onglet passe par « Plus » */
 function ongletDeVue(v){return {registre:'registre',analyse:'analyse',graphiques:'analyse',recurrences:'recurrences'}[v]||'plus';}
-const TITRES_MOBILE={recurrences:'Échéances',plus:'Plus',tiers:'Tiers',categories:'Catégories',corbeille:'Corbeille',reglages:'Réglages',releve:'Relevé en cours'};
+const TITRES_MOBILE={recurrences:'Échéances',plus:'Plus',guide:'Guide',tiers:'Tiers',categories:'Catégories',corbeille:'Corbeille',reglages:'Réglages',releve:'Relevé en cours'};
 function ongletMobile(o){fermerListeComptes();setView(o);}
 function majMobile(){
   if(!document.body.classList.contains('mobile'))return;
@@ -506,10 +508,62 @@ function renderPlus(){
       e?it('Annuler la dernière modification',esc('n°'+e.jid+' '+e.label),'annulerDerniere()','M9 14L4 9l5-5M4 9h10a6 6 0 010 12h-3'):'',
       it('Corbeille',nb('SELECT COUNT(*) FROM operation WHERE supprime=1','opération'),"setView('corbeille')",'M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13')]],
     ['Appli',[
+      it('Rechercher une mise à jour','Version '+VERSION,'rechercherMaj(this)','M20 12a8 8 0 11-2.3-5.7M20 4v5h-5'),
+      it('Guide','Comment se servir de l’app',"setView('guide')",'M12 21a9 9 0 100-18 9 9 0 000 18zM9.5 9.5a2.5 2.5 0 114 2c-1 .6-1.5 1.1-1.5 2.2M12 17h.01'),
       it('Réglages',enAppli()?'Verrouillage, thème, dossier de sauvegarde…':'Thème, recherche, dossier de sauvegarde…',"setView('reglages')",'M12 15a3 3 0 100-6 3 3 0 000 6zM19 12h2M3 12h2M12 3v2M12 19v2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4')]],
   ];
   document.getElementById('plus-groupes').innerHTML=groupes.map(([h,l])=>'<h2 class="m-groupe-h">'+h+'</h2><div class="m-liste">'+l.join('')+'</div>').join('');
   document.getElementById('plus-version').textContent='Mes comptes · version '+VERSION;
+}
+/* ---------- Guide : les principales fonctions, une rubrique repliable par écran (comme les Réglages) ---------- */
+function sectionsGuide(mob){
+  return [
+    ['Opérations','M4 6h16M4 12h16M4 18h10',[
+      mob?'Le bouton <b>+</b> en bas à droite ajoute une opération.':'Le bouton <b>Ajouter</b> (ou la touche A) ajoute une opération. La touche ? liste tous les raccourcis clavier.',
+      mob?'En haut, la liste déroulante choisit le compte. Un appui long sur un compte le modifie ; « + Nouveau compte » en crée un.':'Choisis le compte dans la barre de gauche.',
+      'La recherche trouve un destinataire, une catégorie, un montant (12,34), une date ou un n°. La croix × la vide.',
+      mob?'<b>Filtrer</b> : statuts, période, prévisionnel jusqu’à quand, dépenses ou revenus, catégorie.':'Les filtres au-dessus de la liste : statuts, période, prévisionnel jusqu’à quand.',
+      mob?'La barre de couleur à gauche d’une opération : la toucher la pointe ou la dépointe (une prévisionnelle : la confirme).':'La pastille de statut d’une ligne la pointe ou la dépointe.',
+      'Statuts : non pointé, pointé (vu sur le compte), rapproché (validé avec un relevé : son montant ne change plus), prévisionnel (à venir), annulé.']],
+    [mob?'Fiche d’une opération':'Modifier une opération','M6 3h9l4 4v14H6zM9 12h6M9 16h6',[
+      mob?'Touche une opération pour voir sa fiche ; touche un champ (montant, date, catégorie…) pour le modifier.':'Double-clique une ligne pour la modifier.',
+      '<b>Répartir</b> une opération sur plusieurs catégories (ventilation) : le total des lignes doit faire le montant.',
+      '<b>Dupliquer</b> crée une nouvelle opération avec les mêmes informations ; <b>Supprimer</b> l’envoie à la corbeille.']],
+    ['Analyse','M12 3a9 9 0 109 9h-9z',mob?[
+      'Dépenses ou revenus du mois (ou de l’année), par catégorie, comparés à une autre période au choix.',
+      'Touche une catégorie pour descendre dans ses sous-catégories, puis jusqu’aux opérations.',
+      'Les barres montrent les mois voisins : touche une barre pour voir ce mois-là.',
+      '« Évolution » : le solde au fil du temps.']:[
+      'Dépenses et revenus par catégorie sur la période choisie : clique une catégorie pour descendre dans ses sous-catégories.',
+      '« Graphiques » : le solde au fil du temps.']],
+    ['Échéances','M4 6h16v14H4zM4 10h16M9 3v4M15 3v4',[
+      'Les opérations qui reviennent (loyer, salaire…) : l’app crée les prévisionnelles à l’avance.',
+      'Une prévisionnelle se confirme quand elle passe sur le compte.']],
+    ['Catégories et tiers','M3 7l9-4 9 4v10l-9 4-9-4z',[
+      mob?'Dans Plus › Catégories : toucher une catégorie ouvre son analyse (par mois ou par année).':'Écran Catégories : l’arborescence sur 3 niveaux, avec le nombre d’opérations de chacune.',
+      (mob?'Appui long sur une catégorie ou un tiers : <b>Renommer</b> ou <b>Fusionner</b>.':'<b>Renommer / fusionner</b> une catégorie ou un tiers depuis son écran.')+' Une catégorie ne fusionne qu’avec une autre du même niveau ; les sous-catégories de même nom fusionnent.',
+      'Les tiers (destinataires) se trient de plusieurs façons'+(mob?' ; toucher un tiers montre ses opérations.':'.')]],
+    ['Sauvegarder','M12 3v12M7 10l5 5 5-5M5 21h14',[
+      'Tes comptes sont gardés '+(mob?'sur ce téléphone':'dans ce navigateur')+'. <b>Sauvegarder</b> écrit un fichier <code>comptes_….sqlite</code>'+(mob?' (dossier Téléchargements, ou celui choisi dans les Réglages)':'')+' : c’est lui qui permet de tout retrouver ailleurs.',
+      mob?'Le point sur l’icône de sauvegarde : des modifications ne sont pas encore sauvegardées. Plus › « Voir le détail » les liste.':'Le nombre de modifications non sauvegardées s’affiche en haut.',
+      (mob?'L’icône à côté':'« Charger »')+' ouvre une sauvegarde (elle remplace les données de cet appareil).',
+      '« Annuler la dernière modification » et la <b>Corbeille</b> rattrapent une erreur.']],
+    ['Relevé de banque','M6 3h9l4 4v14H6zM9 14l2 2 4-4',[
+      '« Pointer avec un relevé PDF » compare le relevé de la banque à tes opérations : ce qui correspond passe en pointé, il reste ce qui manque d’un côté ou de l’autre.',
+      'Une ligne du relevé sans correspondance : « Lier » à une opération, ou l’ajouter.',
+      '« Importer un fichier QIF » ajoute les opérations exportées par la banque.']],
+    ['Réglages et mises à jour','M12 15a3 3 0 100-6 3 3 0 000 6z',[
+      'Thème clair ou sombre, barres de recherche en haut ou en bas, montants masqués à l’ouverture (l’œil les montre)'+(mob?', verrouillage par empreinte ou code (appli Android)':'')+'.',
+      'Les nouvelles versions sont cherchées à chaque ouverture ; « Rechercher une mise à jour » le fait tout de suite. Elles s’installent seulement quand tu touches « Mettre à jour », et tes données sont gardées.']]
+  ];
+}
+function renderGuide(){
+  const mob=document.body.classList.contains('mobile'),ico=d=>'<svg class="rg-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="'+d+'"/></svg>';
+  const ouvertes=new Set([...document.querySelectorAll('#guide-liste details[open]')].map(d=>d.dataset.i));
+  document.getElementById('guide-liste').innerHTML=sectionsGuide(mob).map(([titre,d,lignes],i)=>
+    '<details class="reglage guide"'+(ouvertes.has(String(i))?' open':'')+' data-i="'+i+'"><summary>'+ico(d)+'<span><b>'+titre+'</b></span>'+
+    '<svg class="rg-fleche" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></summary>'+
+    '<ul class="rg-corps guide-corps">'+lignes.map(l=>'<li>'+l+'</li>').join('')+'</ul></details>').join('');
 }
 /* ---------- Opérations sur téléphone ----------
    Mêmes filtres que sur PC (barre #f-zone, présentée en feuille qui monte du bas) ; liste par jour avec,
@@ -1178,6 +1232,7 @@ function render(){
   else if(state.view==='corbeille')renderCorbeille();
   else if(state.view==='reglages')renderReglages();
   else if(state.view==='plus')renderPlus();
+  else if(state.view==='guide')renderGuide();
 
   else if(state.view==='recurrences')renderRecurrences();
   else if(state.view==='releve')renderReleve();
@@ -4942,7 +4997,26 @@ window.addEventListener('beforeunload',e=>{if(dirty>0&&!majEnCours){e.preventDef
    Une nouvelle version publiée s'installe en arrière-plan puis attend :
    le bandeau « Nouvelle version » la propose, rien ne se recharge pendant une saisie.
    Sans clic, elle est utilisée au prochain lancement de l'application. */
-let swEnAttente=null,majEnCours=false;
+let swEnAttente=null,majEnCours=false,swReg=null;
+/* « Rechercher une mise à jour » (Plus, Réglages) : sans attendre la vérification automatique (ouverture, retour dans l'app).
+   Nouvelle version → le bandeau habituel (installée seulement au clic) ; sinon un message. */
+async function rechercherMaj(btn){
+  if(btn){if(btn.classList.contains('cherche'))return;btn.classList.add('cherche');}
+  const fin=t=>{if(btn)btn.classList.remove('cherche');if(t)toast(t);};
+  const aJour='Tu as la dernière version ('+VERSION+')',horsLigne='Impossible de vérifier : pas de connexion ?';
+  if(enAppli()){
+    majAppliVue=0;majAppliPlusTard=null;const r=await verifierMajAppli();
+    return fin(r===true?'Version '+majAppli.version+' disponible : touche « Mettre à jour »':r===false?aJour:horsLigne);
+  }
+  if(!swReg)return fin(swEnAttente?null:aJour);
+  if(swEnAttente||swReg.waiting){proposerMaj(swEnAttente||swReg.waiting);return fin('Nouvelle version prête : touche « Mettre à jour »');}
+  try{await swReg.update();}catch(e){return fin(horsLigne);}
+  // la nouvelle version se télécharge : on attend qu'elle soit prête (le bandeau s'affiche alors tout seul)
+  const sw=swReg.installing;
+  if(sw)await new Promise(res=>{const t=setTimeout(res,20000);sw.addEventListener('statechange',()=>{if(sw.state!=='installing'){clearTimeout(t);res();}});});
+  if(swReg.waiting){proposerMaj(swReg.waiting);return fin('Nouvelle version prête : touche « Mettre à jour »');}
+  fin(aJour);
+}
 function proposerMaj(sw){swEnAttente=sw;document.getElementById('maj').hidden=false;}
 async function installerMaj(){
   if(!swEnAttente)return;
@@ -4951,7 +5025,7 @@ async function installerMaj(){
 }
 if('serviceWorker' in navigator&&location.protocol!=='file:'&&!enAppli()){ // dans l'appli : code dans l'APK, voir verifierMajAppli()
   navigator.serviceWorker.addEventListener('controllerchange',()=>{if(majEnCours)location.reload();});
-  navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).then(reg=>{
+  navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).then(reg=>{swReg=reg;
     const guetter=sw=>{if(!sw)return;
       const pret=()=>{if(sw.state==='installed'&&navigator.serviceWorker.controller)proposerMaj(sw);};
       pret();sw.addEventListener('statechange',pret);};

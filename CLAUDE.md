@@ -22,6 +22,9 @@ App web de comptes personnels, en français, hors ligne. Publiée sur https://ma
   (`doitVerrouiller`) ; le va-et-vient pendant la fenêtre d'Android ne compte pas (`verrouEnCours`). Rien sur PC.
   APK construit par le job « Appli Android » ; signé avec les secrets `ANDROID_CLE`, `ANDROID_CLE_MOT_DE_PASSE`.
   Le SDK Android n'est pas téléchargeable dans une session cloud (dl.google.com bloqué) : construire via Actions.
+- Guide (vue `guide`, Plus › Guide sur téléphone, barre latérale sur PC) : `sectionsGuide(mob)`, une rubrique repliable par
+  écran, mots adaptés au téléphone ou au PC. **Le mettre à jour** quand une fonction visible change.
+  « Rechercher une mise à jour » (Plus, bas des Réglages) : `rechercherMaj` (service worker, ou `version.json` dans l'appli).
 - Réglages de l’appareil (vue `reglages`, rubriques repliables `<details>` : titre + résumé d’une ligne + flèche) : jamais dans la table `meta` (elle part dans les sauvegardes).
   Dossier de sauvegarde : `idbPutKey('dossierSauvegarde', handle)` sur PC, SharedPreferences côté natif dans l'appli.
   Chrome 153 de la session cloud plante en relisant un FileSystemHandle depuis IndexedDB (bogue du navigateur) :
