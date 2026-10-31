@@ -655,6 +655,11 @@ test('téléphone, retours d\'affichage : bulle au-dessus des boutons, « Annule
     assert.match(await page.locator('#m-catana .ca-titre small').textContent(), /Maison/);
     assert.deepEqual(await page.locator('#m-catana .ma-h').allTextContents(), ['Opérations (1)']);
     assert.match(await page.textContent('#m-catana .ma-liste'), /Quincaillerie/);
+    // une période où tout est « Sans sous-catégorie » : ses opérations directement, sans passer par cette ligne
+    await page.evaluate(() => { CA.pile = [Math.abs(CA.pile[0])]; const m = Math.abs(CA.pile[0]); run('DELETE FROM ventilation WHERE categorie_id IN (SELECT id FROM categorie WHERE parent_id=?)', [m]); renderAnalyseCategorie(); });
+    assert.equal(await page.locator('#m-catana h2').textContent(), 'Maison');
+    assert.deepEqual(await page.locator('#m-catana .ma-h').allTextContents(), ['Opérations (1)']);
+    assert.match(await page.textContent('#m-catana .ma-liste'), /Quincaillerie/);
     await page.evaluate(() => fermerAnalyseCategorie());
     // tiers : les trois tris sur une ligne
     await page.evaluate(() => setView('tiers'));

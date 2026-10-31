@@ -2156,7 +2156,8 @@ function renderAnalyseCategorie(){
     '<button'+(x.cle===sel?' class="actuel" aria-current="true"':'')+' onclick="caPeriode(\''+x.cle+'\')" aria-label="'+esc(nomPer(x.cle)+' : '+eurSigne(x.total))+'">'+
     '<span style="height:'+hauteurBarre(x.total,max,96)+'px"></span><small>'+(an?(P.length>6?'’'+x.cle.slice(2):x.cle):MOIS_FR[+x.cle.slice(5)-1].charAt(0).toUpperCase())+'</small></button>').join('')+'</div>';
   // sous-catégories de la période (au niveau juste en dessous)
-  const enfants=direct?[]:Object.values(by).filter(c=>c.parent_id===id);
+  // rien que des opérations « Sans sous-catégorie » sur la période : on les montre directement
+  const enfants=direct||(LS.length&&LS.every(l=>l.c===id))?[]:Object.values(by).filter(c=>c.parent_id===id);
   if(enfants.length){
     const enfantDe=c=>{let x=c;while(x!=null&&by[x]&&by[x].parent_id!==id)x=by[x].parent_id;return x;}; // la sous-catégorie directe
     const g=new Map();LS.forEach(l=>{const k=l.c===id?0:enfantDe(l.c)||0,e=g.get(k)||{k,total:0,ops:new Set()};e.total+=l.m;e.ops.add(l.id);g.set(k,e);});
