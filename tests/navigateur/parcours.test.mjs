@@ -276,8 +276,10 @@ test('appli Android : fond et icônes des barres d\'Android selon le thème de l
     await page.emulateMedia({ colorScheme: 'dark' });
     await page.waitForFunction(() => window.__appels.filter(a => a[1] === 'fondBarres').at(-1)[2].sombre === true);
     assert.deepEqual(await dernier('setStyle'), { style: 'DARK' });
-    // plein écran de l'évolution : les barres d'Android se cachent, puis reviennent
+    // plein écran de l'évolution : les barres d'Android se cachent, puis reviennent ; en paysage, tout l'écran
+    await page.setViewportSize({ width: 900, height: 400 });
     await page.evaluate(() => grPleinEcran(true));
+    assert.equal(await page.locator('#v-graphiques').evaluate(e => Math.round(e.getBoundingClientRect().width)), 900, 'pas la largeur « tablette »');
     assert.equal((await appels(page, 'hide')).length, 1);
     await page.evaluate(() => grPleinEcran(false));
     assert.equal((await appels(page, 'show')).length, 1);
@@ -539,17 +541,18 @@ test('téléphone, filtres : nombre d\'opérations tout à gauche, dates sur une
     const voir = await page.locator('#m-voir').boundingBox(), zone = await feuille.boundingBox();
     assert.ok(voir.x >= zone.x && voir.x + voir.width <= zone.x + zone.width + 1, '« Voir » dans la feuille');
     // glisser la poignée vers le bas : la feuille suit, puis se ferme ; un petit glissement la remet en place
-    const glisser = (dy, sel) => page.evaluate(([dy, sel]) => {
+    const glisser = (dy, sel) => page.evaluate(async ([dy, sel]) => {
       const el = document.querySelector(sel), r = el.getBoundingClientRect(), x = r.left + 20, y = r.top + 5;
       const t = yy => new Touch({ identifier: 1, target: el, clientX: x, clientY: yy });
       el.dispatchEvent(new TouchEvent('touchstart', { touches: [t(y)], bubbles: true, cancelable: true }));
       for (let i = 1; i <= 5; i++) el.dispatchEvent(new TouchEvent('touchmove', { touches: [t(y + dy * i / 5)], bubbles: true, cancelable: true }));
+      await new Promise(r => requestAnimationFrame(() => r())); // la feuille suit le doigt à l'image suivante
       const suit = document.getElementById('f-zone').style.transform;
       el.dispatchEvent(new TouchEvent('touchend', { touches: [], changedTouches: [t(y + dy)], bubbles: true, cancelable: true }));
       return suit;
     }, [dy, sel]);
     await feuille.evaluate(e => { e.scrollTop = 0; });
-    assert.equal(await glisser(40, '.m-feuille-tete'), 'translateY(40px)');
+    assert.equal(await glisser(40, '.m-feuille-tete'), 'translate3d(0px, 40px, 0px)');
     assert.equal(await page.evaluate(() => document.body.classList.contains('filtres-ouverts')), true, 'petit glissement : reste ouverte');
     assert.equal(await feuille.evaluate(e => e.style.transform), '');
     await glisser(200, '.m-feuille-tete');
@@ -597,6 +600,7 @@ test('téléphone, retours d\'affichage : bulle au-dessus des boutons, « Annule
     assert.equal(await page.textContent('#btn-ann'), 'Annuler');
     assert.equal(await page.locator('#i-cat2').evaluate(e => getComputedStyle(e.closest('.field')).borderBottomStyle), 'none');
     await page.click('#overlay .m-fermer');
+    await page.locator('#m-fiche:not([hidden])').waitFor(); await page.click('#m-fiche .mf-retour'); // le formulaire fermé ramène à la fiche
     // analyse sur l'année : le grand total tient dans l'anneau
     await page.click('#m-onglets button[data-o="analyse"]');
     await page.selectOption('#m-analyse .ma-mois-centre select', 'annee');
@@ -611,22 +615,25 @@ test('téléphone, retours d\'affichage : bulle au-dessus des boutons, « Annule
     await page.selectOption('#m-analyse .ma-mois-centre select', 'mois');
     await page.locator('#m-analyse .ma-ligne', { hasText: 'Maison' }).click();
     const barres = () => page.locator('#m-analyse .ma-barres button').evaluateAll(bs => bs.map(b => b.getAttribute('aria-label').split(' :')[0] + (b.getAttribute('aria-current') ? '*' : '')));
-    assert.deepEqual(await barres(), ['Mai 2026', 'Juin 2026', 'Juillet 2026', 'Août 2026', 'Septembre 2026', 'Octobre 2026*']);
+    // 7 barres : la barre choisie au milieu (4e), sauf vers le mois en cours qu'on ne dépasse pas
+    assert.deepEqual(await barres(), ['Avril 2026', 'Mai 2026', 'Juin 2026', 'Juillet 2026', 'Août 2026', 'Septembre 2026', 'Octobre 2026*']);
     await page.click('#m-analyse .ma-barres button[aria-label^="Août 2026"]');        // moitié droite : rien ne bouge
-    assert.deepEqual(await barres(), ['Mai 2026', 'Juin 2026', 'Juillet 2026', 'Août 2026*', 'Septembre 2026', 'Octobre 2026']);
-    await page.click('#m-analyse .ma-barres button[aria-label^="Juin 2026"]');        // moitié gauche : juin au milieu
-    assert.deepEqual(await barres(), ['Mars 2026', 'Avril 2026', 'Mai 2026', 'Juin 2026*', 'Juillet 2026', 'Août 2026']);
+    assert.deepEqual(await barres(), ['Avril 2026', 'Mai 2026', 'Juin 2026', 'Juillet 2026', 'Août 2026*', 'Septembre 2026', 'Octobre 2026']);
+    await page.click('#m-analyse .ma-barres button[aria-label^="Mai 2026"]');         // moitié gauche : mai au milieu
+    assert.deepEqual(await barres(), ['Février 2026', 'Mars 2026', 'Avril 2026', 'Mai 2026*', 'Juin 2026', 'Juillet 2026', 'Août 2026']);
+    assert.ok(await page.locator('#m-analyse .ma-barres button').first().evaluate(b => b.getAnimations().length > 0), 'les barres glissent');
+    assert.match(await page.locator('#m-analyse .ma-ecart').textContent(), /(vs|comme en) \d{2}\/\d{4}$/); // « 09/2026 », pas « septembre 2026 »
     // l'écart à droite du montant, sur une ligne
     assert.ok(await page.locator('#m-analyse .ma-total').evaluate(t => t.scrollWidth <= t.clientWidth), 'écart sur la ligne du montant');
-    // « Sans sous-catégorie » : ses opérations seules d'un toucher ; chaque opération dit sa sous-catégorie
+    // « Sans sous-catégorie » s'ouvre comme une sous-catégorie ; pas de liste d'opérations sous les sous-catégories
     await page.evaluate(() => anaMobileAller('2026-10'));
-    const sousTitres = await page.locator('#m-analyse .ma-liste').last().locator('small').allTextContents();
-    assert.ok(sousTitres.some(t => /Travaux/.test(t)) && sousTitres.some(t => /sans sous-catégorie/.test(t)), sousTitres.join(' | '));
-    await page.click('#m-analyse .ma-ligne[aria-pressed]');
-    assert.equal(await page.locator('#m-analyse .ma-h').last().textContent(), 'Opérations sans sous-catégorie (1)');
-    assert.equal(await page.locator('#m-analyse .ma-tete h2').textContent(), 'Maison', 'on reste dans « Maison »');
-    await page.click('#m-analyse .ma-ligne[aria-pressed]');
-    assert.equal(await page.locator('#m-analyse .ma-h').last().textContent(), 'Opérations (2)');
+    assert.deepEqual(await page.locator('#m-analyse .ma-h').allTextContents(), ['Sous-catégories']);
+    await page.locator('#m-analyse .ma-ligne', { hasText: 'Sans sous-catégorie' }).click();
+    assert.equal(await page.locator('#m-analyse .ma-tete h2').textContent(), 'Sans sous-catégorie');
+    assert.deepEqual(await page.locator('#m-analyse .ma-h').allTextContents(), ['Opérations (1)']);
+    assert.match(await page.textContent('#m-analyse .ma-liste'), /Quincaillerie/);
+    await page.click('#m-analyse .ma-tete button');
+    assert.equal(await page.locator('#m-analyse .ma-tete h2').textContent(), 'Maison');
     // « vs … » n'est jamais coupé
     await page.click('#m-analyse .ma-tete button');
     assert.ok(await page.locator('#m-analyse .ma-ligne small .nw').count() > 0);
@@ -635,6 +642,13 @@ test('téléphone, retours d\'affichage : bulle au-dessus des boutons, « Annule
     const lt = page.locator('#m-catana .ca-ligne');
     assert.ok(await lt.evaluate(l => l.querySelector('b').getBoundingClientRect().right <= l.querySelector('.ca-moy').getBoundingClientRect().left), 'pas de chevauchement');
     assert.ok(await lt.evaluate(l => l.scrollWidth <= l.clientWidth), 'la moyenne n\'est pas coupée');
+    // « Sans sous-catégorie » s'ouvre comme une sous-catégorie, avec ses seules opérations
+    assert.deepEqual(await page.locator('#m-catana .ma-h').allTextContents(), ['Sous-catégories']);
+    await page.locator('#m-catana .ma-ligne', { hasText: 'Sans sous-catégorie' }).click();
+    assert.equal(await page.locator('#m-catana h2').textContent(), 'Sans sous-catégorie');
+    assert.match(await page.locator('#m-catana .ca-titre small').textContent(), /Maison/);
+    assert.deepEqual(await page.locator('#m-catana .ma-h').allTextContents(), ['Opérations (1)']);
+    assert.match(await page.textContent('#m-catana .ma-liste'), /Quincaillerie/);
     await page.evaluate(() => fermerAnalyseCategorie());
     // tiers : les trois tris sur une ligne
     await page.evaluate(() => setView('tiers'));
@@ -677,6 +691,7 @@ test('téléphone, retours : échéance touchée → son champ, erreur visible, 
     await page.locator('#m-fiche .mf-infos button').nth(1).locator('span').first().click();
     await page.waitForFunction(() => document.activeElement === document.querySelectorAll('#vent-list .vent-l')[1].querySelectorAll('input')[0]);
     await page.click('#overlay .m-fermer');
+    await page.locator('#m-fiche:not([hidden])').waitFor(); await page.click('#m-fiche .mf-retour'); // le formulaire fermé ramène à la fiche
     await ligne(page, 'TBF').first().locator('.m-op-corps').click();
     await page.locator('#m-fiche .mf-infos button').nth(1).locator('span.num').click();
     await page.waitForFunction(() => document.activeElement === document.querySelectorAll('#vent-list .vent-l')[1].querySelectorAll('input')[1]);
@@ -691,6 +706,7 @@ test('téléphone, retours : échéance touchée → son champ, erreur visible, 
     assert.equal(await cat.inputValue(), 'Traitements et salaires : Salaire net');
     assert.equal(await page.evaluate(() => document.activeElement === document.querySelectorAll('#vent-list .vent-l')[0].querySelectorAll('input')[1]), true, 'puis son montant');
     await page.click('#overlay .m-fermer');
+    await page.locator('#m-fiche:not([hidden])').waitFor(); await page.click('#m-fiche .mf-retour'); // le formulaire fermé ramène à la fiche
     // échéance : toucher une ligne du détail → la fenêtre sur ce champ ; répartition fausse → message visible
     await page.evaluate(() => { upsertCategorie('Loisirs : Sport'); upsertCategorie('Loisirs : Cinéma');
       run("INSERT INTO recurrence(compte_id,type,montant,tiers,cat_path,frequence,intervalle,jour,date_debut,prochaine,creer_en,ventil) VALUES(?,'debit',-3000,'Club','Loisirs : Sport','mensuelle',1,1,'2026-09-01','2026-11-01','previsionnel',?)",
@@ -872,12 +888,14 @@ test('téléphone, fiche d\'une opération : montant en grand, statut en informa
     await fiche.locator('button.mf-montant').click();
     await page.waitForFunction(() => document.activeElement && document.activeElement.id === 'i-montant');
     await page.click('#overlay .m-fermer');
+    await page.locator('#m-fiche:not([hidden])').waitFor(); await page.click('#m-fiche .mf-retour'); // le formulaire fermé ramène à la fiche
     await ligne(page, 'Boulangerie').locator('.m-op-corps').click();
     // Modifier : la fenêtre d'opération, remplie
     await fiche.locator('button:has-text("Modifier")').click();
     assert.equal(await page.isVisible('#m-fiche'), false);
     assert.equal(await page.inputValue('#i-dest'), 'Boulangerie');
     await page.click('#overlay .m-fermer');
+    await page.locator('#m-fiche:not([hidden])').waitFor(); await page.click('#m-fiche .mf-retour'); // le formulaire fermé ramène à la fiche
     // Dupliquer : une nouvelle opération, datée d'aujourd'hui
     await ligne(page, 'Pharmacie').locator('.m-op-corps').click();
     await fiche.locator('button:has-text("Dupliquer")').click();
@@ -1027,7 +1045,7 @@ test('téléphone, catégories : montant total ; toucher une catégorie → son 
     assert.match(await a.locator('.ca-moy').textContent(), /moyenne \+209,09\s€ \/ mois/);
     await a.locator('.ca-barres button[aria-label^="Septembre 2026"]').click();
     assert.match(await a.locator('.ca-total').textContent(), /Septembre 2026\+2\s300,00\s€/);
-    assert.match(await a.textContent(), /Opérations \(1\)/);
+    assert.deepEqual(await a.locator('.ma-h').allTextContents(), ['Sous-catégories']); // pas de liste d'opérations à ce niveau
     // par année
     await a.locator('button:has-text("Par année")').click();
     assert.equal(await a.locator('.ca-barres button').count(), 1);
@@ -1037,10 +1055,13 @@ test('téléphone, catégories : montant total ; toucher une catégorie → son 
     assert.equal(await a.locator('h2').textContent(), 'Prime');
     await page.evaluate(() => fermerFeuilles()); // Retour d'Android
     assert.equal(await a.locator('h2').textContent(), 'Traitements et salaires');
-    // une opération : sa fiche s'ouvre par-dessus
+    // une opération (dans sa sous-catégorie) : sa fiche s'ouvre par-dessus
+    await a.locator('.ma-ligne[onclick^="caDescendre"]', { hasText: 'Salaire net' }).click();
+    assert.deepEqual(await a.locator('.ma-h').allTextContents(), ['Opérations (1)']);
     await a.locator('.ma-liste .ma-ligne', { hasText: 'TBF' }).first().click();
     assert.equal(await page.isVisible('#m-fiche'), true);
     await page.click('#m-fiche .mf-retour');
+    await page.evaluate(() => fermerFeuilles());
     // « Voir les opérations » : la liste filtrée sur la catégorie
     await a.locator('button:has-text("Voir les opérations")').click();
     await page.waitForFunction(() => state.view === 'registre');
@@ -1074,10 +1095,13 @@ test('téléphone, analyse : le mois en anneau, comparé au mois choisi ; une ca
     await a.locator('.ma-ligne', { hasText: 'Alimentation' }).click();
     assert.equal(await a.locator('h2').textContent(), 'Alimentation');
     assert.match(await a.locator('.ma-total b').textContent(), /400,00\s€/);
-    assert.deepEqual(await a.locator('.ma-h').allTextContents(), ['Sous-catégories', 'Opérations (2)']);
-    await a.locator('.ma-ligne', { hasText: 'Boulangerie' }).last().click();
+    assert.deepEqual(await a.locator('.ma-h').allTextContents(), ['Sous-catégories']); // les opérations : dans chaque sous-catégorie
+    await a.locator('.ma-ligne', { hasText: 'Boulangerie' }).click();
+    assert.deepEqual(await a.locator('.ma-h').allTextContents(), ['Opérations (1)']);
+    await a.locator('.ma-ligne', { hasText: 'Boulangerie' }).click();
     assert.equal(await page.isVisible('#m-fiche'), true);
     await page.click('#m-fiche button[aria-label="Retour"]');
+    await a.locator('button[aria-label="Retour"]').click();
     await a.locator('button[aria-label="Retour"]').click();
     // mois précédent, revenus, évolution
     await a.locator('button[aria-label="Période précédente"]').click();
@@ -1244,6 +1268,7 @@ test('téléphone, saisie : plein écran, montant en grand en haut, statut rappe
     assert.equal(await page.textContent('#modal-title'), 'Modifier l’opération');
     assert.equal(await page.textContent('#i-statut'), 'Non pointé');
     await page.click('#overlay .m-fermer');
+    await page.locator('#m-fiche:not([hidden])').waitFor(); await page.click('#m-fiche .mf-retour'); // le formulaire fermé ramène à la fiche
     assert.deepEqual(page.erreurs, []);
   } finally { await navigateur.close(); }
 });
