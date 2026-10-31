@@ -1556,6 +1556,27 @@ test('réglages (appli Android) : dossier choisi par Android, sauvegarde dedans,
     assert.equal((await appels(page, 'enregistrer'))[0].dossier, true);
     assert.match(await texteToast(page), /dans « Mes sauvegardes »/);
 
+    // « Aussi dans Téléchargements » : une 2e copie à chaque sauvegarde
+    await reglages(page, 'rg-sauvegarde');
+    assert.equal(await page.isVisible('#rg-aussi-bloc'), true, 'case visible avec un dossier choisi');
+    await page.check('#rg-aussi');
+    assert.equal(await page.textContent('#rg-sauvegarde-resume'), 'Mes sauvegardes + Téléchargements');
+    const avantAussi = (await appels(page, 'enregistrer')).length;
+    await page.click('#m-onglets button[data-o="registre"]'); // la touche « a » ne compte pas dans une case cochée
+    await ajouterOperation(page, { dest: 'Fleuriste', montant: '9', date: '05/01/26', cat: 'Maison' });
+    await page.click('button[onclick="sauvegarder()"]:visible');
+    await aJour(page);
+    await page.waitForFunction(n => window.__appels.filter(a => a[1] === 'enregistrer').length >= n + 2, avantAussi);
+    const deux = (await appels(page, 'enregistrer')).slice(avantAussi);
+    assert.deepEqual(deux.map(a => a.dossier), [true, undefined]);
+    assert.equal(deux[0].nom, deux[1].nom, 'même fichier');
+    assert.match(await texteToast(page), /« Mes sauvegardes » et « Téléchargements »/);
+    // décochée : de nouveau une seule copie
+    await reglages(page, 'rg-sauvegarde');
+    await page.uncheck('#rg-aussi');
+    assert.equal(await page.textContent('#rg-sauvegarde-resume'), 'Mes sauvegardes');
+    await page.click('#m-onglets button[data-o="registre"]');
+
     // Android refuse (autorisation retirée…) : on propose Téléchargements.
     await page.evaluate(() => {
       const avant = window.Capacitor.nativePromise;
