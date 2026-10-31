@@ -42,7 +42,11 @@ App web de comptes personnels, en français, hors ligne. Publiée sur https://ma
 - Tiers et catégories se renomment ou se fusionnent (`renommerTiersDb`, `fusionnerTiersDb`, `renommerCategorieDb`,
   `fusionnerCategoriesDb`) : `cat_path`, `hay` des opérations et échéances suivent. Une catégorie ne fusionne qu'avec une
   catégorie du même niveau (même parent) : ses sous-catégories s'ajoutent au même niveau, celles au nom identique
-  fusionnent ; on choisit le nom gardé. Téléphone : appui long sur une catégorie → Renommer / Fusionner (`menuCategorie`).
+  fusionnent ; on choisit le nom gardé. Téléphone : appui long sur une catégorie ou un tiers → Renommer / Fusionner
+  (`menuCategorie`, `menuTiers`).
+- Montants et textes qui ne doivent pas passer à la ligne (anneau, comparaisons de l'analyse, total d'une catégorie) :
+  `ajusterTaille` réduit la police ; mesurer sur un écran affiché (pas `hidden`).
+- Plein écran dans l'appli : pas `requestFullscreen` ; barres d'Android cachées par SystemBars (`barresAppliCachees`).
 - Barres (analyse, analyse d'une catégorie) : hauteurs en px (`hauteurBarre`), pas en % (pas toujours suivi sur Android).
 - Réglages d'affichage (`REGLAGES` : thème auto/clair/sombre, barres de recherche en haut/bas, montants masqués à
   l'ouverture) : `localStorage` `mc.reglages` de l'appareil. Thème forcé = `html[data-theme]` ; toute couleur sombre

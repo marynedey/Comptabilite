@@ -577,6 +577,7 @@ test('téléphone, retours d\'affichage : bulle au-dessus des boutons, « Annule
       };
       for (let i = 0; i < 10; i++) ins('2026-' + String(i + 1).padStart(2, '0') + '-05', -7802930, 'Notaire', 'Maison : Travaux');
       ins('2026-10-20', -450, 'Boulangerie', 'Alimentation');
+      ins('2026-10-10', -50000, 'Quincaillerie', 'Maison');   // directement dans « Maison » (sans sous-catégorie)
       invalidateCaches(); render();
     });
     // la bulle passe au-dessus du bouton + et des onglets
@@ -601,7 +602,11 @@ test('téléphone, retours d\'affichage : bulle au-dessus des boutons, « Annule
     await page.selectOption('#m-analyse .ma-mois-centre select', 'annee');
     const centre = page.locator('#m-analyse .ma-centre b');
     assert.match(await centre.textContent(), /702\s263,70/); // janvier → septembre (année en cours)
-    assert.ok(await centre.evaluate(e => e.scrollWidth <= e.parentElement.clientWidth * 0.62 + 1), 'dans le cercle');
+    assert.ok(await centre.evaluate(e => e.scrollWidth <= document.querySelector('#m-analyse .ma-anneau svg').getBoundingClientRect().width * 0.6 + 1), 'dans le trou de l\'anneau');
+    // comparaisons « … vs 2025 » : toujours sur une ligne, quitte à écrire plus petit
+    const lignesComp = await page.locator('#m-analyse .ma-ligne small').evaluateAll(es => es.map(e => [e.textContent, e.scrollWidth - e.clientWidth, e.getBoundingClientRect().height]));
+    assert.ok(lignesComp.every(([, deb, h]) => deb <= 1 && h < 22), 'une ligne : ' + JSON.stringify(lignesComp));
+    assert.match(lignesComp[0][0], /vs 2025$/); // sans répéter « (janv. → sept.) »
     // le détail d'une catégorie, par mois : la barre choisie ne bouge que depuis la moitié gauche
     await page.selectOption('#m-analyse .ma-mois-centre select', 'mois');
     await page.locator('#m-analyse .ma-ligne', { hasText: 'Maison' }).click();
@@ -611,13 +616,33 @@ test('téléphone, retours d\'affichage : bulle au-dessus des boutons, « Annule
     assert.deepEqual(await barres(), ['Mai 2026', 'Juin 2026', 'Juillet 2026', 'Août 2026*', 'Septembre 2026', 'Octobre 2026']);
     await page.click('#m-analyse .ma-barres button[aria-label^="Juin 2026"]');        // moitié gauche : juin au milieu
     assert.deepEqual(await barres(), ['Mars 2026', 'Avril 2026', 'Mai 2026', 'Juin 2026*', 'Juillet 2026', 'Août 2026']);
+    // l'écart à droite du montant, sur une ligne
+    assert.ok(await page.locator('#m-analyse .ma-total').evaluate(t => t.scrollWidth <= t.clientWidth), 'écart sur la ligne du montant');
+    // « Sans sous-catégorie » : ses opérations seules d'un toucher ; chaque opération dit sa sous-catégorie
+    await page.evaluate(() => anaMobileAller('2026-10'));
+    const sousTitres = await page.locator('#m-analyse .ma-liste').last().locator('small').allTextContents();
+    assert.ok(sousTitres.some(t => /Travaux/.test(t)) && sousTitres.some(t => /sans sous-catégorie/.test(t)), sousTitres.join(' | '));
+    await page.click('#m-analyse .ma-ligne[aria-pressed]');
+    assert.equal(await page.locator('#m-analyse .ma-h').last().textContent(), 'Opérations sans sous-catégorie (1)');
+    assert.equal(await page.locator('#m-analyse .ma-tete h2').textContent(), 'Maison', 'on reste dans « Maison »');
+    await page.click('#m-analyse .ma-ligne[aria-pressed]');
+    assert.equal(await page.locator('#m-analyse .ma-h').last().textContent(), 'Opérations (2)');
     // « vs … » n'est jamais coupé
     await page.click('#m-analyse .ma-tete button');
     assert.ok(await page.locator('#m-analyse .ma-ligne small .nw').count() > 0);
+    // analyse de « Maison » (écran Catégories) : le grand montant ne chevauche pas la moyenne
+    await page.evaluate(() => { setView('categories'); voirAnalyseCategorie(upsertCategorieLecture('Maison')); });
+    const lt = page.locator('#m-catana .ca-ligne');
+    assert.ok(await lt.evaluate(l => l.querySelector('b').getBoundingClientRect().right <= l.querySelector('.ca-moy').getBoundingClientRect().left), 'pas de chevauchement');
+    assert.ok(await lt.evaluate(l => l.scrollWidth <= l.clientWidth), 'la moyenne n\'est pas coupée');
+    await page.evaluate(() => fermerAnalyseCategorie());
     // tiers : les trois tris sur une ligne
     await page.evaluate(() => setView('tiers'));
     const ys = await page.locator('#m-tiers .mg-tris button').evaluateAll(bs => bs.map(b => Math.round(b.getBoundingClientRect().top)));
     assert.equal(new Set(ys).size, 1, 'une seule ligne');
+    const larg = await page.locator('#m-tiers .mg-tris').evaluate(e => { const b = [...e.children].map(x => x.getBoundingClientRect()); return [b[0].left, b[b.length - 1].right, e.getBoundingClientRect().left, e.getBoundingClientRect().right]; });
+    assert.ok(Math.abs(larg[0] - larg[2]) < 2 && Math.abs(larg[1] - larg[3]) < 2, 'toute la largeur');
+    assert.equal(await page.locator('#m-tiers .mg-lettre, #m-tiers .mg-plus').count(), 0, 'ni lettre ni « ⋯ »');
     // renommer / fusionner une catégorie : la fenêtre tient dans l'écran ; « son opération rejoint »
     await page.evaluate(() => { upsertCategorie('Une catégorie au nom vraiment très long : avec une sous-catégorie qui ne finit pas'); setView('categories'); });
     await page.locator('#m-categories .mg-nom', { hasText: 'Alimentation' }).dispatchEvent('pointerdown', { clientX: 10, clientY: 10 }); // appui long
@@ -648,7 +673,12 @@ test('téléphone, retours : échéance touchée → son champ, erreur visible, 
     await page.click('#f-clear');
     // répartition : toucher un montant de la fiche → ce montant ; la liste des catégories est celle de l'app
     await ligne(page, 'TBF').first().locator('.m-op-corps').click();
-    await page.locator('#m-fiche .mf-infos button').nth(1).click();
+    // toucher la catégorie d'une ligne → sa catégorie ; toucher son montant → ce montant
+    await page.locator('#m-fiche .mf-infos button').nth(1).locator('span').first().click();
+    await page.waitForFunction(() => document.activeElement === document.querySelectorAll('#vent-list .vent-l')[1].querySelectorAll('input')[0]);
+    await page.click('#overlay .m-fermer');
+    await ligne(page, 'TBF').first().locator('.m-op-corps').click();
+    await page.locator('#m-fiche .mf-infos button').nth(1).locator('span.num').click();
     await page.waitForFunction(() => document.activeElement === document.querySelectorAll('#vent-list .vent-l')[1].querySelectorAll('input')[1]);
     const cat = page.locator('#vent-list .vent-l').first().locator('input').first();
     assert.equal(await cat.getAttribute('list'), null, 'pas la liste d\'Android');
@@ -692,14 +722,23 @@ test('téléphone, retours : échéance touchée → son champ, erreur visible, 
         [state.acc, '2025-06-25', 210000, 'Traitements et salaires : Prime', upsertTiers('TBF'), '']);
       run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)', [scal('SELECT MAX(id) FROM operation'), upsertCategorie('Traitements et salaires : Prime'), 210000]);
       renderAnalyseCategorie(); });
-    await page.click('#m-catana .ca-fenetre button[aria-label="Période précédente"]');
-    assert.match(await page.textContent('#m-catana .ca-fenetre'), /nov\. 2024 – oct\. 2025/);
-    assert.match(await page.textContent('#m-catana .ca-total'), /Octobre 20250,00\s€0 op\./);
+    // ‹ fait défiler les barres d'un mois à la fois ; s'arrête au mois de la première opération
+    const prec = '#m-catana .ca-fenetre button[aria-label="Période précédente"]', suiv = '#m-catana .ca-fenetre button[aria-label="Période suivante"]';
+    await page.click(prec);
+    assert.match(await page.textContent('#m-catana .ca-fenetre'), /oct\. 2025 – sept\. 2026/);
+    assert.match(await page.textContent('#m-catana .ca-total'), /Septembre 2026\+2\s300,00\s€/);
+    for (let i = 0; i < 4; i++) await page.click(prec);
+    assert.match(await page.textContent('#m-catana .ca-fenetre'), /juin 2025 – mai 2026/);
+    assert.equal(await page.locator(prec).isDisabled(), true);
     await page.click('#m-catana .ca-barres button[aria-label^="Juin 2025"]');
     assert.match(await page.textContent('#m-catana .ca-total'), /Juin 2025\+2\s100,00\s€/);
     assert.match(await page.textContent('#m-catana .ca-moy'), /moyenne \+175,00\s€ \/ mois/); // fenêtre passée : 2 100 ÷ 12
-    await page.click('#m-catana .ca-fenetre button[aria-label="Période suivante"]');
+    await page.click('#m-catana .ca-barres button[aria-label^="Décembre 2025"]');
+    await page.click(suiv);                                                                     // décembre reste choisi tant qu'il est visible
+    assert.match(await page.textContent('#m-catana .ca-total'), /Décembre 2025/);
+    for (let i = 0; i < 4; i++) await page.click(suiv);
     assert.match(await page.textContent('#m-catana .ca-fenetre'), /nov\. 2025 – oct\. 2026/);
+    assert.equal(await page.locator(suiv).isDisabled(), true);
     const ligneTot = page.locator('#m-catana .ca-ligne');
     assert.ok(await ligneTot.evaluate(l => l.scrollWidth <= l.clientWidth), 'sur une ligne');
     const mt = await ligneTot.locator('>b').boundingBox(), moy = await ligneTot.locator('.ca-moy').boundingBox();
@@ -951,7 +990,7 @@ test('téléphone, opération rapprochée ventilée : la fiche tient dans l\'éc
     for (const h of await montants.evaluateAll(es => es.map(e => e.getBoundingClientRect().height))) assert.ok(h < 30, 'montant sur une ligne');
     assert.equal(await fiche.locator('button.mf-montant').count(), 0); // le total ne se touche pas
     // toucher une ligne de la répartition : le formulaire, montant verrouillé, répartition modifiable
-    await fiche.locator('.mf-infos button').first().click();
+    await fiche.locator('.mf-infos button').first().locator('span.num').click(); // son montant
     assert.equal(await page.isVisible('#m-fiche'), false);
     assert.equal(await page.locator('#i-montant').evaluate(e => e.readOnly), true);
     // le curseur se place dans le montant de la ligne touchée (30 ms après l'ouverture) : l'attendre avant d'écrire
@@ -994,7 +1033,7 @@ test('téléphone, catégories : montant total ; toucher une catégorie → son 
     assert.equal(await a.locator('.ca-barres button').count(), 1);
     assert.match(await a.locator('.ca-total').textContent(), /2026 \(en cours\)\+4\s942,73\s€/);
     // une sous-catégorie, puis retour
-    await a.locator('.ma-ligne', { hasText: 'Prime' }).click();
+    await a.locator('.ma-ligne[onclick^="caDescendre"]', { hasText: 'Prime' }).click();
     assert.equal(await a.locator('h2').textContent(), 'Prime');
     await page.evaluate(() => fermerFeuilles()); // Retour d'Android
     assert.equal(await a.locator('h2').textContent(), 'Traitements et salaires');
@@ -1278,7 +1317,9 @@ test('téléphone, gestion : renommer un tiers, fusionner une catégorie', async
   try {
     await opsExemple(page);
     await page.evaluate(() => setView('tiers'));
-    await page.click('#m-tiers button[aria-label="Renommer ou fusionner Pharmacie"]');
+    await page.locator('#m-tiers .me-item', { hasText: 'Pharmacie' }).dispatchEvent('pointerdown', { clientX: 10, clientY: 10 }); // appui long
+    await page.click('#dlgFoot button:has-text("Renommer…")');
+    assert.equal(await page.locator('#mt-avec').count(), 0);
     await page.fill('#mt-nom', 'Pharmacie du centre');
     await page.click('#dlgFoot button:has-text("Enregistrer")');
     await page.locator('#m-tiers .me-nom:has-text("Pharmacie du centre")').waitFor();

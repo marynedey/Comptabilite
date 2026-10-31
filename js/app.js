@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.16.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.17.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -694,7 +694,7 @@ function ouvrirFiche(id){
       '<i style="background:'+m.col+'"></i>'+m.label+
       (rapp?' — son montant ne peut plus être modifié':stt==='previsionnel'?' — prévue, pas encore effective':'')+
       (statutTouche?'<small>Toucher pour changer</small></button>':'</div>')+
-    '<div class="mf-infos">'+infos.map(([k,v,f])=>'<button onclick="modifierDepuisFiche(\''+f+'\')"><span>'+k+'</span><span'+(f.indexOf('vent')===0?' class="num"':'')+'>'+v+'</span></button>').join('')+'</div>'+
+    '<div class="mf-infos">'+infos.map(([k,v,f])=>'<button onclick="modifierDepuisFiche('+(f.indexOf('vent')===0?'event.target.closest(\'span.num\')?\''+f+'\':\'ventc'+f.slice(4)+'\'':'\''+f+'\'')+')"><span>'+k+'</span><span'+(f.indexOf('vent')===0?' class="num"':'')+'>'+v+'</span></button>').join('')+'</div>'+
     '<div class="mf-actions"><button onclick="dupliquerDepuisFiche()">Dupliquer</button>'+
       (rapp||ann?'':'<button class="danger" onclick="corbeilleDepuisFiche()">Mettre à la corbeille</button>')+'</div>';
   fi.hidden=false;fi.scrollTop=0;
@@ -748,10 +748,11 @@ function lignesSens(lignes,sens,vir,chemin){
   });
 }
 /* regroupement au niveau suivant : [{nom, total (centimes, positif), n, feuille}] du plus gros au plus petit */
+const SANS_SOUS='Sans sous-catégorie';
 function regrouperAnalyse(lignes,sens,vir,chemin){
   const g=new Map();
   lignesSens(lignes,sens,vir,chemin).forEach(l=>{
-    const p=catParts(l.vir?'Virements : '+(l.ti||'Virement'):l.cat),nom=p[chemin.length]||(chemin.length?'Sans sous-catégorie':'Divers');
+    const p=catParts(l.vir?'Virements : '+(l.ti||'Virement'):l.cat),nom=p[chemin.length]||(chemin.length?SANS_SOUS:'Divers');
     const e=g.get(nom)||{nom,total:0,n:0,feuille:p.length<=chemin.length+1};
     e.total+=Math.abs(l.m);e.n++;if(p.length>chemin.length+1)e.feuille=false;g.set(nom,e);
   });
@@ -775,8 +776,8 @@ function anaMobileSens(s){MA.sens=s;MA.chemin=[];if(state.view!=='analyse')setVi
 function anaMobileAller(k){MA.debut=k;MA.comp=null;renderAnalyseMobile();}
 function anaMobileDecaler(d){MA.debut=periodeDecalee(MA.debut,d);MA.comp=null;MA.fin=null;renderAnalyseMobile();}
 function anaMobileUnite(u){const auj=new Date();MA.unite=u;MA.debut=u==='annee'?String(auj.getFullYear()):clefMois(auj);MA.comp=null;MA.chemin=[];MA.fin=null;renderAnalyseMobile();}
-function anaMobileDescendre(nom){MA.chemin.push(nom);if(MA.chemin.length===1)MA.fin=null;renderAnalyseMobile();document.querySelector('main').scrollTop=0;}
-function anaMobileRemonter(){MA.chemin.pop();renderAnalyseMobile();}
+function anaMobileDescendre(nom){MA.direct=false;MA.chemin.push(nom);if(MA.chemin.length===1)MA.fin=null;renderAnalyseMobile();document.querySelector('main').scrollTop=0;}
+function anaMobileRemonter(){MA.direct=false;MA.chemin.pop();renderAnalyseMobile();}
 /* périodes proposées pour la comparaison : tous les mois (ou années) depuis la 1re opération du compte */
 function periodesDuCompte(acc,unite,auj){
   const d0=scal('SELECT MIN(date_operation) FROM operation WHERE compte_id=? AND supprime=0',[acc]);
@@ -898,8 +899,10 @@ function renderAnalyseMobile(){
   const selComp='<select aria-label="Comparer avec" onchange="MA.comp=this.value;renderAnalyseMobile()">'+
     optsComp.map(k=>'<option value="'+k+'"'+(k===comp?' selected':'')+'>'+libellePeriodeAna(k)+'</option>').join('')+'</select>';
   // « vs 2025 (janv. → sept.) » reste d'un seul tenant : la ligne se coupe avant, pas au milieu
-  const ecartLigne=(v,vc)=>{const d=v-vc;return d===0?'<span class="nw">comme en '+nomC.toLowerCase()+'</span>'
-    :(d>0?'+':'−')+eur(Math.abs(d)).replace('-','')+' <span class="nw">vs '+nomC.toLowerCase()+'</span>';};
+  // « vs 2025 » sans répéter « (janv. → sept.) » : les mêmes mois que la période affichée en haut
+  const nomCc=libellePeriodeAna(comp).toLowerCase();
+  const ecartLigne=(v,vc)=>{const d=v-vc;return d===0?'<span class="nw">comme en '+nomCc+'</span>'
+    :(d>0?'+':'−')+eur(Math.abs(d)).replace('-','')+' <span class="nw">vs '+nomCc+'</span>';};
   let h='';
   if(!MA.chemin.length){
     h+='<div class="ma-mois"><button onclick="anaMobileDecaler(-1)" aria-label="Période précédente">'+fl('M15 6l-6 6 6 6')+'</button>'+
@@ -937,17 +940,26 @@ function renderAnalyseMobile(){
       ps.map((k,i)=>'<button'+(k===MA.debut?' class="actuel" aria-current="true"':'')+' onclick="anaMobileAller(\''+k+'\')" aria-label="'+esc(libellePeriodeAna(k)+' : '+eur(vals[i]).replace('-',''))+'">'+
         '<span style="height:'+hauteurBarre(vals[i],max,66)+'px"></span><small>'+(k.length===4?k:MOIS_COURT[+k.slice(5)-1])+'</small></button>').join('')+'</div>';
     if(groupes.some(g=>!(g.nom==='Sans sous-catégorie'&&g.feuille)||groupes.length>1))
-      h+='<h3 class="ma-h">Sous-catégories</h3><div class="ma-liste">'+groupes.map(g=>'<button class="ma-ligne" onclick="anaMobileDescendre('+esc(JSON.stringify(g.nom))+')">'+
-        '<span class="ma-nom">'+esc(g.nom)+'<small>'+Math.round(tot?g.total/tot*100:0)+' %</small></span><span class="num">'+eur(g.total).replace('-','')+'</span>'+fl('M9 6l6 6-6 6')+'</button>').join('')+'</div>';
-    const ops=lignesSens(L,MA.sens,MA.vir,MA.chemin).sort((a,b)=>b.d.localeCompare(a.d));
-    h+='<h3 class="ma-h">Opérations ('+ops.length+')</h3><div class="ma-liste">'+ops.map(o=>'<button class="ma-ligne" onclick="ouvrirFiche('+o.id+')">'+
-      '<span class="ma-nom">'+esc(o.ti||'(sans destinataire)')+'<small>'+libJour(o.d,auj)+'</small></span><span class="num">'+eur(Math.abs(o.m))+'</span></button>').join('')+'</div>';
+      // « Sans sous-catégorie » : les opérations rangées directement dans la catégorie ; la toucher ne garde qu'elles en dessous
+      h+='<h3 class="ma-h">Sous-catégories</h3><div class="ma-liste">'+groupes.map(g=>{const direct=g.nom===SANS_SOUS;
+        return '<button class="ma-ligne'+(direct&&MA.direct?' choisie':'')+'" onclick="'+(direct?'MA.direct=!MA.direct;renderAnalyseMobile()':'anaMobileDescendre('+esc(JSON.stringify(g.nom))+')')+'"'+(direct?' aria-pressed="'+!!MA.direct+'"':'')+'>'+
+        '<span class="ma-nom">'+esc(g.nom)+'<small>'+Math.round(tot?g.total/tot*100:0)+' %'+(direct?' · '+(MA.direct?'toucher pour tout revoir':'toucher pour ne voir qu’elles'):'')+'</small></span><span class="num">'+eur(g.total).replace('-','')+'</span>'+
+        (direct?'':fl('M9 6l6 6-6 6'))+'</button>';}).join('')+'</div>';
+    const sousDe=o=>catParts(o.vir?'Virements : '+(o.ti||'Virement'):o.cat)[MA.chemin.length]; // sa sous-catégorie (ou rien)
+    const ops=lignesSens(L,MA.sens,MA.vir,MA.chemin).filter(o=>!MA.direct||!sousDe(o)).sort((a,b)=>b.d.localeCompare(a.d));
+    h+='<h3 class="ma-h">'+(MA.direct?'Opérations sans sous-catégorie':'Opérations')+' ('+ops.length+')</h3><div class="ma-liste">'+ops.map(o=>'<button class="ma-ligne" onclick="ouvrirFiche('+o.id+')">'+
+      '<span class="ma-nom">'+esc(o.ti||'(sans destinataire)')+'<small>'+libJour(o.d,auj)+(groupes.length>1||sousDe(o)?' · '+esc(sousDe(o)||'sans sous-catégorie'):'')+'</small></span><span class="num">'+eur(Math.abs(o.m))+'</span></button>').join('')+'</div>';
   }
   document.getElementById('m-analyse').innerHTML=h;
   // le total au centre de l'anneau tient dans le cercle : plus petit pour un grand montant
-  const c=document.querySelector('#m-analyse .ma-centre b');
-  if(c){let f=parseFloat(getComputedStyle(c).fontSize)||21;const max=c.parentElement.clientWidth*0.62||118;
-    while(c.scrollWidth>max&&f>11){f-=1;c.style.fontSize=f+'px';}}
+  // (le trou de l'anneau : environ 60 % de la largeur du dessin, pas de toute la ligne)
+  const c=document.querySelector('#m-analyse .ma-centre b'),sv=document.querySelector('#m-analyse .ma-anneau svg');
+  if(c&&sv){const max=sv.getBoundingClientRect().width*0.6;ajusterTaille(c,()=>c.scrollWidth>max);}
+  // comparaisons : toujours sur une ligne (à droite du montant) ; trop longues, la police rapetisse
+  document.querySelectorAll('#m-analyse .ma-ligne small').forEach(e=>ajusterTaille(e,()=>e.scrollWidth>e.clientWidth,10));
+  const t=document.querySelector('#m-analyse .ma-total');
+  if(t){const e=t.querySelector('.ma-ecart'),b=t.querySelector('b');
+    ajusterTaille(e,()=>t.scrollWidth>t.clientWidth,10);ajusterTaille(b,()=>t.scrollWidth>t.clientWidth);}
 }
 /* ---------- une seule fenêtre à la fois (PC) ----------
    Chaque fenêtre garde sa copie de la base en mémoire et la réécrit en entier : deux fenêtres (ou onglets)
@@ -1710,13 +1722,13 @@ function renderTiersMobile(rows){
   const tri=state.tiMTri||'n',liste=trierTiersMobile(rows,tri);
   document.getElementById('m-tiers').innerHTML=
     '<div class="ma-puces mg-tris">'+TRIS_TIERS.map(([k,t])=>'<button aria-pressed="'+(k===tri)+'" onclick="state.tiMTri=\''+k+'\';renderTiers()">'+t+'</button>').join('')+'</div>'+
-    (liste.length?'<div class="me-liste">'+liste.map(t=>'<div class="mg-tiers"><button class="me-item" onclick="voirTiers('+esc(JSON.stringify(t.dest))+')">'+
-      '<span class="mg-lettre" aria-hidden="true">'+esc((t.dest||'?').charAt(0).toUpperCase())+'</span>'+
+    // ni lettre ni « ⋯ » : toute la largeur pour le nom et le montant ; appui long → Renommer / Fusionner
+    (liste.length?'<div class="me-liste">'+liste.map(t=>'<div class="mg-tiers"><button class="me-item" data-nom="'+esc(t.dest)+'" onclick="voirTiers('+esc(JSON.stringify(t.dest))+')">'+
       '<span class="me-nom">'+esc(t.dest)+'<small>'+t.n+' op.'+(t.cat?' · '+esc(t.cat):'')+'</small></span>'+
-      '<span class="num" style="color:'+(t.total<0?'var(--ink)':'var(--credit)')+'">'+(t.total>0?'+':'')+eur(t.total)+'</span></button>'+
-      '<button class="ghost mg-icone mg-plus" aria-label="Renommer ou fusionner '+esc(t.dest)+'" onclick="modifierTiers('+esc(JSON.stringify(t.dest))+')">⋯</button></div>').join('')+'</div>'
+      '<span class="num" style="color:'+(t.total<0?'var(--ink)':'var(--credit)')+'">'+(t.total>0?'+':'')+eur(t.total)+'</span></button></div>').join('')+'</div>'
       :'<div class="m-vide">Aucun destinataire ne correspond.</div>')+
-    '<p class="me-aide" style="margin-top:12px">Touche un destinataire pour voir ses opérations ; « ⋯ » pour le renommer ou le fusionner avec un doublon.</p>';
+    '<p class="me-aide" style="margin-top:12px">Touche un destinataire pour voir ses opérations ; appui long pour le renommer ou le fusionner avec un doublon.</p>';
+  document.querySelectorAll('#m-tiers .me-item[data-nom]').forEach(b=>appuiLong(b,()=>menuTiers(b.dataset.nom)));
 }
 // un destinataire -> registre filtré par la recherche sur son nom
 function voirTiers(nom){
@@ -1819,16 +1831,23 @@ function renommerCategorieDb(id,lib){
   return {action:'renomme',chemin:cheminCategorie(id)};
 }
 /* fenêtres : un champ pour renommer, une liste pour fusionner avec un autre */
-async function modifierTiers(nom){
+/* téléphone : appui long sur un destinataire → menu Renommer / Fusionner */
+async function menuTiers(nom){
+  const v=await dlgOpen({title:nom,msg:'',fermeDehors:true,buttons:[{t:'Fusionner…',v:'fus'},{t:'Renommer…',v:'ren',p:true}]});
+  if(v==='ren')modifierTiers(nom,'renommer');else if(v==='fus')modifierTiers(nom,'fusionner');
+}
+// mode : 'renommer' ou 'fusionner' (menu du téléphone), sinon les deux dans la même fenêtre (PC)
+async function modifierTiers(nom,mode){
   const t=qy('SELECT id,nom FROM tiers WHERE nom=?',[nom])[0];if(!t)return;
   const n=scal('SELECT COUNT(*) FROM operation WHERE tiers_id=? AND supprime=0',[t.id]);
   const autres=qy('SELECT id,nom FROM tiers WHERE id<>? ORDER BY nom COLLATE NOCASE',[t.id]);
-  const html='<div class="field"><label>Nouveau nom</label><input id="mt-nom" value="'+esc(t.nom)+'" autocomplete="off"></div>'+
-    '<div class="field"><label>Ou fusionner avec</label><select id="mt-avec"><option value="">— garder séparé —</option>'+
+  const html=(mode!=='fusionner'?'<div class="field"><label>Nouveau nom</label><input id="mt-nom" value="'+esc(t.nom)+'" autocomplete="off"></div>':'')+
+    (mode!=='renommer'?'<div class="field"><label>'+(mode?'Fusionner avec':'Ou fusionner avec')+'</label><select id="mt-avec"><option value="">'+(mode?'— choisir un destinataire —':'— garder séparé —')+'</option>'+
     autres.map(a=>'<option value="'+a.id+'">'+esc(a.nom)+'</option>').join('')+'</select></div>'+
-    '<div class="meta">Fusionner : '+(n>1?'ses '+n+' opérations passent':'son opération passe')+' sous l’autre nom (pratique pour un doublon).</div>';
-  let avec=0,nv='';const lire=()=>{avec=+document.getElementById('mt-avec').value||0;nv=document.getElementById('mt-nom').value;}; // avant que la fenêtre se vide
-  const v=await dlgOpen({title:'Renommer ou fusionner « '+t.nom+' »',msg:'',html,fermeDehors:true,buttons:[{t:'Annuler',v:false},{t:'Enregistrer',v:'ok',p:true,before:lire}]});
+    '<div class="meta">Fusionner : '+(n>1?'ses '+n+' opérations passent':'son opération passe')+' sous l’autre nom (pratique pour un doublon).</div>':'');
+  let avec=0,nv='';const lire=()=>{const a=document.getElementById('mt-avec'),m=document.getElementById('mt-nom');avec=a?+a.value||0:0;nv=m?m.value:t.nom;}; // avant que la fenêtre se vide
+  const titre=mode==='renommer'?'Renommer « '+t.nom+' »':mode==='fusionner'?'Fusionner « '+t.nom+' »':'Renommer ou fusionner « '+t.nom+' »';
+  const v=await dlgOpen({title:titre,msg:'',html,fermeDehors:true,buttons:[{t:'Annuler',v:false},{t:mode==='fusionner'?'Fusionner':'Enregistrer',v:'ok',p:true,before:lire}]});
   if(v!=='ok')return;
   try{
     let r;
@@ -2014,17 +2033,17 @@ function periodesCategorie(lignes,unite,auj,fin){
 }
 // moyenne des périodes affichées, sans la période en cours (commencée) si elle en fait partie ; null s'il n'y en a pas
 function moyenneCategorie(P,avecDerniere){const p=avecDerniere?P:P.slice(0,-1);return p.length?Math.round(p.reduce((t,x)=>t+x.total,0)/p.length):null;}
-// ‹ › : la fenêtre recule ou avance de 12 mois (ou de 10 ans), jamais au-delà de la période en cours
+// ‹ › : les barres défilent d'un cran (un mois, ou un an), jamais au-delà de la période en cours
 function caDecaler(d){const auj=new Date(),cur=CA.unite==='annee'?String(auj.getFullYear()):clefMois(auj);
-  const f=periodeDecalee(CA.fin||cur,d*(CA.unite==='annee'?10:12));
-  CA.fin=rangPeriode(f)>=rangPeriode(cur)?null:f;CA.sel=null;renderAnalyseCategorie();}
+  const f=periodeDecalee(CA.fin||cur,d);
+  CA.fin=rangPeriode(f)>=rangPeriode(cur)?null:f;renderAnalyseCategorie();}
 function voirAnalyseCategorie(id){
-  CA.pile=[id];CA.sel=null;CA.fin=null;const el=document.getElementById('m-catana');
-  renderAnalyseCategorie();el.hidden=false;el.scrollTop=0;
+  CA.pile=[id];CA.sel=null;CA.fin=null;CA.direct=false;const el=document.getElementById('m-catana');
+  el.hidden=false;renderAnalyseCategorie();el.scrollTop=0; // affiché d'abord : les tailles se mesurent sur un écran visible
 }
 function fermerAnalyseCategorie(){const el=document.getElementById('m-catana');if(el)el.hidden=true;CA.pile=[];}
-function caRetour(){CA.pile.pop();if(!CA.pile.length){fermerAnalyseCategorie();return;}renderAnalyseCategorie();document.getElementById('m-catana').scrollTop=0;}
-function caDescendre(id){CA.pile.push(id);renderAnalyseCategorie();document.getElementById('m-catana').scrollTop=0;}
+function caRetour(){CA.direct=false;CA.pile.pop();if(!CA.pile.length){fermerAnalyseCategorie();return;}renderAnalyseCategorie();document.getElementById('m-catana').scrollTop=0;}
+function caDescendre(id){CA.direct=false;CA.pile.push(id);renderAnalyseCategorie();document.getElementById('m-catana').scrollTop=0;}
 function caUnite(u){CA.unite=u;CA.sel=null;CA.fin=null;renderAnalyseCategorie();}
 function caPeriode(k){CA.sel=k;renderAnalyseCategorie();}
 function caOperations(){const id=CA.pile[CA.pile.length-1];fermerAnalyseCategorie();voirCategorie(id);}
@@ -2068,31 +2087,36 @@ function renderAnalyseCategorie(){
     '<span style="height:'+hauteurBarre(x.total,max,96)+'px"></span><small>'+(an?(P.length>6?'’'+x.cle.slice(2):x.cle):MOIS_FR[+x.cle.slice(5)-1].charAt(0).toUpperCase())+'</small></button>').join('')+'</div>';
   // sous-catégories de la période (au niveau juste en dessous)
   const enfants=Object.values(by).filter(c=>c.parent_id===id);
+  const enfantDe2=c=>{let x=c;while(x!=null&&by[x]&&by[x].parent_id!==id)x=by[x].parent_id;return x;}; // la sous-catégorie directe
   if(enfants.length){
-    const enfantDe=c=>{let x=c;while(x!=null&&by[x]&&by[x].parent_id!==id)x=by[x].parent_id;return x;};
+    const enfantDe=enfantDe2;
     const g=new Map();LS.forEach(l=>{const k=l.c===id?0:enfantDe(l.c)||0,e=g.get(k)||{k,total:0,ops:new Set()};e.total+=l.m;e.ops.add(l.id);g.set(k,e);});
     const gs=[...g.values()].sort((a,b)=>Math.abs(b.total)-Math.abs(a.total));
     h+='<h3 class="ma-h">Sous-catégories</h3><div class="ma-liste">'+(gs.length?gs.map(e=>e.k?
       '<button class="ma-ligne" onclick="caDescendre('+e.k+')"><span class="ma-nom">'+esc(by[e.k].libelle)+'<small>'+e.ops.size+' op.</small></span>'+
         '<span class="num '+clsSigne(e.total)+'">'+eurSigne(e.total)+'</span>'+fl('M9 6l6 6-6 6')+'</button>'
-      :'<div class="ma-ligne"><span class="ma-nom">Sans sous-catégorie<small>'+e.ops.size+' op.</small></span><span class="num '+clsSigne(e.total)+'">'+eurSigne(e.total)+'</span></div>').join('')
+      :'<button class="ma-ligne'+(CA.direct?' choisie':'')+'" aria-pressed="'+!!CA.direct+'" onclick="CA.direct=!CA.direct;renderAnalyseCategorie()"><span class="ma-nom">'+SANS_SOUS+
+        '<small>'+e.ops.size+' op. · '+(CA.direct?'toucher pour tout revoir':'toucher pour ne voir qu’elles')+'</small></span><span class="num '+clsSigne(e.total)+'">'+eurSigne(e.total)+'</span></button>').join('')
       :'<div class="m-vide">Rien sur cette période.</div>')+'</div>';
   }
   // opérations de la période (une ligne par opération, ses lignes de répartition additionnées)
-  const ops=new Map();LS.forEach(l=>{const o=ops.get(l.id)||{id:l.id,d:l.d,ti:l.ti,compte:l.compte,m:0};o.m+=l.m;ops.set(l.id,o);});
+  // chaque opération dit sa sous-catégorie : les totaux du dessus se retrouvent ; « Sans sous-catégorie » touchée → elles seules
+  const sous=l=>l.c===id?null:by[enfantDe2(l.c)]?by[enfantDe2(l.c)].libelle:null;
+  const ops=new Map();LS.filter(l=>!CA.direct||!sous(l)).forEach(l=>{const o=ops.get(l.id)||{id:l.id,d:l.d,ti:l.ti,compte:l.compte,m:0,sous:new Set()};
+    o.m+=l.m;o.sous.add(sous(l)||'sans sous-catégorie');ops.set(l.id,o);});
   const lo=[...ops.values()].sort((a,b)=>b.d.localeCompare(a.d)||b.id-a.id);
-  h+='<h3 class="ma-h">Opérations ('+lo.length+')</h3><div class="ma-liste">'+(lo.length?lo.map(o=>'<button class="ma-ligne" onclick="ouvrirFiche('+o.id+')">'+
-    '<span class="ma-nom">'+esc(o.ti||'(sans destinataire)')+'<small>'+libJour(o.d,auj)+' · '+esc(o.compte||'')+'</small></span>'+
+  h+='<h3 class="ma-h">'+(CA.direct?'Opérations sans sous-catégorie':'Opérations')+' ('+lo.length+')</h3><div class="ma-liste">'+(lo.length?lo.map(o=>'<button class="ma-ligne" onclick="ouvrirFiche('+o.id+')">'+
+    '<span class="ma-nom">'+esc(o.ti||'(sans destinataire)')+'<small>'+libJour(o.d,auj)+' · '+(enfants.length?esc([...o.sous].join(', '))+' · ':'')+esc(o.compte||'')+'</small></span>'+
     '<span class="num '+clsSigne(o.m)+'">'+eurSigne(o.m)+'</span></button>').join('')
     :'<div class="m-vide">Aucune opération sur cette période.</div>')+'</div>';
   el.innerHTML=h;
-  ajusterTaille(el.querySelector('.ca-ligne>b'),()=>{const l=el.querySelector('.ca-ligne');return l.scrollWidth>l.clientWidth;});
+  const l=el.querySelector('.ca-ligne');ajusterTaille(l.querySelector('b'),()=>l.scrollWidth>l.clientWidth); // le montant ne chevauche plus la moyenne
 }
 // hauteur d'une barre en px (pas en % : pas toujours suivi par la vue web d'Android) ; un montant non nul se voit toujours
 function hauteurBarre(v,max,haut){return v?Math.max(4,Math.round(Math.abs(v)/max*haut)):2;}
 // réduit la police d'un élément tant que trop() est vrai (un grand montant qui ne tient pas)
-function ajusterTaille(e,trop){if(!e)return;let f=parseFloat(getComputedStyle(e).fontSize)||20;e.style.fontSize='';
-  while(trop()&&f>12){f-=1;e.style.fontSize=f+'px';}}
+function ajusterTaille(e,trop,min){if(!e)return;e.style.fontSize='';let f=parseFloat(getComputedStyle(e).fontSize)||20;
+  while(trop()&&f>(min||12)){f-=0.5;e.style.fontSize=f+'px';}}
 
 /* ============================================================
    Analyse — uniquement des barres horizontales, avec descente
@@ -2386,15 +2410,18 @@ function grBrancherSurvol(root){root.querySelectorAll('.gr-hit').forEach(h=>{
 document.addEventListener('pointerdown',e=>{if(state.view==='graphiques'&&!(e.target.closest&&e.target.closest('.gr-hit')))grSortie();},true);
 /* plein écran (mobile : à l'horizontale) : la courbe seule, les barres en option */
 let grFsNatif=false;
+function barresAppliCachees(cacher){Capacitor.nativePromise('SystemBars',cacher?'hide':'show',{}).catch(()=>{});}
+window.addEventListener('resize',()=>{if(enAppli()&&document.body.classList.contains('gr-plein'))setTimeout(()=>barresAppliCachees(true),250);});
 async function grPleinEcran(on,auto){
   const d=document,el=d.documentElement;
   d.body.classList.toggle('gr-plein',on);d.body.classList.toggle('gr-auto',on&&!!auto);
   d.body.classList.toggle('gr-fs-barres',on&&!!grShow().fsBarres);grSortie();
   if(!on)grFsAuto=false;
-  // appli : le plein écran du navigateur n'existe pas, on cache les barres d'Android (état, navigation)
-  if(enAppli()&&!auto)Capacitor.nativePromise('SystemBars',on?'hide':'show',{}).catch(()=>{});
+  // appli : pas le plein écran du navigateur (en sortant, il pouvait faire revenir les barres) ; on cache les barres
+  // d'Android (état, navigation), aussi quand le plein écran vient de la rotation, et de nouveau après chaque rotation
+  if(enAppli())barresAppliCachees(on);
   if(on&&!auto){
-    if(!pleinEcranActif()&&(el.requestFullscreen||el.webkitRequestFullscreen)){
+    if(!enAppli()&&!pleinEcranActif()&&(el.requestFullscreen||el.webkitRequestFullscreen)){
       try{await (el.requestFullscreen||el.webkitRequestFullscreen).call(el,{navigationUI:'hide'});grFsNatif=true;}catch(e){grFsNatif=false;}}
     try{if(screen.orientation&&screen.orientation.lock)await screen.orientation.lock('landscape');}catch(e){} // refusé hors plein écran (iPhone…) : on invite à tourner
   }else if(!on){
@@ -2957,8 +2984,8 @@ function openModal(id,focus){
       :focus==='cat'||focus==='cat0'?document.getElementById('i-cat0')
       :focus==='cat1'?document.getElementById('i-cat1')
       :focus==='cat2'?document.getElementById('i-cat2')
-      :/^vent\d*$/.test(focus||'')?(()=>{const l=document.querySelectorAll('#vent-list .vent-l')[+focus.slice(4)||0]; // le montant de la ligne touchée
-        return l?l.querySelectorAll('input')[1]:document.querySelector('#vent-list input');})()
+      :/^ventc?\d*$/.test(focus||'')?(()=>{const c=focus[4]==='c',l=document.querySelectorAll('#vent-list .vent-l')[+focus.slice(c?5:4)||0];
+        return l?l.querySelectorAll('input')[c?0:1]:document.querySelector('#vent-list input');})() // la catégorie ou le montant de la ligne touchée
       :focus==='comm'?document.getElementById('i-comm')
       :destEl();
     if(cible){cible.focus();if(cible.select)cible.select();if(ecranTactile()&&cible.scrollIntoView)cible.scrollIntoView({block:'center'});}
