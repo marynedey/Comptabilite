@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.18.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.18.1'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -719,13 +719,24 @@ function ouvrirFiche(id){
 function fermerFiche(){const fi=document.getElementById('m-fiche');if(fi)fi.hidden=true;ficheId=null;}
 /* clavier ouvert (la partie visible de l'écran rapetisse) : de la place sous les fenêtres pour pouvoir remonter, et le
    champ en cours de saisie remonte juste au-dessus du clavier (la liste des catégories s'ouvre au-dessus de lui) */
+let hauteurPleine=0;
 function champAuDessusDuClavier(){
   const vv=window.visualViewport;if(!vv)return;
-  const clavier=vv.height<window.innerHeight*0.8;document.body.classList.toggle('clavier',clavier);
-  const a=document.activeElement;if(!clavier||!a||!/^(INPUT|TEXTAREA)$/.test(a.tagName))return;
+  // dans l'appli, Android rétrécit toute la page quand le clavier s'ouvre : on compare à la plus grande hauteur vue
+  hauteurPleine=Math.max(hauteurPleine,window.innerHeight,vv.height);
+  const clavier=vv.height<hauteurPleine*0.8;document.body.classList.toggle('clavier',clavier);
+  const a=document.activeElement;if(!a||!/^(INPUT|TEXTAREA)$/.test(a.tagName))return;
   const sc=a.closest('.modal,.dlg');if(!sc)return;
-  setTimeout(()=>{const r=a.getBoundingClientRect(),bas=vv.offsetTop+vv.height-16;
-    if(r.bottom>bas)sc.scrollTop+=r.bottom-bas+Math.min(120,vv.height*0.2);},60);
+  setTimeout(()=>{
+    // le bas visible : le haut du clavier, ou plus haut celui des boutons du bas (Dupliquer, Enregistrer…) qui restent au-dessus
+    let bas=vv.offsetTop+vv.height;
+    const pied=sc.querySelector('.modal-foot')||(sc.classList.contains('dlg')?document.getElementById('dlgFoot'):null);
+    if(pied){const p=pied.getBoundingClientRect();if(p.height&&p.top<bas&&p.top>vv.offsetTop+vv.height*0.3)bas=p.top;}
+    bas-=12;
+    const r=a.getBoundingClientRect(),haut=vv.offsetTop+12;
+    if(r.bottom>bas)sc.scrollTop+=r.bottom-bas;      // juste au-dessus des boutons
+    else if(r.top<haut)sc.scrollTop-=haut-r.top;      // ou pas caché en haut
+  },60);
 }
 // depuis la fiche : en fermant le formulaire (Retour, croix, Enregistrer), on revient à la fiche, pas à la liste
 function modifierDepuisFiche(champ){const id=ficheId;fermerFiche();openModal(id,champ);state.retourFiche=id;}
@@ -1045,6 +1056,8 @@ async function boot(){
     brancherListeVentilation('vent-box');
     // le clavier s'ouvre : le champ en cours de saisie remonte au-dessus de lui (sinon il restait caché dessous)
     if(window.visualViewport)visualViewport.addEventListener('resize',champAuDessusDuClavier);
+    window.addEventListener('resize',champAuDessusDuClavier);
+    document.addEventListener('focusin',e=>{if(e.target.closest&&e.target.closest('.modal,.dlg'))champAuDessusDuClavier();}); // clavier déjà ouvert
     // « Entrée » / « OK » du clavier dans une recherche : le clavier se ferme pour laisser voir les résultats
     ['f-search','ti-search','cat-search'].forEach(id=>{const el=document.getElementById(id);if(!el)return;
       el.setAttribute('enterkeyhint','search');
@@ -2028,23 +2041,30 @@ function renderCategories(){
 /* Catégories sur téléphone : arbre qui se déplie (flèche), montant total et nombre d'opérations ;
    toucher le nom → son analyse (par mois / par année), d'où l'on va à ses opérations.
    Pendant une recherche (ou « vides seulement »), tout ce qui correspond est déplié. */
-function lignesCategoriesMobile(kids,totOf,ouvertes,q,vides){
+// fermees : catégories repliées à la main pendant une recherche (sinon tout ce qui correspond est déplié)
+function lignesCategoriesMobile(kids,totOf,ouvertes,q,vides,fermees){
   const critere=c=>(!q||c.libelle.toLowerCase().includes(q))&&(!vides||totOf(c.id)===0);
   const garde={},keep=c=>garde[c.id]!=null?garde[c.id]:(garde[c.id]=critere(c)||(kids[c.id]||[]).some(keep));
   const filtre=!!(q||vides),out=[];
   (function walk(pid,depth,tout){
     (kids[pid]||[]).filter(c=>tout||!filtre||keep(c)).sort((a,b)=>a.libelle.localeCompare(b.libelle,'fr')).forEach(c=>{
-      const enfants=(kids[c.id]||[]).length>0,ouverte=filtre?enfants:ouvertes.has(c.id);
+      const enfants=(kids[c.id]||[]).length>0,ouverte=filtre?enfants&&!(fermees&&fermees.has(c.id)):ouvertes.has(c.id);
       out.push({c,depth,enfants,ouverte,n:totOf(c.id)});
       if(enfants&&ouverte)walk(c.id,depth+1,tout||(filtre&&critere(c)));
     });
   })(0,0,false);
   return out;
 }
-function basculerCategorie(id){const o=state.catOuvertes||(state.catOuvertes=new Set());if(o.has(id))o.delete(id);else o.add(id);renderCategories();}
+// la flèche replie ou déplie ; pendant une recherche (tout déplié d'office), elle replie aussi
+function basculerCategorie(id){
+  const q=((document.getElementById('cat-search')||{}).value||'').trim(),filtre=!!(q||state.catVides);
+  const o=filtre?(state.catFermees||(state.catFermees=new Set())):(state.catOuvertes||(state.catOuvertes=new Set()));
+  if(o.has(id))o.delete(id);else o.add(id);renderCategories();}
 function renderCategoriesMobile(cats,kids,totOf,sumOf){
   const q=((document.getElementById('cat-search')||{}).value||'').trim().toLowerCase();
-  const L=lignesCategoriesMobile(kids,totOf,state.catOuvertes||new Set(),q,!!state.catVides);
+  // une autre recherche : ce qui avait été replié pendant la précédente se déplie de nouveau
+  const filtre=q+'|'+!!state.catVides;if(state.catFiltre!==filtre){state.catFiltre=filtre;state.catFermees=new Set();}
+  const L=lignesCategoriesMobile(kids,totOf,state.catOuvertes||new Set(),q,!!state.catVides,state.catFermees);
   const fleche=(o)=>'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="'+(o?'M6 9l6 6 6-6':'M9 6l6 6-6 6')+'"/></svg>';
   document.getElementById('m-categories').innerHTML=(L.length?'<div class="me-liste">'+L.map(l=>
     '<div class="mg-cat d'+l.depth+'" data-id="'+l.c.id+'" style="padding-left:'+(6+l.depth*22)+'px">'+

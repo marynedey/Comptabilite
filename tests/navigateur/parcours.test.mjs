@@ -642,6 +642,12 @@ test('téléphone, retours d\'affichage : bulle au-dessus des boutons, « Annule
     const lt = page.locator('#m-catana .ca-ligne');
     assert.ok(await lt.evaluate(l => l.querySelector('b').getBoundingClientRect().right <= l.querySelector('.ca-moy').getBoundingClientRect().left), 'pas de chevauchement');
     assert.ok(await lt.evaluate(l => l.scrollWidth <= l.clientWidth), 'la moyenne n\'est pas coupée');
+    // une longue liste de sous-catégories n'écrase pas la zone des barres
+    await page.evaluate(() => { for (let i = 0; i < 15; i++) { const cat = 'Maison : Sous ' + i;
+      run("INSERT INTO operation(compte_id,date_operation,montant,cat_path,statut,supprime,previsionnel,tiers_id,hay) VALUES(?,?,?,?,'pointe',0,0,?,'')", [state.acc, '2026-10-0' + (1 + i % 9), -100, cat, upsertTiers('T' + i)]);
+      run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)', [scal('SELECT MAX(id) FROM operation'), upsertCategorie(cat), -100]); }
+      renderAnalyseCategorie(); });
+    assert.equal(await page.locator('#m-catana .ca-barres').evaluate(e => Math.round(e.getBoundingClientRect().height)), 140, 'hauteur des barres gardée');
     // « Sans sous-catégorie » s'ouvre comme une sous-catégorie, avec ses seules opérations
     assert.deepEqual(await page.locator('#m-catana .ma-h').allTextContents(), ['Sous-catégories']);
     await page.locator('#m-catana .ma-ligne', { hasText: 'Sans sous-catégorie' }).click();
@@ -1013,6 +1019,11 @@ test('téléphone, opération rapprochée ventilée : la fiche tient dans l\'éc
     assert.equal(await page.locator('#i-montant').evaluate(e => e.readOnly), true);
     // le curseur se place dans le montant de la ligne touchée (30 ms après l'ouverture) : l'attendre avant d'écrire
     await page.waitForFunction(() => document.activeElement === document.querySelectorAll('#vent-list .vent-l')[0].querySelectorAll('input')[1]);
+    // le clavier s'ouvre (dans l'appli, Android rétrécit la page) : le montant remonte juste au-dessus d'Enregistrer
+    await page.setViewportSize({ width: 390, height: 544 });
+    await page.waitForFunction(() => { const a = document.activeElement.getBoundingClientRect(), p = document.querySelector('#overlay .modal-foot').getBoundingClientRect();
+      return a.bottom <= p.top && a.top >= 0; }, null, { timeout: 3000 });
+    await page.setViewportSize({ width: 390, height: 844 });
     const champs = page.locator('#vent-list .vent-l input[inputmode="decimal"]');
     await champs.nth(0).fill('2640,00');
     await champs.nth(1).fill('-323,24');
@@ -1229,6 +1240,19 @@ test('téléphone, gestion : tiers (tri, toucher → opérations), catégories (
     assert.equal(await c.locator('.mg-nom', { hasText: 'Courses' }).count(), 0);
     await c.locator('button[aria-label="Déplier Alimentation"]').click();
     assert.equal(await c.locator('.mg-nom', { hasText: 'Courses' }).count(), 1);
+    // et la même flèche la replie
+    await c.locator('button[aria-label="Replier Alimentation"]').click();
+    assert.equal(await c.locator('.mg-nom', { hasText: 'Courses' }).count(), 0, 'repliée');
+    // pendant une recherche, tout ce qui correspond est déplié… et la flèche replie aussi
+    await page.fill('#cat-search', 'a');
+    await page.evaluate(() => renderCategories());
+    assert.equal(await c.locator('.mg-nom', { hasText: 'Courses' }).count(), 1, 'dépliée par la recherche');
+    await c.locator('button[aria-label="Replier Alimentation"]').click();
+    assert.equal(await c.locator('.mg-nom', { hasText: 'Courses' }).count(), 0, 'repliée pendant la recherche');
+    await c.locator('button[aria-label="Déplier Alimentation"]').click();
+    assert.equal(await c.locator('.mg-nom', { hasText: 'Courses' }).count(), 1);
+    await page.fill('#cat-search', '');
+    await page.evaluate(() => renderCategories());
     // corbeille : restaurer, vider
     await page.evaluate(() => { run("UPDATE operation SET supprime=1,date_suppression='2026-10-22 10:00:00' WHERE tiers_id IN (SELECT id FROM tiers WHERE nom IN ('Pharmacie','Boulangerie'))"); setView('corbeille'); });
     const b = page.locator('#m-corbeille');

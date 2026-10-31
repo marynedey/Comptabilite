@@ -306,6 +306,8 @@ test('catégories (téléphone) : arbre replié par défaut, flèche pour dépli
   assert.deepEqual(noms([1], '', false), ['Alimentation', '  Boulangerie', '  Courses', 'Logement']);
   assert.deepEqual(noms([], 'bio', false), ['Alimentation', '  Courses', '    Bio']);
   assert.deepEqual(noms([], '', true), ['Logement']);   // seulement les vides
+  // pendant une recherche, une catégorie repliée à la main reste repliée
+  assert.deepEqual([...app.lignesCategoriesMobile(kids, totOf, new Set(), 'bio', false, new Set([2])).map(l => l.c.libelle)], ['Alimentation', 'Courses']);
 });
 
 test('tiers : renommer, ou fusionner avec un doublon (opérations, échéances et recherche suivent)', () => {
