@@ -220,7 +220,7 @@ test('téléphone : mois du filtre, ‹ et ›', () => {
 });
 
 test('réglages d\'affichage : valeurs par défaut et valeurs inconnues ignorées', () => {
-  const defaut = { theme: 'auto', recherche: 'haut', masquer: false, verrou: false, verrouDelai: 5 };
+  const defaut = { theme: 'auto', recherche: 'haut', masquer: false, verrou: false, aussiTelechargements: false, verrouDelai: 5 };
   assert.deepEqual(js(app.lireReglages(null)), defaut);
   assert.deepEqual(js(app.lireReglages('{"theme":"sombre","recherche":"bas","masquer":true}')), { ...defaut, theme: 'sombre', recherche: 'bas', masquer: true });
   assert.deepEqual(js(app.lireReglages('{"theme":"violet","recherche":"gauche","masquer":"oui"}')), defaut);
@@ -480,4 +480,10 @@ test('guide : mêmes rubriques sur PC et téléphone, mots adaptés à chacun', 
   assert.match(texte(tel), /Appui long/); assert.doesNotMatch(texte(tel), /touche A\b/);
   assert.match(texte(pc), /touche A\b/); assert.doesNotMatch(texte(pc), /Appui long|Touche une/);
   for (const [, , lignes] of [...tel, ...pc]) assert.ok(lignes.length && lignes.every(l => typeof l === 'string' && l.length > 10));
+});
+
+test('réglage « Aussi dans Téléchargements » : désactivé par défaut, gardé quand coché', () => {
+  assert.equal(app.lireReglages(null).aussiTelechargements, false);
+  assert.equal(app.lireReglages('{"aussiTelechargements":true}').aussiTelechargements, true);
+  assert.equal(app.lireReglages('{"aussiTelechargements":"oui"}').aussiTelechargements, false);
 });

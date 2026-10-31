@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.19.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.20.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -544,7 +544,8 @@ function sectionsGuide(mob){
       (mob?'Appui long sur une catégorie ou un tiers : <b>Renommer</b> ou <b>Fusionner</b>.':'<b>Renommer / fusionner</b> une catégorie ou un tiers depuis son écran.')+' Une catégorie ne fusionne qu’avec une autre du même niveau ; les sous-catégories de même nom fusionnent.',
       'Les tiers (destinataires) se trient de plusieurs façons'+(mob?' ; toucher un tiers montre ses opérations.':'.')]],
     ['Sauvegarder','M12 3v12M7 10l5 5 5-5M5 21h14',[
-      'Tes comptes sont gardés '+(mob?'sur ce téléphone':'dans ce navigateur')+'. <b>Sauvegarder</b> écrit un fichier <code>comptes_….sqlite</code>'+(mob?' (dossier Téléchargements, ou celui choisi dans les Réglages)':'')+' : c’est lui qui permet de tout retrouver ailleurs.',
+      'Tes comptes sont gardés '+(mob?'sur ce téléphone':'dans ce navigateur')+'. <b>Sauvegarder</b> écrit un fichier <code>comptes_….sqlite</code>'+' : c’est lui qui permet de tout retrouver ailleurs.',
+      'Par défaut, il va dans Téléchargements. Dans les Réglages › Sauvegarde, tu peux choisir un autre dossier'+(mob?' (même un NAS, avec une appli qui l’ajoute au choix de dossier d’Android)':'')+', et cocher « Aussi dans Téléchargements » pour garder une 2e copie.',
       mob?'Le point sur l’icône de sauvegarde : des modifications ne sont pas encore sauvegardées. Plus › « Voir le détail » les liste.':'Le nombre de modifications non sauvegardées s’affiche en haut.',
       (mob?'L’icône à côté':'« Charger »')+' ouvre une sauvegarde (elle remplace les données de cet appareil).',
       '« Annuler la dernière modification » et la <b>Corbeille</b> rattrapent une erreur.']],
@@ -3387,7 +3388,14 @@ async function sauvegarderMaintenant(){
         if(!ok)return;
         await versTelechargements(nom,data);sauvegardeFaite();toast(messageSauvegarde('Téléchargements',nom));return;
       }
-      sauvegardeFaite();toast(messageSauvegarde(dossier.nom,nom));return;
+      sauvegardeFaite();
+      // case « Aussi dans Téléchargements » : une 2e copie ; si elle échoue, la sauvegarde dans le dossier reste faite
+      if(REGLAGES.aussiTelechargements){
+        try{await versTelechargements(nom,data);}
+        catch(e){dlgAlert('Sauvegarde enregistrée dans « '+dossier.nom+' », mais pas la copie dans Téléchargements ('+(e.message||e)+').','Sauvegarde');return;}
+        toast(messageSauvegarde(dossier.nom+' » et « Téléchargements',nom));return;
+      }
+      toast(messageSauvegarde(dossier.nom,nom));return;
     }
     await versTelechargements(nom,data);sauvegardeFaite();toast(messageSauvegarde('Téléchargements',nom));
   }catch(e){dlgAlert('Échec de la sauvegarde : '+(e.message||e),'Erreur');}
@@ -3470,7 +3478,7 @@ async function basculerVerrou(cb){
 function lireReglages(txt){
   let r={};try{r=JSON.parse(txt||'{}')||{};}catch(e){}
   return {theme:['clair','sombre'].indexOf(r.theme)>=0?r.theme:'auto',recherche:r.recherche==='bas'?'bas':'haut',masquer:r.masquer===true,
-    verrou:r.verrou===true,verrouDelai:DELAIS_VERROU.some(d=>d[0]===r.verrouDelai)?r.verrouDelai:5};
+    verrou:r.verrou===true,aussiTelechargements:r.aussiTelechargements===true,verrouDelai:DELAIS_VERROU.some(d=>d[0]===r.verrouDelai)?r.verrouDelai:5};
 }
 let REGLAGES=lireReglages(null);
 function chargerReglages(){try{REGLAGES=lireReglages(localStorage.getItem('mc.reglages'));}catch(e){}}
@@ -3515,7 +3523,9 @@ async function renderReglages(){
   resume('rg-verrou',REGLAGES.verrou?'Empreinte ou code · '+DELAIS_VERROU.find(d=>d[0]===REGLAGES.verrouDelai)[1].toLowerCase():'Désactivé');
   document.getElementById('rg-version').textContent='Mes comptes · version '+VERSION;
   const d=await dossierSauvegarde(),possible=choixDossierPossible();
-  resume('rg-sauvegarde',d?d.nom:'Téléchargements');
+  const aussi=!!d&&REGLAGES.aussiTelechargements;
+  resume('rg-sauvegarde',d?d.nom+(aussi?' + Téléchargements':''):'Téléchargements');
+  document.getElementById('rg-aussi-bloc').hidden=!d;document.getElementById('rg-aussi').checked=REGLAGES.aussiTelechargements;
   document.getElementById('rg-dossier').textContent=d?d.nom:'Téléchargements';
   document.getElementById('rg-btns').hidden=!possible;
   document.getElementById('rg-defaut').hidden=!d;

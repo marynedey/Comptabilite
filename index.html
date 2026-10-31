@@ -323,6 +323,8 @@
           <button class="primary" onclick="choisirDossierSauvegarde()">Choisir un dossier…</button>
           <button id="rg-defaut" onclick="oublierDossierSauvegarde()" hidden>Revenir à Téléchargements</button>
         </div>
+        <label class="rg-case" id="rg-aussi-bloc" hidden><input type="checkbox" id="rg-aussi" onchange="changerReglage('aussiTelechargements',this.checked)">
+          <span>Aussi dans Téléchargements<small>Une 2e copie à chaque sauvegarde, en plus du dossier choisi.</small></span></label>
         <div class="meta" id="rg-note"></div>
       </div>
     </details>
