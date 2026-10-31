@@ -1229,6 +1229,19 @@ test('téléphone, gestion : tiers (tri, toucher → opérations), catégories (
     assert.equal(await c.locator('.mg-nom', { hasText: 'Courses' }).count(), 0);
     await c.locator('button[aria-label="Déplier Alimentation"]').click();
     assert.equal(await c.locator('.mg-nom', { hasText: 'Courses' }).count(), 1);
+    // et la même flèche la replie
+    await c.locator('button[aria-label="Replier Alimentation"]').click();
+    assert.equal(await c.locator('.mg-nom', { hasText: 'Courses' }).count(), 0, 'repliée');
+    // pendant une recherche, tout ce qui correspond est déplié… et la flèche replie aussi
+    await page.fill('#cat-search', 'a');
+    await page.evaluate(() => renderCategories());
+    assert.equal(await c.locator('.mg-nom', { hasText: 'Courses' }).count(), 1, 'dépliée par la recherche');
+    await c.locator('button[aria-label="Replier Alimentation"]').click();
+    assert.equal(await c.locator('.mg-nom', { hasText: 'Courses' }).count(), 0, 'repliée pendant la recherche');
+    await c.locator('button[aria-label="Déplier Alimentation"]').click();
+    assert.equal(await c.locator('.mg-nom', { hasText: 'Courses' }).count(), 1);
+    await page.fill('#cat-search', '');
+    await page.evaluate(() => renderCategories());
     // corbeille : restaurer, vider
     await page.evaluate(() => { run("UPDATE operation SET supprime=1,date_suppression='2026-10-22 10:00:00' WHERE tiers_id IN (SELECT id FROM tiers WHERE nom IN ('Pharmacie','Boulangerie'))"); setView('corbeille'); });
     const b = page.locator('#m-corbeille');

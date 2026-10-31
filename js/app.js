@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.18.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.18.1'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -2028,23 +2028,30 @@ function renderCategories(){
 /* Catégories sur téléphone : arbre qui se déplie (flèche), montant total et nombre d'opérations ;
    toucher le nom → son analyse (par mois / par année), d'où l'on va à ses opérations.
    Pendant une recherche (ou « vides seulement »), tout ce qui correspond est déplié. */
-function lignesCategoriesMobile(kids,totOf,ouvertes,q,vides){
+// fermees : catégories repliées à la main pendant une recherche (sinon tout ce qui correspond est déplié)
+function lignesCategoriesMobile(kids,totOf,ouvertes,q,vides,fermees){
   const critere=c=>(!q||c.libelle.toLowerCase().includes(q))&&(!vides||totOf(c.id)===0);
   const garde={},keep=c=>garde[c.id]!=null?garde[c.id]:(garde[c.id]=critere(c)||(kids[c.id]||[]).some(keep));
   const filtre=!!(q||vides),out=[];
   (function walk(pid,depth,tout){
     (kids[pid]||[]).filter(c=>tout||!filtre||keep(c)).sort((a,b)=>a.libelle.localeCompare(b.libelle,'fr')).forEach(c=>{
-      const enfants=(kids[c.id]||[]).length>0,ouverte=filtre?enfants:ouvertes.has(c.id);
+      const enfants=(kids[c.id]||[]).length>0,ouverte=filtre?enfants&&!(fermees&&fermees.has(c.id)):ouvertes.has(c.id);
       out.push({c,depth,enfants,ouverte,n:totOf(c.id)});
       if(enfants&&ouverte)walk(c.id,depth+1,tout||(filtre&&critere(c)));
     });
   })(0,0,false);
   return out;
 }
-function basculerCategorie(id){const o=state.catOuvertes||(state.catOuvertes=new Set());if(o.has(id))o.delete(id);else o.add(id);renderCategories();}
+// la flèche replie ou déplie ; pendant une recherche (tout déplié d'office), elle replie aussi
+function basculerCategorie(id){
+  const q=((document.getElementById('cat-search')||{}).value||'').trim(),filtre=!!(q||state.catVides);
+  const o=filtre?(state.catFermees||(state.catFermees=new Set())):(state.catOuvertes||(state.catOuvertes=new Set()));
+  if(o.has(id))o.delete(id);else o.add(id);renderCategories();}
 function renderCategoriesMobile(cats,kids,totOf,sumOf){
   const q=((document.getElementById('cat-search')||{}).value||'').trim().toLowerCase();
-  const L=lignesCategoriesMobile(kids,totOf,state.catOuvertes||new Set(),q,!!state.catVides);
+  // une autre recherche : ce qui avait été replié pendant la précédente se déplie de nouveau
+  const filtre=q+'|'+!!state.catVides;if(state.catFiltre!==filtre){state.catFiltre=filtre;state.catFermees=new Set();}
+  const L=lignesCategoriesMobile(kids,totOf,state.catOuvertes||new Set(),q,!!state.catVides,state.catFermees);
   const fleche=(o)=>'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="'+(o?'M6 9l6 6 6-6':'M9 6l6 6-6 6')+'"/></svg>';
   document.getElementById('m-categories').innerHTML=(L.length?'<div class="me-liste">'+L.map(l=>
     '<div class="mg-cat d'+l.depth+'" data-id="'+l.c.id+'" style="padding-left:'+(6+l.depth*22)+'px">'+

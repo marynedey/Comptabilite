@@ -1,7 +1,7 @@
 // Service worker : met l'application en cache pour qu'elle marche hors ligne.
 // Les données (base SQLite) ne passent jamais par ici : elles restent dans
 // l'IndexedDB du navigateur et dans les fichiers .sqlite sauvegardés.
-const VERSION = 'mc-app-2.18.0'; // = VERSION de js/app.js
+const VERSION = 'mc-app-2.18.1'; // = VERSION de js/app.js
 const FICHIERS = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css', 'js/app.js',
   'vendor/sql-wasm.js', 'vendor/sql-wasm.wasm', 'vendor/pdf.min.js', 'vendor/pdf.worker.min.js',
