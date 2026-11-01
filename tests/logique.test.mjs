@@ -494,11 +494,11 @@ test('dernière sauvegarde (écran Plus) : n° et date, ou date de dernière mod
     app.setMeta('rev', 0);
     assert.equal(app.libDerniereSauvegarde(), 'Jamais sauvegardée');
     app.setMeta('rev', 12); app.setMeta('sauvegarde_le', '2026-10-31 19:05:42');
-    assert.equal(app.libDerniereSauvegarde(), 'Sauvegarde n° 12 · 31/10/2026 à 19:05');
+    assert.equal(app.libDerniereSauvegarde(), 'Sauvegarde n° 12\n31/10/2026 à 19:05');
     // base sauvegardée avant la 2.20.1 : pas de date de sauvegarde
     app.run("DELETE FROM meta WHERE cle='sauvegarde_le'"); app.setMeta('updated', '2026-09-02 08:15:00');
     app.run('UPDATE journal SET sauve=1'); app.refreshDirty();
-    assert.equal(app.libDerniereSauvegarde(), 'Sauvegarde n° 12 · 02/09/2026 à 08:15'); // tout est sauvegardé : c'est la même
+    assert.equal(app.libDerniereSauvegarde(), 'Sauvegarde n° 12\n02/09/2026 à 08:15'); // tout est sauvegardé : c'est la même
     app.run("INSERT INTO journal(ts,action,detail,sauve) VALUES('2026-09-03 10:00:00','test','',0)"); app.refreshDirty();
     assert.equal(app.libDerniereSauvegarde(), 'Sauvegarde n° 12'); // modifiée depuis : date inconnue
   } finally {

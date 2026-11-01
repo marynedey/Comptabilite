@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.20.2'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.20.3'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -485,12 +485,12 @@ function fermerListeComptes(){
 function choisirCompteMobile(id){fermerListeComptes();state.acc=id;state.page=1;state.anPath=[];render();remonterEnHaut();}
 /* écran « Plus » : sauvegarde, outils et gestion (ce qui était dans la barre latérale et la barre d'outils du PC) */
 function icoPlus(d){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="'+d+'"/></svg>';}
-/* « Sauvegarde n° 12 · 31/10/2026 à 19:05 » : le n° (révision) augmente à chaque sauvegarde. Base sans date de sauvegarde
+/* « Sauvegarde n° 12 » puis, à la ligne, « 31/10/2026 à 19:05 » : le n° (révision) augmente à chaque sauvegarde. Base sans date de sauvegarde
    (sauvegardée avant la 2.20.1) : la date de la dernière modification, qui est celle de la sauvegarde quand tout est sauvegardé. */
 function libDerniereSauvegarde(){
   const rev=+getMeta('rev',0);if(!rev)return 'Jamais sauvegardée';
   const ts=getMeta('sauvegarde_le','')||(dirty>0?'':getMeta('updated',''));
-  return 'Sauvegarde n° '+rev+(ts?' · '+ts.slice(8,10)+'/'+ts.slice(5,7)+'/'+ts.slice(0,4)+' à '+ts.slice(11,16):'');
+  return 'Sauvegarde n° '+rev+(ts?'\n'+ts.slice(8,10)+'/'+ts.slice(5,7)+'/'+ts.slice(0,4)+' à '+ts.slice(11,16):'');
 }
 function renderPlus(){
   const n=dirty,sv=document.getElementById('plus-sauvegarde');
@@ -3383,9 +3383,13 @@ async function sauvegarder(){
   try{await sauvegarderMaintenant();}finally{sauvegardeEnCours=false;const t=document.getElementById('toast');if(t.dataset.durable){t.classList.remove('show');delete t.dataset.durable;}}
 }
 async function sauvegarderMaintenant(){
+  // le n° et la date de cette sauvegarde sont écrits AVANT l'export : ils sont dans le fichier (avant, ils n'étaient notés
+  // qu'après : en rechargeant ce fichier, on retrouvait l'ancien n° et pas de date). Sauvegarde ratée : on les remet.
+  const avant={rev:getMeta('rev',0),le:getMeta('sauvegarde_le',null)};let faite=false;
+  const sauvegardeFaite=()=>{faite=true;marquerSauvegarde();};
   let data,nom;
-  try{setMeta('updated',nowTS());data=db.export();nom=nomSauvegarde(new Date());}
-  catch(e){dlgAlert('Échec de la sauvegarde : '+e.message,'Erreur');return;}
+  try{const ts=nowTS();setMeta('updated',ts);setMeta('rev',(+avant.rev)+1);setMeta('sauvegarde_le',ts);data=db.export();nom=nomSauvegarde(new Date());}
+  catch(e){remettreMeta(avant);dlgAlert('Échec de la sauvegarde : '+e.message,'Erreur');return;}
   const dossier=await dossierSauvegarde();
   try{
     if(dossier){
@@ -3408,7 +3412,9 @@ async function sauvegarderMaintenant(){
     }
     await versTelechargements(nom,data);sauvegardeFaite();toast(messageSauvegarde('Téléchargements',nom));
   }catch(e){dlgAlert('Échec de la sauvegarde : '+(e.message||e),'Erreur');}
+  finally{if(!faite)remettreMeta(avant);}
 }
+function remettreMeta(avant){setMeta('rev',avant.rev);if(avant.le==null)run("DELETE FROM meta WHERE cle='sauvegarde_le'");else setMeta('sauvegarde_le',avant.le);}
 async function ecrireDansDossier(dossier,nom,data){
   if(enAppli()){await natif('enregistrer',{nom,donnees:enBase64(data),dossier:true});return;}
   const h=dossier.handle; // le navigateur peut redemander l'autorisation (le clic sur Sauvegarder le permet)
@@ -3556,8 +3562,7 @@ async function oublierDossierSauvegarde(){
   catch(e){dlgAlert('Impossible de changer ce réglage.\n\n'+(e.message||e),'Réglages');return;}
   renderReglages();toast('Les sauvegardes iront dans « Téléchargements »');
 }
-function sauvegardeFaite(){
-  setMeta('rev',(+getMeta('rev',0))+1);setMeta('sauvegarde_le',nowTS());
+function marquerSauvegarde(){
   run('UPDATE journal SET sauve=1 WHERE sauve=0');refreshDirty();flushIDB();
 }
 async function chargerFichier(inp){
@@ -3584,6 +3589,8 @@ async function chargerFichier(inp){
   try{
     db.close();db=new SQL.Database(buf);db.run(SCHEMA);migrer();try{renommerVirements();}catch(_){}invalidateCaches();try{db.run('ANALYZE');}catch(_){}
     state.acc=+scal('SELECT id FROM compte WHERE actif=1 ORDER BY ordre_affichage,id LIMIT 1');
+    // fichier d'avant la 2.20.3 : pas de date de sauvegarde dedans ; « updated » y a été noté juste avant l'export
+    if(getMeta('sauvegarde_le',null)==null&&getMeta('updated',null))setMeta('sauvegarde_le',getMeta('updated'));
     state.page=1;try{run('UPDATE journal SET sauve=1 WHERE sauve=0');}catch(_){}
     refreshDirty();undoReset();await flushIDB();unbusy();render();
     toast('Sauvegarde chargée');

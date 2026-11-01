@@ -113,6 +113,16 @@ test('saisie d\'une opération : visible, gardée après rechargement, sauvegard
       await autre.page.setInputFiles('#fileDb', fichier);
       await autre.page.click('#dlgFoot button:has-text("Charger ce fichier")');
       await autre.page.waitForFunction(() => /Boulangerie du coin/.test(document.getElementById('v-registre').textContent));
+      // même n° et même date de sauvegarde que sur le 1er appareil
+      const meta = p => p.evaluate(() => [getMeta('rev'), getMeta('sauvegarde_le')]);
+      assert.deepEqual(await meta(autre.page), await meta(page));
+      // un fichier d'avant la 2.20.3 (sans date de sauvegarde) : sa date de dernière modification la remplace
+      await autre.page.evaluate(() => { run("DELETE FROM meta WHERE cle='sauvegarde_le'"); setMeta('updated', '2026-09-02 08:15:00'); });
+      const [ancien] = await Promise.all([autre.page.waitForEvent('download'), autre.page.evaluate(() => { const d = db.export(); const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([d])); a.download = 'ancien.sqlite'; document.body.appendChild(a); a.click(); })]);
+      await autre.page.setInputFiles('#fileDb', await ancien.path());
+      await autre.page.click('#dlgFoot button:has-text("Charger ce fichier")');
+      await autre.page.waitForFunction(() => getMeta('sauvegarde_le', null) === '2026-09-02 08:15:00');
       assert.deepEqual(autre.page.erreurs, []);
     } finally { await autre.navigateur.close(); }
     assert.deepEqual(page.erreurs, []);
@@ -390,6 +400,7 @@ test('appli Android : sauvegarde refusée par Android → pas comptée comme fai
     await page.click('button[onclick="sauvegarder()"]:visible');
     await page.locator('#dlgBack.show #dlgMsg:has-text("disque plein")').waitFor();
     assert.match(await page.textContent('#status-txt'), /1 modification non sauvegardée/);
+    assert.deepEqual(await page.evaluate(() => [getMeta('rev'), getMeta('sauvegarde_le', null)]), ['0', null], 'n° et date remis comme avant');
   } finally { await navigateur.close(); }
 });
 
@@ -792,9 +803,21 @@ test('téléphone : écran Plus — sauvegarde en attente, sauvegarder, outils',
     const [telechargement] = await Promise.all([page.waitForEvent('download'), page.click('#plus-sauvegarde button:has-text("Sauvegarder")')]);
     assert.match(telechargement.suggestedFilename(), /^comptes_.*\.sqlite$/);
     await page.locator('#plus-sauvegarde:has-text("Tout est sauvegardé")').waitFor();
-    // le n° de la sauvegarde, sa date et son heure
-    assert.match(await page.textContent('#plus-sauvegarde .ms-derniere'), /^Sauvegarde n° \d+ · \d{2}\/\d{2}\/\d{4} à \d{2}:\d{2}$/);
     assert.equal(await page.isVisible('#m-point'), false);
+    // le n° de la sauvegarde, puis à la ligne sa date et son heure
+    const derniere = page.locator('#plus-sauvegarde .ms-derniere');
+    assert.match(await derniere.textContent(), /^Sauvegarde n° \d+\n\d{2}\/\d{2}\/\d{4} à \d{2}:\d{2}$/);
+    const lignes = await derniere.evaluate(e => Math.round(e.getBoundingClientRect().height / parseFloat(getComputedStyle(e).lineHeight)));
+    assert.equal(lignes, 2, 'deux lignes : n°, puis date et heure');
+    // le fichier contient ce n° et cette date (avant, ils n'étaient notés qu'après l'écriture du fichier)
+    const fichier = [...readFileSync(await telechargement.path())];
+    const dansFichier = await page.evaluate(octets => { const t = new SQL.Database(new Uint8Array(octets));
+      const g = k => t.exec("SELECT valeur FROM meta WHERE cle='" + k + "'")[0].values[0][0]; const r = [g('rev'), g('sauvegarde_le')]; t.close(); return r; }, fichier);
+    assert.deepEqual(dansFichier, await page.evaluate(() => [getMeta('rev'), getMeta('sauvegarde_le')]));
+    // une modification ensuite : le n° et la date restent affichés
+    await ajouterOperation(page, { dest: 'Fleuriste', montant: '9', date: '05/01/26', cat: 'Maison' });
+    await page.click('#m-onglets button[data-o="plus"]');
+    assert.match(await derniere.textContent(), /^Sauvegarde n° \d+\n\d{2}\/\d{2}\/\d{4} à \d{2}:\d{2}$/);
     for (const nom of ['Pointer avec un relevé PDF', 'Importer un fichier QIF', 'Tiers', 'Corbeille', 'Réglages', 'Annuler la dernière modification'])
       assert.equal(await page.isVisible(`#plus-groupes button:has-text("${nom}")`), true, nom);
     assert.deepEqual(await page.locator('#plus-groupes .m-groupe-h').allTextContents(), ['Pointer et importer', 'Organiser', 'Revenir en arrière', 'Appli']);
