@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.20.1'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.20.2'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -499,8 +499,9 @@ function renderPlus(){
     '<small class="ms-derniere">'+esc(libDerniereSauvegarde())+'</small>'+
     (n>0?'<a onclick="voirModifications()">Voir le détail</a>':'')+'</div>'+
     '<button class="primary" onclick="sauvegarder()">Sauvegarder</button>';
-  const it=(nom,detail,action,d)=>'<button onclick="'+action+'">'+icoPlus(d)+'<span class="ml-txt">'+nom+(detail?'<small>'+detail+'</small>':'')+'</span>'+
-    icoPlus('M9 6l6 6-6 6')+'</button>';
+  // la flèche › seulement pour ce qui ouvre un autre écran ; une action immédiate (mise à jour, annuler) n'en a pas
+  const it=(nom,detail,action,d,action_immediate)=>'<button onclick="'+action+'">'+icoPlus(d)+'<span class="ml-txt">'+nom+(detail?'<small>'+detail+'</small>':'')+'</span>'+
+    (action_immediate?'':icoPlus('M9 6l6 6-6 6'))+'</button>';
   const nb=(sql,mot)=>{const k=scal(sql)||0;return k+' '+mot+(k>1?'s':'');};
   const e=UNDO[UNDO.length-1];
   const groupes=[
@@ -513,12 +514,12 @@ function renderPlus(){
       it('Tiers',nb('SELECT COUNT(*) FROM tiers','destinataire'),"setView('tiers')",'M9 11a3 3 0 100-6 3 3 0 000 6zM3 20a6 6 0 0112 0M16 6a3 3 0 010 6')]],
     // charger une sauvegarde : l'icône à côté de « Sauvegarder », en haut de l'écran
     ['Revenir en arrière',[
-      e?it('Annuler la dernière modification',esc('n°'+e.jid+' '+e.label),'annulerDerniere()','M9 14L4 9l5-5M4 9h10a6 6 0 010 12h-3'):'',
+      e?it('Annuler la dernière modification',esc('n°'+e.jid+' '+e.label),'annulerDerniere()','M9 14L4 9l5-5M4 9h10a6 6 0 010 12h-3',true):'',
       it('Corbeille',nb('SELECT COUNT(*) FROM operation WHERE supprime=1','opération'),"setView('corbeille')",'M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13')]],
     ['Appli',[
-      it('Rechercher une mise à jour','Version '+VERSION,'rechercherMaj(this)','M20 12a8 8 0 11-2.3-5.7M20 4v5h-5'),
+      it('Rechercher une mise à jour','Version '+VERSION,'rechercherMaj(this)','M20 12a8 8 0 11-2.3-5.7M20 4v5h-5',true),
       it('Guide','Comment se servir de l’app',"setView('guide')",'M12 21a9 9 0 100-18 9 9 0 000 18zM9.5 9.5a2.5 2.5 0 114 2c-1 .6-1.5 1.1-1.5 2.2M12 17h.01'),
-      it('Réglages',enAppli()?'Verrouillage, thème, dossier de sauvegarde…':'Thème, recherche, dossier de sauvegarde…',"setView('reglages')",'M12 15a3 3 0 100-6 3 3 0 000 6zM19 12h2M3 12h2M12 3v2M12 19v2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4')]],
+      it('Réglages',enAppli()?'Thème, verrouillage, sauvegarde':'Thème, recherche, sauvegarde',"setView('reglages')",'M12 15a3 3 0 100-6 3 3 0 000 6zM19 12h2M3 12h2M12 3v2M12 19v2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4')]],
   ];
   document.getElementById('plus-groupes').innerHTML=groupes.map(([h,l])=>'<h2 class="m-groupe-h">'+h+'</h2><div class="m-liste">'+l.join('')+'</div>').join('');
   document.getElementById('plus-version').textContent='Mes comptes · version '+VERSION;

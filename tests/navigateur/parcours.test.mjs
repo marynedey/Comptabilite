@@ -808,6 +808,12 @@ test('téléphone : écran Plus — sauvegarde en attente, sauvegarder, outils',
     // « Rechercher une mise à jour » et « Guide » dans le groupe Appli
     const appli = page.locator('#plus-groupes .m-liste').last();
     for (const nom of ['Rechercher une mise à jour', 'Guide', 'Réglages']) assert.equal(await appli.locator(`button:has-text("${nom}")`).count(), 1, nom);
+    // pas de flèche › sur une action immédiate (elle ferait croire à un autre écran) ; détail des Réglages sur une ligne
+    const fleches = nom => appli.locator(`button:has-text("${nom}") > svg`).count();
+    assert.equal(await fleches('Rechercher une mise à jour'), 1, 'son icône seule');
+    assert.equal(await fleches('Guide'), 2, 'icône et flèche');
+    const detail = await appli.locator('button:has-text("Réglages") small').evaluate(e => [e.getBoundingClientRect().height, parseFloat(getComputedStyle(e).lineHeight) || 20]);
+    assert.ok(detail[0] < detail[1] * 1.5, 'détail des Réglages sur une ligne : ' + detail);
     await page.click('#plus-groupes button:has-text("Guide")');
     assert.equal(await page.textContent('#m-titre'), 'Guide');
     assert.equal(await page.getAttribute('#m-onglets button[data-o="plus"]', 'aria-current'), 'page');
