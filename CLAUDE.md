@@ -54,6 +54,12 @@ App web de comptes personnels, en français, hors ligne. Publiée sur https://ma
   base à chaque navigation) ; soldes du jour de la liste calculés pour les seules lignes affichées (`soldesApres`) ;
   pas de `:hover` sans `@media (hover:hover)` (il reste collé au doigt sur Android) ; pas de sélecteur `[style*=…]`
   dans un `:has()` (recalcul de toute la page à chaque changement de style).
+- Couleurs sur téléphone : statuts = `META` (orange non pointé, bleu pointé, vert rapproché, violet prévisionnel, gris annulé),
+  la ligne d'une opération n'écrit plus son statut (la barre de couleur suffit). Montants : débit en encre, crédit en vert,
+  prévisionnel dans le violet de `META` (liste, fiche, saisie, « Fin du mois »). L'anneau de l'analyse (`PAL`) n'utilise
+  ni les couleurs des statuts ni le vert des boutons (un test le vérifie).
+- En-tête du téléphone : ↓ = charger une sauvegarde, ↑ = sauvegarder (point orange `#m-point` s'il reste des modifications).
+  Bouton + (Opérations, Échéances) caché quand on descend (`fab-cache`, `brancherBoutonPlus`), revenu quand on remonte.
 - Barres (analyse, analyse d'une catégorie) : hauteurs en px (`hauteurBarre`), pas en % (pas toujours suivi sur Android).
 - Réglages d'affichage (`REGLAGES` : thème auto/clair/sombre, barres de recherche en haut/bas, montants masqués à
   l'ouverture) : `localStorage` `mc.reglages` de l'appareil. Thème forcé = `html[data-theme]` ; toute couleur sombre

@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.20.3'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.21.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -418,7 +418,7 @@ const META={
   annule:{label:'Annulé',col:'#94A3B8'}
 };
 const ACC_TYPES={courant:'Compte courant',livret:'Livret',pel:'PEL',autre:'Compte'};
-const PAL=['#0F6E56','#3E6FA8','#B5790C','#A8392B','#6B5BA6','#1B8A8A','#C2723A','#8A6D3B'];
+const PAL=['#C2185B','#00838F','#8D6E63','#827717','#E8836B','#F06292','#00ACC1','#A1887F']; // anneau de l'analyse : ni les couleurs des statuts (META), ni le vert des boutons
 
 let state={view:'registre',acc:null,sort:'date',dir:-1,page:1,anPath:[],tiSort:'last',tiDir:-1,
   editing:null,addType:'debit',anSens:'debit',recSort:'prochaine',recDir:1};
@@ -495,8 +495,11 @@ function libDerniereSauvegarde(){
 function renderPlus(){
   const n=dirty,sv=document.getElementById('plus-sauvegarde');
   sv.className='m-sauvegarde'+(n>0?' attente':'');
-  sv.innerHTML='<div class="ms-txt"><b>'+(n>0?n+' modification'+(n>1?'s':'')+' non sauvegardée'+(n>1?'s':''):'Tout est sauvegardé')+'</b>'+
-    '<small class="ms-derniere">'+esc(libDerniereSauvegarde())+'</small>'+
+  // jamais sauvegardée et rien de modifié (première ouverture) : pas de « Tout est sauvegardé » au-dessus de « Jamais sauvegardée »
+  const jamais=!(+getMeta('rev',0))&&n===0,vide=jamais&&!scal('SELECT COUNT(*) FROM operation');
+  sv.innerHTML='<div class="ms-txt"><b>'+(n>0?n+' modification'+(n>1?'s':'')+' non sauvegardée'+(n>1?'s':''):
+      jamais?(vide?'Rien à sauvegarder pour l’instant':'Pas encore de sauvegarde'):'Tout est sauvegardé')+'</b>'+
+    '<small class="ms-derniere">'+esc(jamais?(vide?'Aucune sauvegarde encore':'Pense à sauvegarder tes comptes'):libDerniereSauvegarde())+'</small>'+
     (n>0?'<a onclick="voirModifications()">Voir le détail</a>':'')+'</div>'+
     '<button class="primary" onclick="sauvegarder()">Sauvegarder</button>';
   // la flèche › seulement pour ce qui ouvre un autre écran ; une action immédiate (mise à jour, annuler) n'en a pas
@@ -518,8 +521,8 @@ function renderPlus(){
       it('Corbeille',nb('SELECT COUNT(*) FROM operation WHERE supprime=1','opération'),"setView('corbeille')",'M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13')]],
     ['Appli',[
       it('Rechercher une mise à jour','Version '+VERSION,'rechercherMaj(this)','M20 12a8 8 0 11-2.3-5.7M20 4v5h-5',true),
-      it('Guide','Comment se servir de l’app',"setView('guide')",'M12 21a9 9 0 100-18 9 9 0 000 18zM9.5 9.5a2.5 2.5 0 114 2c-1 .6-1.5 1.1-1.5 2.2M12 17h.01'),
-      it('Réglages',enAppli()?'Thème, verrouillage, sauvegarde':'Thème, recherche, sauvegarde',"setView('reglages')",'M12 15a3 3 0 100-6 3 3 0 000 6zM19 12h2M3 12h2M12 3v2M12 19v2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4')]],
+      it('Réglages',enAppli()?'Thème, verrouillage, sauvegarde':'Thème, recherche, sauvegarde',"setView('reglages')",'M12 15a3 3 0 100-6 3 3 0 000 6zM19 12h2M3 12h2M12 3v2M12 19v2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4'),
+      it('Guide','Comment se servir de l’app',"setView('guide')",'M12 21a9 9 0 100-18 9 9 0 000 18zM9.5 9.5a2.5 2.5 0 114 2c-1 .6-1.5 1.1-1.5 2.2M12 17h.01')]],
   ];
   document.getElementById('plus-groupes').innerHTML=groupes.map(([h,l])=>'<h2 class="m-groupe-h">'+h+'</h2><div class="m-liste">'+l.join('')+'</div>').join('');
   document.getElementById('plus-version').textContent='Mes comptes · version '+VERSION;
@@ -528,11 +531,11 @@ function renderPlus(){
 function sectionsGuide(mob){
   return [
     ['Opérations','M4 6h16M4 12h16M4 18h10',[
-      mob?'Le bouton <b>+</b> en bas à droite ajoute une opération.':'Le bouton <b>Ajouter</b> (ou la touche A) ajoute une opération. La touche ? liste tous les raccourcis clavier.',
+      mob?'Le bouton <b>+</b> en bas à droite ajoute une opération. Il se cache quand tu descends dans la liste et revient dès que tu remontes.':'Le bouton <b>Ajouter</b> (ou la touche A) ajoute une opération. La touche ? liste tous les raccourcis clavier.',
       mob?'En haut, la liste déroulante choisit le compte. Un appui long sur un compte le modifie ; « + Nouveau compte » en crée un.':'Choisis le compte dans la barre de gauche.',
       'La recherche trouve un destinataire, une catégorie, un montant (12,34), une date ou un n°. La croix × la vide.',
       mob?'<b>Filtrer</b> : statuts, période, prévisionnel jusqu’à quand, dépenses ou revenus, catégorie.':'Les filtres au-dessus de la liste : statuts, période, prévisionnel jusqu’à quand.',
-      mob?'La barre de couleur à gauche d’une opération : la toucher la pointe ou la dépointe (une prévisionnelle : la confirme).':'La pastille de statut d’une ligne la pointe ou la dépointe.',
+      mob?'La barre de couleur à gauche d’une opération donne son statut : orange non pointé, bleu pointé, vert rapproché, violet prévisionnel, gris annulé. La toucher pointe ou dépointe l’opération (une prévisionnelle : la confirme).':'La pastille de statut d’une ligne la pointe ou la dépointe.',
       'Statuts : non pointé, pointé (vu sur le compte), rapproché (validé avec un relevé : son montant ne change plus), prévisionnel (à venir), annulé.']],
     [mob?'Fiche d’une opération':'Modifier une opération','M6 3h9l4 4v14H6zM9 12h6M9 16h6',[
       mob?'Touche une opération pour voir sa fiche ; touche un champ (montant, date, catégorie…) pour le modifier.':'Double-clique une ligne pour la modifier.',
@@ -546,17 +549,17 @@ function sectionsGuide(mob){
       'Dépenses et revenus par catégorie sur la période choisie : clique une catégorie pour descendre dans ses sous-catégories.',
       '« Graphiques » : le solde au fil du temps.']],
     ['Échéances','M4 6h16v14H4zM4 10h16M9 3v4M15 3v4',[
-      'Les opérations qui reviennent (loyer, salaire…) : l’app crée les prévisionnelles à l’avance.',
+      'Les opérations qui reviennent (loyer, salaire…) : l’app crée les prévisionnelles à l’avance.'+(mob?' Le bouton <b>+</b> en bas à droite en ajoute une.':''),
       'Une prévisionnelle se confirme quand elle passe sur le compte.']],
     ['Catégories et tiers','M3 7l9-4 9 4v10l-9 4-9-4z',[
       mob?'Dans Plus › Catégories : toucher une catégorie ouvre son analyse (par mois ou par année).':'Écran Catégories : l’arborescence sur 3 niveaux, avec le nombre d’opérations de chacune.',
       (mob?'Appui long sur une catégorie ou un tiers : <b>Renommer</b> ou <b>Fusionner</b>.':'<b>Renommer / fusionner</b> une catégorie ou un tiers depuis son écran.')+' Une catégorie ne fusionne qu’avec une autre du même niveau ; les sous-catégories de même nom fusionnent.',
       'Les tiers (destinataires) se trient de plusieurs façons'+(mob?' ; toucher un tiers montre ses opérations.':'.')]],
-    ['Sauvegarder','M12 3v12M7 10l5 5 5-5M5 21h14',[
+    ['Sauvegarder',mob?'M12 21V9M7 14l5-5 5 5M5 3h14':'M12 3v12M7 10l5 5 5-5M5 21h14',[
       'Tes comptes sont gardés '+(mob?'sur ce téléphone':'dans ce navigateur')+'. <b>Sauvegarder</b> écrit un fichier <code>comptes_….sqlite</code>'+' : c’est lui qui permet de tout retrouver ailleurs.',
       'Par défaut, il va dans Téléchargements. Dans les Réglages › Sauvegarde, tu peux choisir un autre dossier'+(mob?' (même un NAS, avec une appli qui l’ajoute au choix de dossier d’Android)':'')+', et cocher « Aussi dans Téléchargements » pour garder une 2e copie.',
-      mob?'Le point sur l’icône de sauvegarde : des modifications ne sont pas encore sauvegardées. Plus › « Voir le détail » les liste.':'Le nombre de modifications non sauvegardées s’affiche en haut.',
-      (mob?'L’icône à côté':'« Charger »')+' ouvre une sauvegarde (elle remplace les données de cet appareil).',
+      mob?'En haut à droite, la flèche vers le haut ↑ sauvegarde. Le point orange dessus : des modifications ne sont pas encore sauvegardées. Plus › « Voir le détail » les liste.':'Le nombre de modifications non sauvegardées s’affiche en haut.',
+      (mob?'La flèche vers le bas ↓, à côté,':'« Charger »')+' ouvre une sauvegarde (elle remplace les données de cet appareil).',
       '« Annuler la dernière modification » et la <b>Corbeille</b> rattrapent une erreur.']],
     ['Relevé de banque','M6 3h9l4 4v14H6zM9 14l2 2 4-4',[
       '« Pointer avec un relevé PDF » compare le relevé de la banque à tes opérations : ce qui correspond passe en pointé, il reste ce qui manque d’un côté ou de l’autre.',
@@ -564,7 +567,7 @@ function sectionsGuide(mob){
       '« Importer un fichier QIF » ajoute les opérations exportées par la banque.']],
     ['Réglages et mises à jour','M12 15a3 3 0 100-6 3 3 0 000 6z',[
       'Thème clair ou sombre, barres de recherche en haut ou en bas, montants masqués à l’ouverture (l’œil les montre)'+(mob?', verrouillage par empreinte ou code (appli Android)':'')+'.',
-      'Les nouvelles versions sont cherchées à chaque ouverture ; « Rechercher une mise à jour » le fait tout de suite. Elles s’installent seulement quand tu touches « Mettre à jour », et tes données sont gardées.']]
+      'Les nouvelles versions sont cherchées à chaque ouverture ; « Rechercher une mise à jour » '+(mob?'(dans Plus) ':'')+'le fait tout de suite. Elles s’installent seulement quand tu touches « Mettre à jour », et tes données sont gardées.']]
   ];
 }
 function renderGuide(){
@@ -688,7 +691,7 @@ function renderOperationsMobile(){
     '<div class="ms-grille">'+
       '<div><small>Rapproché</small><span class="num">'+eur(r.rap)+'</span></div>'+
       '<div><small>'+(hz==='masque'?'Sans prévisionnel':hz==='3'?'Dans 3 jours':hz==='finmoisprochain'?'Fin du mois prochain':'Fin du mois')+'</small>'+
-        '<span class="num" style="color:var(--st-prev)">'+eur(r.reel+r.prv)+'</span></div>'+
+        '<span class="num" style="color:'+META.previsionnel.col+'">'+eur(r.reel+r.prv)+'</span></div>'+
       '<button onclick="filtreAttente()" aria-label="Afficher les opérations à pointer"><small>À pointer</small><span style="color:var(--st-non)">'+r.npt+'</span></button>'+
     '</div>';
   const actifs=filtresActifsMobile();
@@ -718,7 +721,7 @@ function renderOperationsMobile(){
     html+='<div class="m-op'+(stt==='previsionnel'?' prev':stt==='annule'?' ann':'')+'" style="--st:'+m.col+'">'+
       '<button class="m-st" onclick="togglePointe('+o.id+',event)" aria-label="'+m.label+(action?' — toucher pour '+action:'')+'"></button>'+
       '<button class="m-op-corps" onclick="ouvrirFiche('+o.id+')"><span class="m-op-nom">'+esc(o.dest||'(sans destinataire)')+'</span>'+
-        '<span class="m-op-det">'+(parJour?'':isoToFr(o.d)+' · ')+esc(o.cat||'')+' · '+m.label.toLowerCase()+'</span></button>'+
+        '<span class="m-op-det">'+esc([parJour?'':isoToFr(o.d),o.cat||''].filter(Boolean).join(' · '))+'</span></button>'+
       '<span class="m-op-mt num '+(o.m<0?'':'credit')+'">'+(o.m>0?'+':'')+eur(o.m)+'</span></div>';
   });
   if(rows.length)html+='</div>';
@@ -727,7 +730,8 @@ function renderOperationsMobile(){
   document.getElementById('m-ops').innerHTML=html;
   // feuille des filtres : mois choisi, nombre d'opérations
   const per=document.getElementById('f-periode').value,mn=document.getElementById('m-mois-nom');
-  mn.textContent=nomMois(moisDePeriode(per,auj));mn.classList.toggle('on',estPeriodeMois(per));
+  // « Tout » : pas de mois affiché (sinon on croirait la liste limitée à ce mois) ; « 3 mois », « Cette année »… : leur nom
+  mn.textContent=estPeriodeMois(per)?nomMois(moisDePeriode(per,auj)):!per||per==='tout'?'Toutes les dates':libellePeriode(per,auj,document.getElementById('f-from').value,document.getElementById('f-to').value);mn.classList.toggle('on',estPeriodeMois(per));
   document.getElementById('m-voir').textContent=total?'Voir '+total.toLocaleString('fr-FR')+' opération'+(total>1?'s':''):'Aucune opération';
 }
 /* fiche d'une opération (téléphone) : on la lit avant de la modifier. Le statut n'est qu'une information
@@ -768,7 +772,7 @@ function ouvrirFiche(id){
     '<div class="mf-haut"><div class="mf-lettre" aria-hidden="true">'+esc((o.dest||'?').charAt(0).toUpperCase())+'</div>'+
       champ('mf-dest','dest',esc(o.dest||'(sans destinataire)'))+
       (rapp?'<div class="mf-montant num '+(o.montant>0?'credit':'')+'">'+(o.montant>0?'+':'')+eur(o.montant)+'</div>'
-        :champ('mf-montant num '+(o.montant>0?'credit':''),'montant',(o.montant>0?'+':'')+eur(o.montant)))+
+        :champ('mf-montant num '+(o.previsionnel&&o.statut!=='annule'?'prev':o.montant>0?'credit':''),'montant',(o.montant>0?'+':'')+eur(o.montant)))+
       champ('mf-quand','date',quand)+'</div>'+
     // le statut se change ici d'un toucher, comme avec la barre de couleur de la liste
     (statutTouche?'<button class="mf-statut" onclick="togglePointe('+id+')" aria-label="'+m.label+' — toucher pour changer">':'<div class="mf-statut">')+
@@ -1114,7 +1118,8 @@ async function boot(){
     document.body.classList.add('mobile');
     // la recherche des opérations est directement dans l'écran (pas dans la feuille des filtres)
     const rch=document.getElementById('f-search');document.getElementById('m-recherche').appendChild(rch.parentElement);
-    rch.placeholder='Rechercher (destinataire, catégorie, montant…)';
+    rch.placeholder='Rechercher';
+    brancherBoutonPlus();
     brancherListeCategories();
     glisserPourFermer(document.getElementById('f-zone'),fermerFiltres);
     brancherListeVentilation('vent-box');
@@ -1172,7 +1177,19 @@ async function boot(){
 let _navSuppress=false;
 function toggleMenu(){document.body.classList.toggle('menu-open');}
 function closeMenu(){document.body.classList.remove('menu-open');}
+/* bouton + (Opérations, Échéances) : caché quand on descend, revenu dès qu'on remonte ou en haut de l'écran */
+function brancherBoutonPlus(){
+  let avant=0;
+  document.addEventListener('scroll',e=>{
+    const el=e.target===document?document.scrollingElement:e.target;
+    if(!el||(el!==document.scrollingElement&&el.tagName!=='MAIN'))return;
+    const y=el.scrollTop,b=document.body.classList;
+    if(y<80||y<avant-8)b.remove('fab-cache');else if(y>avant+8)b.add('fab-cache');else return;
+    avant=y;
+  },{capture:true,passive:true});
+}
 function setView(v,noPush){if(v!=='graphiques'&&document.body.classList.contains('gr-plein'))grPleinEcran(false);state.view=v;
+  document.body.classList.remove('fab-cache');
   if(v!=='categories')fermerAnalyseCategorie();
   document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('on',a.dataset.v===v));
   document.querySelectorAll('.view').forEach(s=>s.classList.toggle('on',s.id==='v-'+v));
@@ -3954,13 +3971,13 @@ function renderEcheancesMobile(){
       '<span class="me-nom">'+esc(r.tiers||'(sans destinataire)')+'<small>'+esc(freqLabel(r.frequence,r.intervalle)+' · '+(r.compte_cible?'virement':r.cnom)+(r.actif?'':' · suspendue'))+'</small></span>'+
       '<span class="num" style="color:'+(r.montant<0?'var(--ink)':'var(--credit)')+'">'+(r.montant<0?'':'+')+eur(r.montant)+'</span></button>';};
   const groupe=(t,l)=>l.length?'<div class="ma-h">'+t+'</div><div class="me-liste">'+l.map(item).join('')+'</div>':'';
+  // 0,00 € en noir (le rouge ou le vert ne servent que s'il reste quelque chose à payer ou à recevoir)
   document.getElementById('m-echeances').innerHTML=
-    '<p class="me-aide">Opérations qui reviennent : elles sont créées toutes seules, en prévisionnel, à chaque échéance.</p>'+
-    '<div class="me-totaux"><div><small>Encore à payer ce mois</small><b class="num" style="color:var(--debit)">'+eur(E.aPayer)+'</b></div>'+
-      '<div><small>Encore à recevoir</small><b class="num" style="color:var(--credit)">+'+eur(E.aRecevoir)+'</b></div></div>'+
+    '<div class="me-totaux"><div><small>Encore à payer ce mois</small><b class="num" style="color:'+(E.aPayer?'var(--debit)':'var(--ink)')+'">'+eur(E.aPayer)+'</b></div>'+
+      '<div><small>Encore à recevoir</small><b class="num" style="color:'+(E.aRecevoir?'var(--credit)':'var(--ink)')+'">'+(E.aRecevoir?'+':'')+eur(E.aRecevoir)+'</b></div></div>'+
     (recs.length?groupe('Ce mois-ci',E.mois)+groupe('Ensuite',E.ensuite)+groupe('Suspendues ou terminées',E.suspendues)
-      :'<div class="m-vide">Aucune échéance pour le moment. Ajoute un loyer, un abonnement, un salaire…</div>')+
-    '<button class="me-nouvelle" onclick="editRec(0)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Nouvelle échéance</button>';
+      :'<div class="m-vide">Aucune échéance pour le moment.<br>Les opérations qui reviennent (loyer, abonnement, salaire…) sont créées toutes seules, en prévisionnel, à chaque échéance.</div>')+
+    '<button class="me-nouvelle" onclick="editRec(0)" aria-label="Nouvelle échéance"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>';
 }
 // toucher une échéance : son détail, puis Modifier / Suspendre (Réactiver) / Supprimer
 async function actionEcheance(id){
@@ -4092,9 +4109,9 @@ async function editRec(id,champ){
     '<datalist id="rc-tl">'+Object.keys(tiersIndex()).map(t=>'<option value="'+esc(t)+'">').join('')+'</datalist>'+
     '<label class="ventchk" id="rc-ventchk"><input type="checkbox" id="rc-vent" onchange="rcVentToggle(this.checked)"> Répartir sur plusieurs catégories</label>'+
     '<div id="rc-cat-simple"><div class="row3">'+
-      '<div class="field"><label>Catégorie</label><input id="rc-c0" list="rc-l0" value="'+esc(pc[0]||'')+'" oninput="majSousCatsRec()"></div>'+
-      '<div class="field"><label>Sous-catégorie</label><input id="rc-c1" list="rc-l1" value="'+esc(pc[1]||'')+'" oninput="majSousCatsRec()"></div>'+
-      '<div class="field"><label>Sous-sous-catégorie</label><input id="rc-c2" list="rc-l2" value="'+esc(pc[2]||'')+'"></div>'+
+      '<div class="field"><label>Catégorie</label><input id="rc-c0" list="rc-l0" placeholder="Alimentation" value="'+esc(pc[0]||'')+'" oninput="majSousCatsRec()"></div>'+
+      '<div class="field"><label>Sous-catégorie</label><input id="rc-c1" list="rc-l1" placeholder="Supermarché" value="'+esc(pc[1]||'')+'" oninput="majSousCatsRec()"></div>'+
+      '<div class="field"><label>Sous-sous-catégorie</label><input id="rc-c2" list="rc-l2" placeholder="facultatif" value="'+esc(pc[2]||'')+'"></div>'+
     '</div></div>'+
     '<div id="rc-vent-box" style="display:none">'+
       '<div class="venthead"><span>Catégorie</span><span style="text-align:right">Montant</span><span></span></div>'+

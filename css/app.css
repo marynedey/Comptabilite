@@ -3,7 +3,7 @@
     --fs:15px;
     --paper:#F6F7F4; --card:#FFFFFF; --card-alt:#FBFCFA;
     --ink:#1A1C1B; --ink-2:#5C625E; --ink-3:#8A908B; --appui:rgba(0,0,0,.07);
-    --line:#E6E9E3; --line-2:#D6DBD3;
+    --line:#E6E9E3; --line-2:#D6DBD3; --indice:#A9AEAA; --fab:#0F6E56;
     --brand:#0F6E56; --brand-soft:#E4F0EB;
     --sidebar:#18221E; --sidebar-2:#27332D; --sidebar-ink:#DCE3DD; --sidebar-ink-2:#8DA197;
     --debit:#A8392B; --credit:#0F6E56;
@@ -16,7 +16,7 @@
   @media (prefers-color-scheme: dark){:root:not([data-theme="clair"]){
       --paper:#14171A; --card:#1B1F22; --card-alt:#1F2427;
       --ink:#E8EAE6; --ink-2:#A6ACA7; --ink-3:#7C837E; --appui:rgba(255,255,255,.09);
-      --line:#2A2F2D; --line-2:#363D39;
+      --line:#2A2F2D; --line-2:#363D39; --indice:#626965; --fab:#157A5E;
       --brand:#3FB892; --brand-soft:#15302A;
       --sidebar:#0F1714; --sidebar-2:#1C2622; --sidebar-ink:#DCE3DD; --sidebar-ink-2:#7D938A;
       --debit:#E0796B; --credit:#3FB892;
@@ -26,7 +26,7 @@
   :root[data-theme="sombre"]{color-scheme:dark;
       --paper:#14171A; --card:#1B1F22; --card-alt:#1F2427;
       --ink:#E8EAE6; --ink-2:#A6ACA7; --ink-3:#7C837E; --appui:rgba(255,255,255,.09);
-      --line:#2A2F2D; --line-2:#363D39;
+      --line:#2A2F2D; --line-2:#363D39; --indice:#626965; --fab:#157A5E;
       --brand:#3FB892; --brand-soft:#15302A;
       --sidebar:#0F1714; --sidebar-2:#1C2622; --sidebar-ink:#DCE3DD; --sidebar-ink-2:#7D938A;
       --debit:#E0796B; --credit:#3FB892;
@@ -260,7 +260,12 @@
   /* bandeau à 14 px au-dessus des onglets (70 px), bouton + à 14 px au-dessus du bandeau (--maj-h : sa hauteur) */
   body.mobile.maj-appli-visible .m-fab{bottom:calc(98px + var(--maj-h, 136px) + env(safe-area-inset-bottom, 0px))}
   .m-fab{position:fixed;right:18px;bottom:calc(96px + env(safe-area-inset-bottom, 0px));z-index:14;width:60px;height:60px;border-radius:18px;border:0;
-       background:var(--brand);color:#fff;align-items:center;justify-content:center;box-shadow:0 6px 18px rgba(15,110,86,.35);padding:0}
+       background:var(--fab);color:#fff;align-items:center;justify-content:center;box-shadow:0 6px 18px rgba(15,110,86,.35);padding:0;
+       transition:transform .2s ease,opacity .2s ease}
+  /* bouton + caché quand on descend dans la liste, revenu quand on remonte (il cachait les montants) */
+  body.mobile.fab-cache .m-fab,body.mobile.fab-cache .me-nouvelle{transform:translateY(24px);opacity:0;pointer-events:none}
+  body.mobile .m-ops{padding-bottom:84px} /* la dernière opération n'est jamais sous le bouton + */
+  body.mobile #rg-maj-ligne{display:none} /* dans Plus sur téléphone */
   body.mobile #v-registre .bar{position:fixed;left:0;right:0;bottom:0;z-index:38;margin:0;background:var(--card);border-radius:24px 24px 0 0;
        padding:8px 20px calc(18px + env(safe-area-inset-bottom, 0px));max-height:88vh;overflow-y:auto;flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:10px;
        box-shadow:0 -8px 30px rgba(0,0,0,.2);transform:translateY(105%);visibility:hidden;transition:transform .2s ease,visibility .2s}
@@ -283,6 +288,14 @@
   .m-mois .m-mois-nom.on{background:var(--brand);border-color:var(--brand);color:#fff}
   body.mobile #v-registre .fstatuts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
   body.mobile #v-registre .schip{min-height:46px;display:flex;align-items:center;justify-content:center;font-size:.92rem;border-radius:12px}
+  /* statuts : inactif = contour et point de couleur ; actif = rempli de sa couleur, avec ✓ */
+  .schip[data-s="non_pointe"]{--c:#F59E0B} .schip[data-s="pointe"]{--c:#2563EB} .schip[data-s="rapproche"]{--c:#15803D}
+  .schip[data-s="previsionnel"]{--c:#7C3AED} .schip[data-s="annule"]{--c:#94A3B8}
+  body.mobile #v-registre .schip{gap:8px;background:var(--card);border-color:var(--line-2);color:var(--ink-2)}
+  body.mobile #v-registre .schip::before{content:'';width:10px;height:10px;border-radius:5px;background:var(--c);flex:none}
+  body.mobile #v-registre .schip.on{background:var(--c);border-color:var(--c);color:#fff;font-weight:600}
+  body.mobile #v-registre .schip.on::before{content:'✓';width:auto;height:auto;border-radius:0;background:none}
+  body.mobile #v-registre .pchip.on{background:var(--brand);border-color:var(--brand);color:#fff}
   body.mobile #f-horizon{height:48px;font-size:.95rem}
   body.mobile #v-registre .periode{display:flex;flex-wrap:wrap;gap:8px}
   body.mobile #v-registre .pchip{min-height:42px;padding:0 14px;font-size:.92rem;border-radius:21px}
@@ -450,7 +463,7 @@
   .me-nom{flex:1;min-width:0;font-size:.95rem;font-weight:500;overflow-wrap:anywhere}
   .me-nom small{display:block;font-size:.76rem;font-weight:400;color:var(--ink-2)}
   .me-item .num{font-weight:600;white-space:nowrap}
-  .me-nouvelle{position:fixed;right:16px;bottom:calc(96px + env(safe-area-inset-bottom, 0px));z-index:14;display:flex;align-items:center;gap:8px;height:56px;padding:0 20px 0 16px;border-radius:18px;border:0;background:var(--brand);color:#fff;font-weight:600;box-shadow:0 6px 18px rgba(15,110,86,.35)}
+  .me-nouvelle{position:fixed;right:18px;bottom:calc(96px + env(safe-area-inset-bottom, 0px));z-index:14;display:flex;align-items:center;justify-content:center;width:60px;height:60px;padding:0;border-radius:18px;border:0;background:var(--fab);color:#fff;box-shadow:0 6px 18px rgba(15,110,86,.35);transition:transform .2s ease,opacity .2s ease}
   body.mobile.maj-appli-visible .me-nouvelle{bottom:calc(98px + var(--maj-h, 136px) + env(safe-area-inset-bottom, 0px))}
   .me-info{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);font-size:.92rem}
   button.me-info{width:100%;min-height:44px;border:0;border-bottom:1px solid var(--line);border-radius:0;background:none;color:var(--ink);text-align:left;font-weight:400}
@@ -525,9 +538,11 @@
   body.mobile .f-montant{order:1;display:flex;flex-direction:column;align-items:center;gap:2px}
   body.mobile .f-montant label{font-size:.82rem;font-weight:400;color:var(--ink-2);margin:0}
   body.mobile #i-montant{width:240px;max-width:100%;border:0;border-bottom:2px solid var(--brand);border-radius:0;background:none;
-    font-size:2.4rem;font-weight:700;text-align:center;padding:0;height:auto;color:var(--debit)}
+    font-size:2.4rem;font-weight:700;text-align:center;padding:0;height:auto;color:var(--ink)}
   body.mobile .modal:has(#seg [data-t="credit"].on) #i-montant{color:var(--credit)}
   body.mobile .modal:has(#seg [data-t="virement"].on) #i-montant{color:var(--ink)}
+  /* montants : débit en noir, crédit en vert, prévisionnel en violet (la couleur de son statut) */
+  body.mobile .modal:has(#i-prev:checked) #i-montant,.mf-montant.prev{color:#7C3AED}
   body.mobile #seg{order:2;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));background:var(--line);border-radius:12px;padding:3px;gap:0}
   body.mobile #seg button{min-height:42px;border:0;border-radius:10px;background:transparent;justify-content:center;color:var(--ink-2)}
   body.mobile #seg button.on{background:var(--brand);color:#fff;font-weight:600}
@@ -536,7 +551,7 @@
   body.mobile .f-dest{order:4}
   body.mobile #vir-field{order:5}
   body.mobile #cat-simple{order:6}
-  body.mobile .f-vent{order:7;min-height:44px;font-size:.92rem}
+  body.mobile .f-vent{order:7;min-height:56px;padding:0 14px;background:var(--card);border:1px solid var(--line);border-radius:14px;font-size:.95rem}
   body.mobile #vent-box{order:8}
   body.mobile .f-date{order:9;width:calc(50% - 6px);margin:0}
   body.mobile .f-num{order:10;width:calc(50% - 6px);margin:0}
@@ -550,6 +565,16 @@
   body.mobile .modal .field label{font-size:.82rem;font-weight:600;color:var(--ink-2)}
   body.mobile .modal .field input:not(#i-montant),body.mobile .modal select{height:50px;border-radius:12px;font-size:1rem;padding:0 14px}
   body.mobile .ventchk input{width:20px;height:20px}
+  /* montant : quand on tape dedans, seul le cadre reste (pas en plus le trait du dessous) */
+  body.mobile #i-montant:focus,body.mobile #rc-m:focus{border-bottom-color:transparent;border-radius:10px}
+  /* textes d'exemple : plus clairs et en italique, pour ne pas les prendre pour une valeur déjà remplie */
+  body.mobile .modal input::placeholder,body.mobile #dlgBody:has(#rc-seg) input::placeholder{color:var(--indice);opacity:1;font-style:italic}
+  body.mobile #i-montant::placeholder,body.mobile #rc-m::placeholder{font-style:normal}
+  /* sous-sous-catégorie : seulement quand il y a une sous-catégorie */
+  body.mobile #cat-simple:has(#i-cat1:placeholder-shown) .field:has(#i-cat2),
+  body.mobile #rc-cat-simple:has(#rc-c1:placeholder-shown) .field:has(#rc-c2){display:none}
+  body.mobile #cat-simple:has(#i-cat1:placeholder-shown) .field:has(#i-cat1),
+  body.mobile #rc-cat-simple:has(#rc-c1:placeholder-shown) .field:has(#rc-c1){border-bottom:0}
   body.mobile #cat-simple .row3{display:block;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:2px 14px}
   body.mobile #cat-simple .field{display:flex;align-items:center;gap:10px;min-height:52px;margin:0;border-bottom:1px solid var(--line)}
   body.mobile #cat-simple .field:not(:has(~ .field)){border-bottom:0} /* la liste des catégories est ajoutée après */
@@ -600,7 +625,7 @@
   body.mobile .rc-f-montant{order:1;width:100%;margin:0;display:flex;flex-direction:column;align-items:center;gap:2px}
   body.mobile .rc-f-montant label{font-size:.82rem;font-weight:400;color:var(--ink-2);margin:0}
   body.mobile #rc-m{width:240px;max-width:100%;border:0;border-bottom:2px solid var(--brand);border-radius:0;background:none;
-    font-size:2.4rem;font-weight:700;text-align:center;padding:0;height:auto;color:var(--debit)}
+    font-size:2.4rem;font-weight:700;text-align:center;padding:0;height:auto;color:var(--ink)}
   body.mobile #dlgBody:has(#rc-seg [data-t="credit"].on) #rc-m{color:var(--credit)}
   body.mobile #dlgBody:has(#rc-seg [data-t="virement"].on) #rc-m{color:var(--ink)}
   body.mobile #rc-seg{order:2;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));background:var(--line);border-radius:12px;padding:3px;gap:0;margin:0!important}
@@ -609,7 +634,7 @@
   body.mobile #rc-dest-field{order:3}
   body.mobile #rc-vir-field{order:4;width:100%;margin:0}
   body.mobile #rc-cat-simple{order:5}
-  body.mobile #rc-ventchk{order:6;min-height:44px;font-size:.92rem}
+  body.mobile #rc-ventchk{order:6;min-height:56px;padding:0 14px;background:var(--card);border:1px solid var(--line);border-radius:14px;font-size:.95rem}
   body.mobile #rc-vent-box{order:7;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:8px 12px}
   body.mobile .rc-f-compte{order:8;width:100%;margin:0}
   body.mobile .rc-f-freq{order:9;width:100%;margin:0}
