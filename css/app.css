@@ -187,6 +187,7 @@
   .m-sauvegarde.attente{background:var(--attente-fond);color:var(--attente-encre)} /* ambre doux, foncé en mode sombre */
   .m-sauvegarde .ms-txt{flex:1;font-size:.92rem}
   .m-sauvegarde .ms-txt b{display:block;font-size:1rem}
+  .m-sauvegarde .ms-derniere{display:block;font-size:.84rem;opacity:.85;margin:2px 0}
   .m-groupe-h{font-size:.82rem;font-weight:600;color:var(--ink-2);margin:18px 2px 6px}
   .m-liste{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
   .m-liste button{display:flex;align-items:center;gap:14px;width:100%;min-height:56px;border:0;border-bottom:1px solid var(--line);border-radius:0;

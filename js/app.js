@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.20.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.20.1'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -485,11 +485,19 @@ function fermerListeComptes(){
 function choisirCompteMobile(id){fermerListeComptes();state.acc=id;state.page=1;state.anPath=[];render();remonterEnHaut();}
 /* écran « Plus » : sauvegarde, outils et gestion (ce qui était dans la barre latérale et la barre d'outils du PC) */
 function icoPlus(d){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="'+d+'"/></svg>';}
+/* « Sauvegarde n° 12 · 31/10/2026 à 19:05 » : le n° (révision) augmente à chaque sauvegarde. Base sans date de sauvegarde
+   (sauvegardée avant la 2.20.1) : la date de la dernière modification, qui est celle de la sauvegarde quand tout est sauvegardé. */
+function libDerniereSauvegarde(){
+  const rev=+getMeta('rev',0);if(!rev)return 'Jamais sauvegardée';
+  const ts=getMeta('sauvegarde_le','')||(dirty>0?'':getMeta('updated',''));
+  return 'Sauvegarde n° '+rev+(ts?' · '+ts.slice(8,10)+'/'+ts.slice(5,7)+'/'+ts.slice(0,4)+' à '+ts.slice(11,16):'');
+}
 function renderPlus(){
   const n=dirty,sv=document.getElementById('plus-sauvegarde');
   sv.className='m-sauvegarde'+(n>0?' attente':'');
   sv.innerHTML='<div class="ms-txt"><b>'+(n>0?n+' modification'+(n>1?'s':'')+' non sauvegardée'+(n>1?'s':''):'Tout est sauvegardé')+'</b>'+
-    (n>0?'<a onclick="voirModifications()">Voir le détail</a>':'Données révision '+esc(String(getMeta('rev',0))))+'</div>'+
+    '<small class="ms-derniere">'+esc(libDerniereSauvegarde())+'</small>'+
+    (n>0?'<a onclick="voirModifications()">Voir le détail</a>':'')+'</div>'+
     '<button class="primary" onclick="sauvegarder()">Sauvegarder</button>';
   const it=(nom,detail,action,d)=>'<button onclick="'+action+'">'+icoPlus(d)+'<span class="ml-txt">'+nom+(detail?'<small>'+detail+'</small>':'')+'</span>'+
     icoPlus('M9 6l6 6-6 6')+'</button>';
@@ -3548,7 +3556,7 @@ async function oublierDossierSauvegarde(){
   renderReglages();toast('Les sauvegardes iront dans « Téléchargements »');
 }
 function sauvegardeFaite(){
-  setMeta('rev',(+getMeta('rev',0))+1);
+  setMeta('rev',(+getMeta('rev',0))+1);setMeta('sauvegarde_le',nowTS());
   run('UPDATE journal SET sauve=1 WHERE sauve=0');refreshDirty();flushIDB();
 }
 async function chargerFichier(inp){

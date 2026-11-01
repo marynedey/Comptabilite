@@ -487,3 +487,22 @@ test('réglage « Aussi dans Téléchargements » : désactivé par défaut, gar
   assert.equal(app.lireReglages('{"aussiTelechargements":true}').aussiTelechargements, true);
   assert.equal(app.lireReglages('{"aussiTelechargements":"oui"}').aussiTelechargements, false);
 });
+
+test('dernière sauvegarde (écran Plus) : n° et date, ou date de dernière modification pour une ancienne base', () => {
+  const rev = app.getMeta('rev', 0), le = app.getMeta('sauvegarde_le', null), upd = app.getMeta('updated', '');
+  try {
+    app.setMeta('rev', 0);
+    assert.equal(app.libDerniereSauvegarde(), 'Jamais sauvegardée');
+    app.setMeta('rev', 12); app.setMeta('sauvegarde_le', '2026-10-31 19:05:42');
+    assert.equal(app.libDerniereSauvegarde(), 'Sauvegarde n° 12 · 31/10/2026 à 19:05');
+    // base sauvegardée avant la 2.20.1 : pas de date de sauvegarde
+    app.run("DELETE FROM meta WHERE cle='sauvegarde_le'"); app.setMeta('updated', '2026-09-02 08:15:00');
+    app.run('UPDATE journal SET sauve=1'); app.refreshDirty();
+    assert.equal(app.libDerniereSauvegarde(), 'Sauvegarde n° 12 · 02/09/2026 à 08:15'); // tout est sauvegardé : c'est la même
+    app.run("INSERT INTO journal(ts,action,detail,sauve) VALUES('2026-09-03 10:00:00','test','',0)"); app.refreshDirty();
+    assert.equal(app.libDerniereSauvegarde(), 'Sauvegarde n° 12'); // modifiée depuis : date inconnue
+  } finally {
+    app.run("DELETE FROM journal WHERE action='test'"); app.refreshDirty();
+    app.setMeta('rev', rev); app.setMeta('updated', upd); if (le != null) app.setMeta('sauvegarde_le', le);
+  }
+});
