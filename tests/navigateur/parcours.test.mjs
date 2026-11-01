@@ -788,9 +788,12 @@ test('téléphone : écran Plus — sauvegarde en attente, sauvegarder, outils',
     assert.equal(await page.isVisible('#m-point'), true); // point orange sur le bouton Sauvegarder
     await page.click('#m-onglets button[data-o="plus"]');
     assert.match(await page.textContent('#plus-sauvegarde'), /1 modification non sauvegardée/);
+    assert.match(await page.textContent('#plus-sauvegarde .ms-derniere'), /^(Jamais sauvegardée|Sauvegarde n° \d+)$/);
     const [telechargement] = await Promise.all([page.waitForEvent('download'), page.click('#plus-sauvegarde button:has-text("Sauvegarder")')]);
     assert.match(telechargement.suggestedFilename(), /^comptes_.*\.sqlite$/);
     await page.locator('#plus-sauvegarde:has-text("Tout est sauvegardé")').waitFor();
+    // le n° de la sauvegarde, sa date et son heure
+    assert.match(await page.textContent('#plus-sauvegarde .ms-derniere'), /^Sauvegarde n° \d+ · \d{2}\/\d{2}\/\d{4} à \d{2}:\d{2}$/);
     assert.equal(await page.isVisible('#m-point'), false);
     for (const nom of ['Pointer avec un relevé PDF', 'Importer un fichier QIF', 'Tiers', 'Corbeille', 'Réglages', 'Annuler la dernière modification'])
       assert.equal(await page.isVisible(`#plus-groupes button:has-text("${nom}")`), true, nom);
