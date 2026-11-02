@@ -1061,9 +1061,9 @@ test('téléphone, opérations : recherche dans l\'écran, filtres dans la feuil
     await page.click('#m-voir');
     await page.locator('#f-zone').waitFor({ state: 'hidden' });
     assert.deepEqual(await page.locator('#m-filtres-actifs .m-puce').allTextContents(), ['Septembre 2026']);
-    // la croix (dessinée) est alignée sur les lettres : mesuré sur les pixels de la puce, comme à l'œil
+    // texte et croix (dessinée) au milieu de la puce : mesuré sur les pixels, comme à l'œil
     const puceFiltre = page.locator('#m-filtres-actifs .m-puce');
-    const xCroix = await puceFiltre.evaluate(p => p.querySelector('svg').getBoundingClientRect().left - p.getBoundingClientRect().left);
+    const xCroix = await puceFiltre.evaluate(p => p.querySelector('svg').getBoundingClientRect().left - p.getBoundingClientRect().left) * 3;
     const img = lirePng(await puceFiltre.screenshot());
     // haut de l'encre, et bas le plus fréquent des colonnes = ligne de base (sans le « p » de « Septembre » qui descend)
     const milieu = (x0, x1, ligneDeBase) => { let haut = img.h, bas = 0; const bases = new Map();
@@ -1071,7 +1071,9 @@ test('téléphone, opérations : recherche dans l\'écran, filtres dans la feuil
         if (b >= 0) { bas = Math.max(bas, b); bases.set(b, (bases.get(b) || 0) + 1); } }
       return (haut + (ligneDeBase ? [...bases].sort((u, v) => v[1] - u[1])[0][0] : bas)) / 2; };
     const [mTexte, mCroix] = [milieu(0, Math.floor(xCroix) - 2, true), milieu(Math.ceil(xCroix), img.w, false)];
-    assert.ok(Math.abs(mTexte - mCroix) / 3 <= 0.5, 'croix et texte alignés (px de l\'écran ×3) : texte ' + mTexte + ', croix ' + mCroix);
+    // l'un et l'autre au milieu du fond vert (à un demi-pixel près)
+    assert.ok(Math.abs(mTexte - img.h / 2) / 3 <= 0.5 && Math.abs(mCroix - img.h / 2) / 3 <= 0.5,
+      'au milieu de la puce (px de l\'écran ×3) : texte ' + mTexte + ', croix ' + mCroix + ', milieu ' + img.h / 2);
     // la même croix que dans les barres de recherche (dessinée, même taille)
     const croix = sel => page.locator(sel).evaluate(e => [e.querySelector('path').getAttribute('d'), getComputedStyle(e).width]); // #f-clear est caché (recherche vide) : la taille du style
     assert.deepEqual(await croix('#m-filtres-actifs .m-puce svg'), await croix('#f-clear svg'));

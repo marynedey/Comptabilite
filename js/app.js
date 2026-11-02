@@ -704,7 +704,7 @@ function renderOperationsMobile(){
   const total=scal('SELECT COUNT(*) FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id'+w,p)||0;
   // les filtres actifs (puces), puis une ligne : le nombre d'opérations tout à gauche, « Filtrer » tout à droite
   document.getElementById('m-filtres-actifs').innerHTML=(actifs.length?'<div class="m-puces">'+actifs.map(([t,f])=>
-      '<span class="m-puce">'+esc(t)+'<button class="ghost" aria-label="Retirer le filtre '+esc(t)+'" onclick="'+f+'">'+CROIX_SVG+'</button></span>').join('')+'</div>':'')+
+      '<span class="m-puce"><span class="m-puce-txt">'+esc(t)+'</span><button class="ghost" aria-label="Retirer le filtre '+esc(t)+'" onclick="'+f+'">'+CROIX_SVG+'</button></span>').join('')+'</div>':'')+
     '<div class="m-ligne-filtrer"><span class="m-nb-ops" id="m-nb-ops">'+total.toLocaleString('fr-FR')+' opération'+(total>1?'s':'')+'</span>'+
     '<button class="m-filtrer" onclick="ouvrirFiltres()">Filtrer'+(actifs.length?' · '+actifs.length:'')+'</button></div>';
   const lim=state.mLimite||MOBILE_PAR_LOT;
