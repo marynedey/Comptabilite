@@ -4,6 +4,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { readFileSync, existsSync, statSync } from 'node:fs';
+import { inflateSync } from 'node:zlib';
 import { extname, join, normalize } from 'node:path';
 import { chromium } from 'playwright';
 
@@ -36,6 +37,25 @@ before(async () => {
 after(() => serveur.close());
 
 /* ---------- outils ---------- */
+// image PNG (capture) → pixels ; fonce(x, y) : pixel nettement foncé (texte, icône) sur un fond clair
+function lirePng(buf) {
+  let p = 8, w, h, type; const idat = [];
+  while (p < buf.length) {
+    const n = buf.readUInt32BE(p), t = buf.toString('ascii', p + 4, p + 8), d = buf.subarray(p + 8, p + 8 + n);
+    if (t === 'IHDR') { w = d.readUInt32BE(0); h = d.readUInt32BE(4); type = d[9]; } else if (t === 'IDAT') idat.push(d);
+    p += 12 + n;
+  }
+  const bpp = type === 6 ? 4 : 3, brut = inflateSync(Buffer.concat(idat)), px = Buffer.alloc(w * h * bpp), lg = w * bpp;
+  for (let y = 0; y < h; y++) {
+    const f = brut[y * (lg + 1)], src = brut.subarray(y * (lg + 1) + 1, (y + 1) * (lg + 1)), o = y * lg;
+    for (let i = 0; i < lg; i++) {
+      const a = i >= bpp ? px[o + i - bpp] : 0, b = y ? px[o - lg + i] : 0, c = y && i >= bpp ? px[o - lg + i - bpp] : 0;
+      const pa = Math.abs(b - c), pb = Math.abs(a - c), pc = Math.abs(a + b - 2 * c);
+      px[o + i] = (src[i] + [0, a, b, (a + b) >> 1, pa <= pb && pa <= pc ? a : pb <= pc ? b : c][f]) & 255;
+    }
+  }
+  return { w, h, fonce: (x, y) => { const i = (y * w + x) * bpp; return px[i] + px[i + 1] + px[i + 2] < 400; } };
+}
 async function ouvrir({ preparer, ...options } = {}) {
   // CHROMIUM : chemin d'un Chromium déjà installé (sinon celui de Playwright, cf. tests.yml).
   const navigateur = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : { channel: 'chromium' });
@@ -888,6 +908,31 @@ const ouvrirTelephone = () => ouvrir({ ...TELEPHONE, preparer: c => c.clock.setF
 const statutDe = (page, dest) => page.evaluate(n => qy("SELECT o.statut s,o.previsionnel pv FROM operation o JOIN tiers t ON t.id=o.tiers_id WHERE t.nom=?", [n])[0], dest);
 const ligne = (page, dest) => page.locator('#m-ops .m-op', { hasText: dest });
 
+test('téléphone, mode sombre : texte blanc sur fond coloré toujours lisible (filtres, saisie, Plus)', async () => {
+  const { navigateur, page } = await ouvrir({ ...TELEPHONE, colorScheme: 'dark' });
+  try {
+    // contraste (WCAG) de chaque texte blanc affiché sur son propre fond coloré
+    const faibles = () => page.evaluate(() => {
+      const lum = c => { const v = c.match(/[\d.]+/g).slice(0, 3).map(x => { x /= 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }); return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]; };
+      return [...document.querySelectorAll('button,a,span,b')].filter(e => e.offsetParent && e.textContent.trim()).map(e => [e, getComputedStyle(e)])
+        .filter(([, st]) => st.color === 'rgb(255, 255, 255)' && st.backgroundColor !== 'rgba(0, 0, 0, 0)' && !/rgba\(.*, 0\)/.test(st.backgroundColor))
+        .map(([e, st]) => [e.textContent.trim().slice(0, 30), Math.round(1.05 / (lum(st.backgroundColor) + 0.05) * 10) / 10])
+        .filter(([, r]) => r < 4.5);
+    });
+    assert.equal(await page.evaluate(() => document.documentElement.matches(':root') && matchMedia('(prefers-color-scheme: dark)').matches), true);
+    await page.click('.m-filtrer');
+    assert.deepEqual(await faibles(), [], 'filtres');
+    await page.evaluate(() => fermerFiltres());
+    await page.click('#m-ajouter');
+    await page.locator('#overlay #i-dest').waitFor({ state: 'visible' });
+    assert.deepEqual(await faibles(), [], 'saisie');
+    await page.click('#overlay .m-fermer');
+    await page.click('#m-onglets button[data-o="plus"]');
+    assert.deepEqual(await faibles(), [], 'Plus');
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
 test('téléphone, opérations : liste par jour, la barre de statut à gauche pointe / dépointe', async () => {
   const { navigateur, page } = await ouvrirTelephone();
   try {
@@ -895,6 +940,9 @@ test('téléphone, opérations : liste par jour, la barre de statut à gauche po
     assert.deepEqual(await page.locator('#m-ops .m-jour > span:first-child').allTextContents(),
       ['Mercredi 28 octobre', 'Aujourd’hui', 'Hier', 'Dimanche 20 septembre']);
     assert.match(await page.textContent('#m-soldes'), /2\s025,20\s€/); // solde réel
+    // Rapproché, Fin du mois, À pointer (un bouton) : libellés et valeurs sur les mêmes lignes
+    const lignes = await page.locator('#m-soldes .ms-grille>*').evaluateAll(es => es.map(e => [e.querySelector('small'), e.querySelector('span')].map(x => Math.round(x.getBoundingClientRect().top + x.getBoundingClientRect().height / 2))));
+    assert.ok(lignes.every(l => Math.abs(l[0] - lignes[0][0]) <= 1 && Math.abs(l[1] - lignes[0][1]) <= 1), 'alignés : ' + JSON.stringify(lignes));
     // « Rapprocher » à droite du solde réel, sur la même ligne
     const solde = await page.locator('#m-soldes .ms-reel').boundingBox(), rap = await page.locator('#m-soldes .ms-rapprocher').boundingBox();
     assert.ok(rap.x > solde.x + solde.width - 1 && rap.y < solde.y + solde.height && rap.y + rap.height > solde.y, 'Rapprocher à droite du solde');
@@ -989,7 +1037,8 @@ test('téléphone, retours UX : statut plus écrit, icônes ↑ / ↓, pastille,
 });
 
 test('téléphone, opérations : recherche dans l\'écran, filtres dans la feuille du bas, mois ‹ ›', async () => {
-  const { navigateur, page } = await ouvrirTelephone();
+  // écran haute densité (×3, comme un téléphone) : l'alignement de la croix se mesure au tiers de pixel
+  const { navigateur, page } = await ouvrir({ ...TELEPHONE, deviceScaleFactor: 3, preparer: c => c.clock.setFixedTime(new Date('2026-10-26T10:00:00')) });
   try {
     await opsExemple(page);
     assert.equal(await page.isVisible('#m-recherche #f-search'), true);
@@ -1011,7 +1060,23 @@ test('téléphone, opérations : recherche dans l\'écran, filtres dans la feuil
     await page.click('#f-zone .schip[data-s="pointe"]');           // recocher
     await page.click('#m-voir');
     await page.locator('#f-zone').waitFor({ state: 'hidden' });
-    assert.deepEqual(await page.locator('#m-filtres-actifs .m-puce').allTextContents(), ['Septembre 2026✕']);
+    assert.deepEqual(await page.locator('#m-filtres-actifs .m-puce').allTextContents(), ['Septembre 2026']);
+    // texte et croix (dessinée) au milieu de la puce : mesuré sur les pixels, comme à l'œil
+    const puceFiltre = page.locator('#m-filtres-actifs .m-puce');
+    const xCroix = await puceFiltre.evaluate(p => p.querySelector('svg').getBoundingClientRect().left - p.getBoundingClientRect().left) * 3;
+    const img = lirePng(await puceFiltre.screenshot());
+    // haut de l'encre, et bas le plus fréquent des colonnes = ligne de base (sans le « p » de « Septembre » qui descend)
+    const milieu = (x0, x1, ligneDeBase) => { let haut = img.h, bas = 0; const bases = new Map();
+      for (let x = x0; x < x1; x++) { let b = -1; for (let y = 0; y < img.h; y++) if (img.fonce(x, y)) { haut = Math.min(haut, y); b = y; }
+        if (b >= 0) { bas = Math.max(bas, b); bases.set(b, (bases.get(b) || 0) + 1); } }
+      return (haut + (ligneDeBase ? [...bases].sort((u, v) => v[1] - u[1])[0][0] : bas)) / 2; };
+    const [mTexte, mCroix] = [milieu(0, Math.floor(xCroix) - 2, true), milieu(Math.ceil(xCroix), img.w, false)];
+    // l'un et l'autre au milieu du fond vert (à un demi-pixel près)
+    assert.ok(Math.abs(mTexte - img.h / 2) / 3 <= 0.5 && Math.abs(mCroix - img.h / 2) / 3 <= 0.5,
+      'au milieu de la puce (px de l\'écran ×3) : texte ' + mTexte + ', croix ' + mCroix + ', milieu ' + img.h / 2);
+    // la même croix que dans les barres de recherche (dessinée, même taille)
+    const croix = sel => page.locator(sel).evaluate(e => [e.querySelector('path').getAttribute('d'), getComputedStyle(e).width]); // #f-clear est caché (recherche vide) : la taille du style
+    assert.deepEqual(await croix('#m-filtres-actifs .m-puce svg'), await croix('#f-clear svg'));
     assert.match(await page.textContent('.m-filtrer'), /Filtrer · 1/);
     assert.deepEqual(await page.locator('#m-ops .m-op-nom').allTextContents(), ['Pharmacie']);
     await page.click('#m-filtres-actifs button[aria-label="Retirer le filtre Septembre 2026"]');

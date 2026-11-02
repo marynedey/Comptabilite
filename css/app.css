@@ -3,7 +3,7 @@
     --fs:15px;
     --paper:#F6F7F4; --card:#FFFFFF; --card-alt:#FBFCFA;
     --ink:#1A1C1B; --ink-2:#5C625E; --ink-3:#8A908B; --appui:rgba(0,0,0,.07);
-    --line:#E6E9E3; --line-2:#D6DBD3; --indice:#A9AEAA; --fab:#0F6E56;
+    --line:#E6E9E3; --line-2:#D6DBD3; --indice:#A9AEAA; --fab:#0F6E56; --plein:#0F6E56;
     --brand:#0F6E56; --brand-soft:#E4F0EB;
     --sidebar:#18221E; --sidebar-2:#27332D; --sidebar-ink:#DCE3DD; --sidebar-ink-2:#8DA197;
     --debit:#A8392B; --credit:#0F6E56;
@@ -16,7 +16,7 @@
   @media (prefers-color-scheme: dark){:root:not([data-theme="clair"]){
       --paper:#14171A; --card:#1B1F22; --card-alt:#1F2427;
       --ink:#E8EAE6; --ink-2:#A6ACA7; --ink-3:#7C837E; --appui:rgba(255,255,255,.09);
-      --line:#2A2F2D; --line-2:#363D39; --indice:#626965; --fab:#157A5E;
+      --line:#2A2F2D; --line-2:#363D39; --indice:#626965; --fab:#157A5E; --plein:#157A5E;
       --brand:#3FB892; --brand-soft:#15302A;
       --sidebar:#0F1714; --sidebar-2:#1C2622; --sidebar-ink:#DCE3DD; --sidebar-ink-2:#7D938A;
       --debit:#E0796B; --credit:#3FB892;
@@ -26,7 +26,7 @@
   :root[data-theme="sombre"]{color-scheme:dark;
       --paper:#14171A; --card:#1B1F22; --card-alt:#1F2427;
       --ink:#E8EAE6; --ink-2:#A6ACA7; --ink-3:#7C837E; --appui:rgba(255,255,255,.09);
-      --line:#2A2F2D; --line-2:#363D39; --indice:#626965; --fab:#157A5E;
+      --line:#2A2F2D; --line-2:#363D39; --indice:#626965; --fab:#157A5E; --plein:#157A5E;
       --brand:#3FB892; --brand-soft:#15302A;
       --sidebar:#0F1714; --sidebar-2:#1C2622; --sidebar-ink:#DCE3DD; --sidebar-ink-2:#7D938A;
       --debit:#E0796B; --credit:#3FB892;
@@ -70,7 +70,8 @@
   .top .meta{font-size:0.86rem;color:var(--ink-2);margin-top:2px}
   .actions{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
   button{font-family:inherit;font-size:0.86rem;border-radius:8px;padding:8px 13px;cursor:pointer;border:1px solid var(--line-2);background:var(--card);color:var(--ink);display:inline-flex;align-items:center;gap:6px}
-  button.primary{background:var(--brand);border-color:var(--brand);color:#fff}
+  /* --plein : fond vert sous un texte blanc ; en sombre, plus foncé que --brand (lisible, 5:1) */
+  button.primary{background:var(--plein);border-color:var(--plein);color:#fff}
   button.danger{border-color:#cdb0aa;color:var(--debit)}
   button.ghost{border-color:transparent;background:transparent;color:var(--ink-2)}
   button svg{width:15px;height:15px}
@@ -128,7 +129,7 @@
   .verrou{position:fixed;inset:0;z-index:65;background:var(--paper);display:flex;flex-direction:column;align-items:center;justify-content:center;
        gap:6px;padding:env(safe-area-inset-top, 0px) 24px env(safe-area-inset-bottom, 0px);text-align:center}
   .verrou[hidden]{display:none}
-  .verrou-logo{width:64px;height:64px;border-radius:18px;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;margin-bottom:10px}
+  .verrou-logo{width:64px;height:64px;border-radius:18px;background:var(--plein);color:#fff;display:flex;align-items:center;justify-content:center;margin-bottom:10px}
   .verrou-logo svg{width:34px;height:34px}
   .verrou h1{margin:0;font-size:1.4rem}
   .verrou p{margin:0;color:var(--ink-2)}
@@ -227,12 +228,18 @@
   .m-soldes .ms-grille{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
   .m-soldes .ms-grille>*{border:0;background:none;padding:0;text-align:left;display:block;color:var(--ink);font-size:.95rem;font-weight:600;min-height:0}
   .m-soldes .ms-grille small{display:block;font-size:.75rem;font-weight:400;color:var(--ink-2)}
+  /* « À pointer » est un bouton : contenu en haut (un bouton centre verticalement), même ligne de texte que ses voisins */
+  .m-soldes .ms-grille>button{display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-start;align-self:start;line-height:inherit;gap:0}
   .m-soldes .ms-haut{display:flex;align-items:center;gap:12px}
   .m-soldes .ms-haut>div{flex:1;min-width:0}
   .m-soldes .ms-rapprocher{flex:none;min-height:44px;border-radius:22px;padding:0 16px;font-weight:600}
   body.mobile .m-filtres-actifs{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 0 2px}
   .m-puce{display:inline-flex;align-items:center;gap:2px;min-height:34px;padding:0 4px 0 12px;border-radius:17px;background:var(--brand-soft);color:var(--brand);font-size:.85rem;font-weight:600;border:0}
-  .m-puce span{display:inline-flex;width:28px;height:28px;align-items:center;justify-content:center}
+  /* croix dessinée (pas le caractère ✕, placé plus bas ou plus haut selon la police du téléphone) : centrée sur le texte */
+  .m-puce button{display:flex;align-items:center;justify-content:center;width:28px;height:28px;min-height:0;padding:0;border:0;background:none;color:inherit}
+  /* au milieu du fond vert : la croix l'est déjà ; le texte descend un peu, car le milieu des lettres est au-dessus
+     du milieu de sa ligne (place des jambages) */
+  .m-puce-txt{transform:translateY(.11rem)}
   .m-puces{display:flex;flex-wrap:wrap;gap:8px;width:100%}
   .m-ligne-filtrer{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%}
   .m-filtrer{min-height:40px;border-radius:20px;font-weight:600;flex:none}
@@ -285,7 +292,7 @@
   body.mobile .m-mois{display:flex;align-items:center;gap:8px}
   .m-mois button{width:48px;height:48px;border-radius:24px;justify-content:center;padding:0;flex:none}
   .m-mois .m-mois-nom{flex:1;width:auto;border-radius:12px;font-size:1rem;font-weight:600}
-  .m-mois .m-mois-nom.on{background:var(--brand);border-color:var(--brand);color:#fff}
+  .m-mois .m-mois-nom.on{background:var(--plein);border-color:var(--plein);color:#fff}
   body.mobile #v-registre .fstatuts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
   body.mobile #v-registre .schip{min-height:46px;display:flex;align-items:center;justify-content:center;font-size:.92rem;border-radius:12px}
   /* statuts : inactif = contour et point de couleur ; actif = rempli de sa couleur, avec ✓ */
@@ -295,7 +302,9 @@
   body.mobile #v-registre .schip::before{content:'';width:10px;height:10px;border-radius:5px;background:var(--c);flex:none}
   body.mobile #v-registre .schip.on{background:var(--c);border-color:var(--c);color:#fff;font-weight:600}
   body.mobile #v-registre .schip.on::before{content:'✓';width:auto;height:auto;border-radius:0;background:none}
-  body.mobile #v-registre .pchip.on{background:var(--brand);border-color:var(--brand);color:#fff}
+  /* orange et gris trop clairs pour du blanc (2,1 et 2,6:1) : texte foncé, dans les deux thèmes */
+  body.mobile #v-registre .schip.on[data-s="non_pointe"],body.mobile #v-registre .schip.on[data-s="annule"]{color:#1A1C1B}
+  body.mobile #v-registre .pchip.on{background:var(--plein);border-color:var(--plein);color:#fff}
   body.mobile #f-horizon{height:48px;font-size:.95rem}
   body.mobile #v-registre .periode{display:flex;flex-wrap:wrap;gap:8px}
   body.mobile #v-registre .pchip{min-height:42px;padding:0 14px;font-size:.92rem;border-radius:21px}
@@ -431,6 +440,8 @@
   .ev-solde .hausse{color:var(--credit)}.ev-solde .baisse{color:var(--debit)}
   .ev-courbe{display:block;width:100%;height:auto;margin-top:10px;overflow:visible}
   .ev-axe{display:flex;justify-content:space-between;font-size:.72rem;color:var(--ink-2);margin-top:4px}
+  .ev-axe-ans{position:relative;display:block;height:1.4em}
+  .ev-axe-ans span{position:absolute;top:0;transform:translateX(-50%)}
   .ev-legende{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:.78rem;color:var(--ink-2);margin-top:10px}
   .ev-legende span{display:flex;align-items:center;gap:6px}
   .ev-legende i{width:14px;height:3px;border-radius:2px;background:var(--brand)}
@@ -551,7 +562,7 @@
   body.mobile .modal:has(#i-prev:checked) #i-montant,.mf-montant.prev{color:#7C3AED}
   body.mobile #seg{order:2;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));background:var(--line);border-radius:12px;padding:3px;gap:0}
   body.mobile #seg button{min-height:42px;border:0;border-radius:10px;background:transparent;justify-content:center;color:var(--ink-2)}
-  body.mobile #seg button.on{background:var(--brand);color:#fff;font-weight:600}
+  body.mobile #seg button.on{background:var(--plein);color:#fff;font-weight:600}
   body.mobile .m-statut:not([hidden]){order:3;display:flex;align-items:center;justify-content:center;gap:8px;font-size:.88rem;color:var(--ink-2)}
   .m-statut i{width:10px;height:10px;border-radius:5px;display:block}
   body.mobile .f-dest{order:4}
@@ -609,7 +620,7 @@
     body.mobile .modal{max-width:720px;margin:0 auto}
   }
   .m-logo{display:none}
-  body.mobile .m-logo{display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:9px;background:var(--brand);color:#fff;flex:none}
+  body.mobile .m-logo{display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:9px;background:var(--plein);color:#fff;flex:none}
   body.mobile .m-logo svg{width:20px;height:20px}
   .mc-aide{margin:4px 14px 2px;font-size:.78rem;color:var(--ink-2)}
   .m-comptes button[data-id]{-webkit-touch-callout:none;user-select:none}
@@ -636,7 +647,7 @@
   body.mobile #dlgBody:has(#rc-seg [data-t="virement"].on) #rc-m{color:var(--ink)}
   body.mobile #rc-seg{order:2;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));background:var(--line);border-radius:12px;padding:3px;gap:0;margin:0!important}
   body.mobile #rc-seg button{min-height:42px;border:0;border-radius:10px;background:transparent;justify-content:center;color:var(--ink-2)}
-  body.mobile #rc-seg button.on{background:var(--brand);color:#fff;font-weight:600}
+  body.mobile #rc-seg button.on{background:var(--plein);color:#fff;font-weight:600}
   body.mobile #rc-dest-field{order:3}
   body.mobile #rc-vir-field{order:4;width:100%;margin:0}
   body.mobile #rc-cat-simple{order:5}
@@ -688,7 +699,7 @@
   .rg-ligne{margin:12px 0 8px;font-size:.92rem}
   .rg-choix{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
   .rg-choix button{min-height:42px;border-radius:21px;padding:0 16px}
-  .rg-choix button[aria-checked="true"]{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:600}
+  .rg-choix button[aria-checked="true"]{background:var(--plein);border-color:var(--plein);color:#fff;font-weight:600}
   .rg-case{display:flex;gap:12px;align-items:flex-start;margin-top:14px;font-size:.95rem;cursor:pointer}
   .rg-case input{width:22px;height:22px;margin:0;accent-color:var(--brand);flex:none}
   .rg-case small{display:block;color:var(--ink-2);font-size:.82rem;margin-top:2px}
@@ -717,7 +728,7 @@
   .modal h2{margin:0 0 16px;font-size:1.13rem;font-weight:600}
   .seg{display:inline-flex;border:1px solid var(--line-2);border-radius:8px;overflow:hidden;margin-bottom:16px}
   .seg button{border:0;border-radius:0;background:var(--card);color:var(--ink-2);padding:7px 16px}
-  .seg button.on{background:var(--brand);color:#fff}
+  .seg button.on{background:var(--plein);color:#fff}
   .field{margin-bottom:13px;position:relative}
   .field label{display:block;font-size:0.8rem;color:var(--ink-2);margin-bottom:5px}
   .field input{width:100%}
@@ -1047,6 +1058,8 @@
   .croix-zone .croix{position:absolute;right:4px;top:50%;transform:translateY(-50%);border:0;background:transparent;
        padding:2px 6px;font-size:1rem;line-height:1;color:var(--ink-3);display:flex;align-items:center;justify-content:center}
   .croix-zone input:placeholder-shown+.croix{display:none}
+  .ico-croix{display:block;width:18px;height:18px;flex:none}
+  body.mobile .ico-croix{width:24px;height:24px} /* même taille dans les barres de recherche et les puces des filtres */
   /* guide (écran Plus › Guide, barre latérale sur PC) */
   .guide-corps{margin:0;padding:2px 16px 16px 52px;display:flex;flex-direction:column;gap:8px;font-size:.94rem;line-height:1.45}
   .guide-corps li::marker{color:var(--brand)}
