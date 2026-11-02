@@ -1319,7 +1319,8 @@ test('téléphone, « Ce mois-ci » / « Cette année » : retour à la période
 });
 
 test('téléphone, évolution : axe Y en montants ronds (k€ dès 1 000 €), survol au doigt avec bulle du mois', async () => {
-  const { navigateur, page } = await ouvrirTelephone();
+  // écran ×3 : le centrage des étiquettes se mesure au tiers de pixel
+  const { navigateur, page } = await ouvrir({ ...TELEPHONE, deviceScaleFactor: 3, preparer: c => c.clock.setFixedTime(new Date('2026-10-26T10:00:00')) });
   try {
     await page.evaluate(() => {
       const ins = (d, m) => run("INSERT INTO operation(compte_id,date_operation,montant,cat_path,statut,supprime,previsionnel,tiers_id,hay) VALUES(?,?,?,'Divers','pointe',0,0,?,?)",
@@ -1333,6 +1334,12 @@ test('téléphone, évolution : axe Y en montants ronds (k€ dès 1 000 €), s
     const etiq = await page.locator('#m-analyse .ev-y span').allTextContents();
     assert.ok(etiq.length >= 2 && etiq.length <= 4 && etiq.every(t => /^−?\d+(,\d)?\s(k€|€)$/.test(t)), JSON.stringify(etiq));
     assert.ok(etiq.some(t => /k€$/.test(t)), 'en k€ : ' + JSON.stringify(etiq));
+    // le texte de chaque étiquette est au milieu de son fond (mesuré sur les pixels)
+    for (const el of await page.locator('#m-analyse .ev-y span').all()) {
+      const img = lirePng(await el.screenshot()); let haut = img.h, bas = -1;
+      for (let y = 0; y < img.h; y++) for (let x = 0; x < img.w; x++) if (img.fonce(x, y)) { haut = Math.min(haut, y); bas = Math.max(bas, y); }
+      assert.ok(Math.abs((haut + bas) / 2 - (img.h - 1) / 2) / 3 <= 0.5, 'étiquette centrée : encre ' + haut + '–' + bas + ' sur ' + img.h);
+    }
     // toucher la courbe : trait, point et bulle du mois touché ; elle reste ; toucher ailleurs la ferme
     const z = await page.locator('#m-analyse .ev-zone').boundingBox(), bulle = page.locator('#m-analyse .ev-bulle');
     await page.touchscreen.tap(z.x + z.width * 0.5, z.y + z.height * 0.5);

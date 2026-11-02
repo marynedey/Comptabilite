@@ -441,7 +441,8 @@
   .ev-zone{position:relative;margin-top:10px;touch-action:pan-y} /* glisser à l'horizontale = survol ; à la verticale, la page défile */
   .ev-courbe{display:block;width:100%;height:auto;overflow:visible}
   /* étiquettes de l'axe Y : petit fond de la page, lisibles même quand la courbe passe dessus */
-  .ev-y span{position:absolute;left:0;transform:translateY(calc(-100% - 2px));padding:0 4px;border-radius:4px;background:var(--paper);font-size:.68rem;line-height:1.3;color:var(--ink-2);pointer-events:none}
+  .ev-y span{position:absolute;left:0;transform:translateY(calc(-100% - 2px));padding:3px 5px;border-radius:4px;background:var(--paper);font-size:.68rem;line-height:1;color:var(--ink-2);pointer-events:none;
+       text-box:trim-both cap alphabetic} /* boîte du texte = hauteur des chiffres : centrés dans leur fond (sans la place des jambages) */
   .ev-bulle{position:absolute;z-index:3;pointer-events:none;display:flex;flex-direction:column;gap:1px;padding:7px 11px;white-space:nowrap;
        background:var(--card);border:1px solid var(--line-2);border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,.18);font-size:.8rem}
   .ev-bulle[hidden]{display:none}
