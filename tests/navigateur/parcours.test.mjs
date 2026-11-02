@@ -1185,7 +1185,7 @@ test('téléphone, opération rapprochée ventilée : la fiche tient dans l\'éc
   } finally { await navigateur.close(); }
 });
 
-test('téléphone, « Ce mois-ci » / « Cette année » : retour à la période en cours (analyse, catégorie, évolution, Plus › Catégories)', async () => {
+test('téléphone, « Ce mois-ci » / « Cette année » : retour à la période en cours (analyse, catégorie, Plus › Catégories ; pas l\'évolution)', async () => {
   const { navigateur, page } = await ouvrirTelephone();
   try {
     await page.evaluate(() => {
@@ -1221,18 +1221,18 @@ test('téléphone, « Ce mois-ci » / « Cette année » : retour à la période
     await page.locator('#m-analyse .ma-ligne', { hasText: 'Alimentation' }).click();
     assert.equal(await bouton.count(), 0);
     await page.click('#m-analyse .ma-barres button[aria-label^="Mai 2026"]');
+    // sous les barres, sans les chevaucher
+    const barres = await page.locator('#m-analyse .ma-barres').boundingBox(), pastille = await bouton.boundingBox();
+    assert.ok(pastille.y >= barres.y + barres.height + 8, 'le bouton est sous les barres');
     await bouton.click();
     assert.equal(await page.textContent('#m-analyse .ma-tete h2'), 'Alimentation');
     assert.match(await page.getAttribute('#m-analyse .ma-barres button[aria-current]', 'aria-label'), /^Octobre 2026/);
     assert.equal(await bouton.count(), 0);
     await page.click('#m-analyse .ma-tete button[aria-label="Retour"]');
-    // évolution, barres revenus / dépenses : un autre mois → « Ce mois-ci »
+    // évolution, barres revenus / dépenses : pas de « Ce mois-ci » (on ne s'y déplace pas dans le temps)
     await page.click('#m-analyse button[role="tab"]:has-text("Évolution")');
     await page.evaluate(() => anaEvo('barres', true));
-    assert.equal(await bouton.count(), 0);
     await page.locator('#m-analyse .ev-barres button').first().click();
-    await bouton.click();
-    assert.equal(await page.textContent('#m-analyse .ev-detail b'), 'Octobre 2026');
     assert.equal(await bouton.count(), 0);
     // Plus › Catégories › une catégorie : fenêtre décalée ou autre barre → « Ce mois-ci »
     await page.evaluate(() => setView('categories'));

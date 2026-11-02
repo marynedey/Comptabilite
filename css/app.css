@@ -367,6 +367,7 @@
   .ma-mois{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
   /* « Ce mois-ci » / « Cette année » : retour à la période en cours */
   .m-maintenant-l{display:flex;justify-content:center;margin:-2px 0 12px}
+  .ma-barres+.m-maintenant-l{margin-top:12px} /* sous les barres (Analyse › une catégorie) : pas collé, ni par-dessus */
   .m-maintenant{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 16px;border-radius:20px;border:1px solid var(--line-2);
        background:var(--card);color:var(--brand);font-size:.88rem;font-weight:600}
   .m-maintenant svg{width:16px;height:16px;flex:none}
