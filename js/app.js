@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.21.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.22.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -545,6 +545,7 @@ function sectionsGuide(mob){
       'Dépenses ou revenus du mois (ou de l’année), par catégorie, comparés à une autre période au choix.',
       'Touche une catégorie pour descendre dans ses sous-catégories, puis jusqu’aux opérations.',
       'Les barres montrent les mois voisins : touche une barre pour voir ce mois-là.',
+      'Partie dans le passé ? <b>Ce mois-ci</b> (ou <b>Cette année</b>) ramène à la période en cours ; il n’apparaît que si tu t’en es éloigné.',
       '« Évolution » : le solde au fil du temps.']:[
       'Dépenses et revenus par catégorie sur la période choisie : clique une catégorie pour descendre dans ses sous-catégories.',
       '« Graphiques » : le solde au fil du temps.']],
@@ -891,6 +892,13 @@ function fenetreBarres(fin,sel,n,max){
 }
 function anaMobileSens(s){MA.sens=s;MA.chemin=[];if(state.view!=='analyse')setView('analyse');else renderAnalyseMobile();}
 function anaMobileAller(k){MA.debut=k;MA.comp=null;renderAnalyseMobile();}
+/* « Ce mois-ci » / « Cette année » : retour à la période en cours, affiché seulement quand on s'en est éloigné */
+const periodeEnCours=(unite,auj)=>unite==='annee'?String(auj.getFullYear()):clefMois(auj);
+function boutonMaintenant(unite,action){
+  return '<div class="m-maintenant-l"><button class="m-maintenant" onclick="'+action+'">'+icoPlus('M4 6h16v14H4zM4 10h16M9 3v4M15 3v4')+
+    (unite==='annee'?'Cette année':'Ce mois-ci')+'</button></div>';
+}
+function anaMobileMaintenant(){MA.debut=periodeEnCours(MA.unite,new Date());MA.comp=null;MA.fin=null;renderAnalyseMobile();}
 function anaMobileDecaler(d){MA.debut=periodeDecalee(MA.debut,d);MA.comp=null;MA.fin=null;renderAnalyseMobile();}
 function anaMobileUnite(u){const auj=new Date();MA.unite=u;MA.debut=u==='annee'?String(auj.getFullYear()):clefMois(auj);MA.comp=null;MA.chemin=[];MA.fin=null;renderAnalyseMobile();}
 function anaMobileDescendre(nom){MA.chemin.push(nom);if(MA.chemin.length===1)MA.fin=null;renderAnalyseMobile();document.querySelector('main').scrollTop=0;}
@@ -991,6 +999,7 @@ function renderEvolutionMobile(acc,auj){
     const max=Math.max(1,...mois.map(k=>{const f=flux.get(k)||{rev:0,dep:0};return Math.max(f.rev,f.dep);}));
     const f=flux.get(sel)||{rev:0,dep:0};
     h+='<div class="ev-detail"><b>'+nomMois(dateCle(sel))+'</b><span class="credit num">+'+eur(f.rev)+'</span><span class="debit num">−'+eur(f.dep)+'</span></div>';
+    if(sel!==mois[mois.length-1])h+=boutonMaintenant('mois',"anaEvo('mois',null)");
     h+='<div class="ev-barres" style="grid-template-columns:repeat('+mois.length+',minmax(0,1fr))">'+mois.map(k=>{const g=flux.get(k)||{rev:0,dep:0};
       return '<button'+(k===sel?' class="actuel"':'')+' onclick="anaEvo(\'mois\',\''+k+'\')" aria-label="'+esc(nomMois(dateCle(k))+' : revenus '+eur(g.rev)+', dépenses '+eur(g.dep))+'">'+
         '<span class="ev-b"><i class="rev" style="height:'+Math.round(g.rev/max*100)+'%"></i><i class="dep" style="height:'+Math.round(g.dep/max*100)+'%"></i></span>'+
@@ -1026,6 +1035,7 @@ function renderAnalyseMobile(){
       '<div class="ma-mois-centre"><b>'+nomP+'</b><select aria-label="Mois ou année" onchange="anaMobileUnite(this.value)">'+
         '<option value="mois"'+(MA.unite==='mois'?' selected':'')+'>Un mois</option><option value="annee"'+(MA.unite==='annee'?' selected':'')+'>Une année</option></select></div>'+
       '<button onclick="anaMobileDecaler(1)" aria-label="Période suivante">'+fl('M9 6l6 6-6 6')+'</button></div>';
+    if(MA.debut!==periodeEnCours(MA.unite,auj))h+=boutonMaintenant(MA.unite,'anaMobileMaintenant()');
     h+='<div class="m-ana-seg" role="tablist" aria-label="Analyse">'+[['debit','Dépenses'],['credit','Revenus'],['evolution','Évolution']].map(([k,t])=>
       '<button role="tab" aria-selected="'+(k===MA.sens)+'"'+(k===MA.sens?' class="on"':'')+' onclick="anaMobileSens(\''+k+'\')">'+t+'</button>').join('')+'</div>';
     // anneau : 5 plus grosses catégories + « Autres »
@@ -1059,6 +1069,7 @@ function renderAnalyseMobile(){
     h+='<div class="ma-barres" style="grid-template-columns:repeat('+NB_BARRES+',minmax(0,1fr))">'+
       ps.map((k,i)=>'<button'+(k===MA.debut?' class="actuel" aria-current="true"':'')+' onclick="anaMobileAller(\''+k+'\')" aria-label="'+esc(libellePeriodeAna(k)+' : '+eur(vals[i]).replace('-',''))+'">'+
         '<span style="height:'+hauteurBarre(vals[i],max,66)+'px"></span><small>'+(k.length===4?k:MOIS_COURT[+k.slice(5)-1])+'</small></button>').join('')+'</div>';
+    if(MA.debut!==periodeEnCours(MA.unite,auj))h+=boutonMaintenant(MA.unite,'anaMobileMaintenant()');
     // des sous-catégories (dont « Sans sous-catégorie ») : on y descend ; sinon, les opérations de la période
     if(groupes.some(g=>!(g.nom===SANS_SOUS&&g.feuille))||groupes.length>1)
       h+='<h3 class="ma-h">Sous-catégories</h3><div class="ma-liste">'+groupes.map(g=>'<button class="ma-ligne" onclick="anaMobileDescendre('+esc(JSON.stringify(g.nom))+')">'+
@@ -2197,6 +2208,7 @@ function caRetour(){CA.pile.pop();if(!CA.pile.length){fermerAnalyseCategorie();r
 function caDescendre(id){CA.pile.push(id);renderAnalyseCategorie();document.getElementById('m-catana').scrollTop=0;}
 function caUnite(u){CA.unite=u;CA.sel=null;CA.fin=null;renderAnalyseCategorie();}
 function caPeriode(k){CA.sel=k;renderAnalyseCategorie();}
+function caMaintenant(){CA.fin=null;CA.sel=null;renderAnalyseCategorie();}
 function caOperations(){const id=Math.abs(CA.pile[CA.pile.length-1]);fermerAnalyseCategorie();voirCategorie(id);}
 function renderAnalyseCategorie(){
   // un niveau négatif = « Sans sous-catégorie » de cette catégorie : ses opérations rangées directement dedans
@@ -2232,6 +2244,7 @@ function renderAnalyseCategorie(){
   h+='<div class="ma-mois ca-fenetre"><button onclick="caDecaler(-1)" aria-label="Période précédente"'+(avant?'':' disabled')+'>'+fl('M15 6l-6 6 6 6')+'</button>'+
     '<div class="ma-mois-centre"><b>'+(cles.length>1?court(cles[0])+' – '+court(cles[cles.length-1]):court(cles[0]))+'</b></div>'+
     '<button onclick="caDecaler(1)" aria-label="Période suivante"'+(CA.fin?'':' disabled')+'>'+fl('M9 6l6 6-6 6')+'</button></div>';
+  if(!enCours)h+=boutonMaintenant(CA.unite,'caMaintenant()');
   // toucher une barre : le détail de cette période
   const max=Math.max(1,...P.map(x=>Math.abs(x.total)));
   h+='<div class="ma-barres ca-barres" style="grid-template-columns:repeat('+P.length+',minmax(0,1fr))">'+P.map(x=>
