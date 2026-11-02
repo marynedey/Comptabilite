@@ -908,6 +908,31 @@ const ouvrirTelephone = () => ouvrir({ ...TELEPHONE, preparer: c => c.clock.setF
 const statutDe = (page, dest) => page.evaluate(n => qy("SELECT o.statut s,o.previsionnel pv FROM operation o JOIN tiers t ON t.id=o.tiers_id WHERE t.nom=?", [n])[0], dest);
 const ligne = (page, dest) => page.locator('#m-ops .m-op', { hasText: dest });
 
+test('téléphone, mode sombre : texte blanc sur fond coloré toujours lisible (filtres, saisie, Plus)', async () => {
+  const { navigateur, page } = await ouvrir({ ...TELEPHONE, colorScheme: 'dark' });
+  try {
+    // contraste (WCAG) de chaque texte blanc affiché sur son propre fond coloré
+    const faibles = () => page.evaluate(() => {
+      const lum = c => { const v = c.match(/[\d.]+/g).slice(0, 3).map(x => { x /= 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }); return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]; };
+      return [...document.querySelectorAll('button,a,span,b')].filter(e => e.offsetParent && e.textContent.trim()).map(e => [e, getComputedStyle(e)])
+        .filter(([, st]) => st.color === 'rgb(255, 255, 255)' && st.backgroundColor !== 'rgba(0, 0, 0, 0)' && !/rgba\(.*, 0\)/.test(st.backgroundColor))
+        .map(([e, st]) => [e.textContent.trim().slice(0, 30), Math.round(1.05 / (lum(st.backgroundColor) + 0.05) * 10) / 10])
+        .filter(([, r]) => r < 4.5);
+    });
+    assert.equal(await page.evaluate(() => document.documentElement.matches(':root') && matchMedia('(prefers-color-scheme: dark)').matches), true);
+    await page.click('.m-filtrer');
+    assert.deepEqual(await faibles(), [], 'filtres');
+    await page.evaluate(() => fermerFiltres());
+    await page.click('#m-ajouter');
+    await page.locator('#overlay #i-dest').waitFor({ state: 'visible' });
+    assert.deepEqual(await faibles(), [], 'saisie');
+    await page.click('#overlay .m-fermer');
+    await page.click('#m-onglets button[data-o="plus"]');
+    assert.deepEqual(await faibles(), [], 'Plus');
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
 test('téléphone, opérations : liste par jour, la barre de statut à gauche pointe / dépointe', async () => {
   const { navigateur, page } = await ouvrirTelephone();
   try {
