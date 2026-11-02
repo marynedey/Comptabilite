@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.22.2'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.23.0'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -549,7 +549,7 @@ function sectionsGuide(mob){
       'Touche une catégorie pour descendre dans ses sous-catégories, puis jusqu’aux opérations.',
       'Les barres montrent les mois voisins : touche une barre pour voir ce mois-là.',
       'Partie dans le passé ? <b>Ce mois-ci</b> (ou <b>Cette année</b>) ramène à la période en cours ; il n’apparaît que si tu t’en es éloigné.',
-      '« Évolution » : le solde au fil du temps.']:[
+      '« Évolution » : le solde au fil du temps. Glisse le doigt sur la courbe pour lire le solde d’une fin de mois, sa variation, les revenus et les dépenses du mois.']:[
       'Dépenses et revenus par catégorie sur la période choisie : clique une catégorie pour descendre dans ses sous-catégories.',
       '« Graphiques » : le solde au fil du temps.']],
     ['Échéances','M4 6h16v14H4zM4 10h16M9 3v4M15 3v4',[
@@ -959,6 +959,40 @@ function reperesAnnees(cles,pct){
   const pas=[1,2,5,10,20].find(p=>r.filter(a=>a.an%p===0).length<=6)||50;
   return r.filter(a=>a.an%pas===0&&a.pct>=5&&a.pct<=95);
 }
+/* axe Y de la petite courbe : 3 ou 4 montants ronds (centimes) dans [lo, hi], pas de 1, 2, 2,5 ou 5 × 10^n */
+function graduations(lo,hi){
+  if(!(hi>lo))return [];
+  const p=10**Math.floor(Math.log10((hi-lo)/4));
+  const pas=[1,2,2.5,5,10,20].map(m=>m*p).find(st=>Math.floor(hi/st)-Math.ceil(lo/st)+1<=4);
+  const r=[];for(let v=Math.ceil(lo/pas)*pas;v<=hi;v+=pas)r.push(Math.round(v));
+  return r;
+}
+// « 0 € », « 500 € », « 1 k€ », « 2,5 k€ », « −1 k€ » (centimes → texte court de l'axe)
+function montantCourt(c){
+  const v=c/100,t=Math.abs(v)>=1000?(Math.abs(v)/1000).toLocaleString('fr-FR',{maximumFractionDigits:1})+' k€':Math.abs(v).toLocaleString('fr-FR',{maximumFractionDigits:0})+' €';
+  return (v<0?'−':'')+t;
+}
+/* survol de la petite courbe (au doigt ou à la souris) : trait, point, bulle « Fin mars 2019 · solde · variation du mois ·
+   revenus / dépenses du mois ». La bulle reste après avoir levé le doigt ; toucher ailleurs la ferme. */
+let EVO_S=null;
+function evoSurvol(ev){
+  const S=EVO_S,z=ev.currentTarget;if(!S)return;
+  const r=z.getBoundingClientRect(),x=(ev.clientX-r.left)/r.width*S.W;
+  let i=0;for(let j=1;j<S.pts.length;j++)if(Math.abs(S.X(j)-x)<Math.abs(S.X(i)-x))i=j;
+  const p=S.pts[i],cx=S.X(i),cy=S.Y(p.v),f=S.flux.get(p.cle)||{rev:0,dep:0},der=i===S.pts.length-1;
+  const c=z.querySelector('.ev-cross'),pt=z.querySelector('.ev-point'),b=z.querySelector('.ev-bulle');
+  c.setAttribute('x1',cx.toFixed(1));c.setAttribute('x2',cx.toFixed(1));c.style.display='';
+  pt.setAttribute('cx',cx.toFixed(1));pt.setAttribute('cy',cy.toFixed(1));pt.style.display='';
+  b.innerHTML='<b>'+(der?'Aujourd’hui':'Fin '+MOIS_FR[+p.cle.slice(5)-1]+' '+p.cle.slice(0,4))+'</b><span class="num">'+eur(p.v)+'</span>'+
+    (i?'<small>'+sgn(p.v-S.pts[i-1].v)+' sur le mois</small><small><span class="credit">'+(f.rev?'+':'')+eur(f.rev)+'</span> · <span class="debit">'+(f.dep?'−':'')+eur(f.dep)+'</span></small>':'');
+  b.hidden=false;
+  const ech=r.width/S.W,bw=b.offsetWidth,bh=b.offsetHeight,px=cx*ech,py=cy*(r.height/S.H);
+  b.style.left=Math.min(Math.max(0,px-bw/2),r.width-bw)+'px';
+  b.style.top=(py-bh-14>=0?py-bh-14:Math.min(py+14,r.height-bh))+'px';
+}
+function evoSortie(){document.querySelectorAll('.ev-zone').forEach(z=>{
+  z.querySelectorAll('.ev-cross,.ev-point').forEach(e=>e.style.display='none');const b=z.querySelector('.ev-bulle');if(b)b.hidden=true;});}
+document.addEventListener('pointerdown',e=>{if(!(e.target.closest&&e.target.closest('.ev-zone')))evoSortie();},true);
 function anaEvo(cle,val){MA.evo[cle]=val;renderAnalyseMobile();}
 // plein écran à l'horizontale : la courbe détaillée de l'ancien écran Graphiques, sur la même période ; on revient ici en sortant
 function evoPleinEcran(){
@@ -996,14 +1030,22 @@ function renderEvolutionMobile(acc,auj){
     const xa=X(pts.length-1),ya=Y(actuel);
     // plus de 2 ans : repères d'années (au 1er janvier = fin décembre de l'année d'avant), 6 au plus
     const ans=pts.length-1>24?reperesAnnees(pts.map(p=>p.cle),i=>X(i)/W*100):null;
+    // axe Y : montants ronds (étiquette au-dessus de la ligne, pas trop près du haut) ; la ligne du zéro reste en pointillés
+    const grad=graduations(mn-marge,mx+marge).filter(v=>Y(v)>=16); // 0 : étiquette sur la ligne pointillée du zéro
+    EVO_S={pts,flux:fluxEvolution(ids,debut,auj),X,Y,W,H};
     const zero=mn-marge<0&&mx+marge>0?'<path d="M0 '+Y(0).toFixed(1)+'H'+W+'" stroke="var(--ink-3)" stroke-width="1" stroke-dasharray="2 4" vector-effect="non-scaling-stroke"/>':'';
+    h+='<div class="ev-zone" onpointerdown="evoSurvol(event)" onpointermove="evoSurvol(event)">';
     h+='<svg class="ev-courbe" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+esc('Solde fin de mois : '+pts.map(p=>nomMoisCourt(p.cle,true)+' '+eur(p.v)).join(', ')+(avecPrevu?', prévu '+eur(prevu):''))+'">'+
-      '<path d="M0 '+(H/3).toFixed(0)+'H'+W+'M0 '+(2*H/3).toFixed(0)+'H'+W+(ans?ans.map(a=>'M'+(a.pct*W/100).toFixed(1)+' 0V'+H).join(''):'')+'" stroke="var(--line)" stroke-width="1"/>'+zero+
+      '<path d="'+grad.filter(v=>v!==0).map(v=>'M0 '+Y(v).toFixed(1)+'H'+W).join('')+(ans?ans.map(a=>'M'+(a.pct*W/100).toFixed(1)+' 0V'+H).join(''):'')+'" stroke="var(--line)" stroke-width="1"/>'+zero+
       '<path d="'+ligne+' L'+xa.toFixed(1)+' '+H+' L0 '+H+'Z" fill="var(--brand-soft)"/>'+
       '<path d="'+ligne+'" fill="none" stroke="var(--brand)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>'+
       (avecPrevu?'<path d="M'+xa.toFixed(1)+' '+ya.toFixed(1)+' L'+X(n).toFixed(1)+' '+Y(prevu).toFixed(1)+'" stroke="var(--st-prev)" stroke-width="2.5" stroke-dasharray="5 5" stroke-linecap="round"/>'+
         '<circle cx="'+X(n).toFixed(1)+'" cy="'+Y(prevu).toFixed(1)+'" r="4" fill="var(--st-prev)"/>':'')+
-      '<circle cx="'+xa.toFixed(1)+'" cy="'+ya.toFixed(1)+'" r="4.5" fill="var(--brand)"/></svg>';
+      '<circle cx="'+xa.toFixed(1)+'" cy="'+ya.toFixed(1)+'" r="4.5" fill="var(--brand)"/>'+
+      '<line class="ev-cross" y1="0" y2="'+H+'" stroke="var(--ink-2)" stroke-width="1" vector-effect="non-scaling-stroke" style="display:none"/>'+
+      '<circle class="ev-point" r="5.5" fill="var(--brand)" stroke="var(--card)" stroke-width="2" style="display:none"/></svg>'+
+      '<div class="ev-y" aria-hidden="true">'+grad.map(v=>'<span style="top:'+(Y(v)/H*100).toFixed(2)+'%">'+montantCourt(v)+'</span>').join('')+'</div>'+
+      '<div class="ev-bulle" hidden></div></div>';
     const mil=pts[Math.round((pts.length-1)/2)];
     h+=ans?'<div class="ev-axe ev-axe-ans">'+ans.map(a=>'<span style="left:'+a.pct.toFixed(2)+'%">'+a.an+'</span>').join('')+'</div>'
       :'<div class="ev-axe"><span>fin '+nomMoisCourt(pts[0].cle,true)+'</span><span>'+(pts.length>2?nomMoisCourt(mil.cle,false):'')+'</span><span>aujourd’hui</span></div>';
