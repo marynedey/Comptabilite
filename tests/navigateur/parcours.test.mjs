@@ -1221,6 +1221,9 @@ test('téléphone, « Ce mois-ci » / « Cette année » : retour à la période
     await page.locator('#m-analyse .ma-ligne', { hasText: 'Alimentation' }).click();
     assert.equal(await bouton.count(), 0);
     await page.click('#m-analyse .ma-barres button[aria-label^="Mai 2026"]');
+    // sous les barres, sans les chevaucher
+    const barres = await page.locator('#m-analyse .ma-barres').boundingBox(), pastille = await bouton.boundingBox();
+    assert.ok(pastille.y >= barres.y + barres.height + 8, 'le bouton est sous les barres');
     await bouton.click();
     assert.equal(await page.textContent('#m-analyse .ma-tete h2'), 'Alimentation');
     assert.match(await page.getAttribute('#m-analyse .ma-barres button[aria-current]', 'aria-label'), /^Octobre 2026/);
