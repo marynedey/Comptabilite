@@ -999,7 +999,6 @@ function renderEvolutionMobile(acc,auj){
     const max=Math.max(1,...mois.map(k=>{const f=flux.get(k)||{rev:0,dep:0};return Math.max(f.rev,f.dep);}));
     const f=flux.get(sel)||{rev:0,dep:0};
     h+='<div class="ev-detail"><b>'+nomMois(dateCle(sel))+'</b><span class="credit num">+'+eur(f.rev)+'</span><span class="debit num">−'+eur(f.dep)+'</span></div>';
-    if(sel!==mois[mois.length-1])h+=boutonMaintenant('mois',"anaEvo('mois',null)");
     h+='<div class="ev-barres" style="grid-template-columns:repeat('+mois.length+',minmax(0,1fr))">'+mois.map(k=>{const g=flux.get(k)||{rev:0,dep:0};
       return '<button'+(k===sel?' class="actuel"':'')+' onclick="anaEvo(\'mois\',\''+k+'\')" aria-label="'+esc(nomMois(dateCle(k))+' : revenus '+eur(g.rev)+', dépenses '+eur(g.dep))+'">'+
         '<span class="ev-b"><i class="rev" style="height:'+Math.round(g.rev/max*100)+'%"></i><i class="dep" style="height:'+Math.round(g.dep/max*100)+'%"></i></span>'+
