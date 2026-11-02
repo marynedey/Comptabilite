@@ -1185,6 +1185,74 @@ test('téléphone, opération rapprochée ventilée : la fiche tient dans l\'éc
   } finally { await navigateur.close(); }
 });
 
+test('téléphone, « Ce mois-ci » / « Cette année » : retour à la période en cours (analyse, catégorie, évolution, Plus › Catégories)', async () => {
+  const { navigateur, page } = await ouvrirTelephone();
+  try {
+    await page.evaluate(() => {
+      const ins = (d, m, dest, cat) => {
+        run("INSERT INTO operation(compte_id,date_operation,montant,cat_path,statut,supprime,previsionnel,tiers_id,hay) VALUES(?,?,?,?,'pointe',0,0,?,?)",
+          [state.acc, d, m, cat, upsertTiers(dest), makeHay(dest, cat, null, '', m, d)]);
+        run('INSERT INTO ventilation(operation_id,categorie_id,montant) VALUES(?,?,?)', [scal('SELECT MAX(id) FROM operation'), upsertCategorie(cat), m]);
+      };
+      for (let i = 1; i <= 10; i++) { const m = '2026-' + String(i).padStart(2, '0'); ins(m + '-05', -5000, 'Boulangerie', 'Alimentation'); ins(m + '-06', 100000, 'Salaire', 'Revenus'); }
+      ins('2025-06-05', -5000, 'Boulangerie', 'Alimentation'); // avant la fenêtre de 12 mois : ‹ possible dans Plus › Catégories
+      invalidateCaches(); render();
+    });
+    const bouton = page.locator('#m-analyse .m-maintenant');
+    await page.click('#m-onglets button[data-o="analyse"]');
+    // sur le mois en cours : pas de bouton
+    assert.equal(await bouton.count(), 0);
+    await page.click('#m-analyse button[aria-label="Période précédente"]');
+    await page.click('#m-analyse button[aria-label="Période précédente"]');
+    assert.equal(await page.textContent('#m-analyse .ma-mois-centre b'), 'Août 2026');
+    assert.equal((await bouton.textContent()).trim(), 'Ce mois-ci');
+    await bouton.click();
+    assert.equal(await page.textContent('#m-analyse .ma-mois-centre b'), 'Octobre 2026');
+    assert.equal(await bouton.count(), 0);
+    // par année
+    await page.selectOption('#m-analyse .ma-mois-centre select', 'annee');
+    assert.equal(await bouton.count(), 0);
+    await page.click('#m-analyse button[aria-label="Période précédente"]');
+    assert.equal((await bouton.textContent()).trim(), 'Cette année');
+    await bouton.click();
+    assert.match(await page.textContent('#m-analyse .ma-mois-centre b'), /^2026/);
+    await page.selectOption('#m-analyse .ma-mois-centre select', 'mois');
+    // dans une catégorie : une autre barre → « Ce mois-ci » ramène au mois en cours, on reste dans la catégorie
+    await page.locator('#m-analyse .ma-ligne', { hasText: 'Alimentation' }).click();
+    assert.equal(await bouton.count(), 0);
+    await page.click('#m-analyse .ma-barres button[aria-label^="Mai 2026"]');
+    await bouton.click();
+    assert.equal(await page.textContent('#m-analyse .ma-tete h2'), 'Alimentation');
+    assert.match(await page.getAttribute('#m-analyse .ma-barres button[aria-current]', 'aria-label'), /^Octobre 2026/);
+    assert.equal(await bouton.count(), 0);
+    await page.click('#m-analyse .ma-tete button[aria-label="Retour"]');
+    // évolution, barres revenus / dépenses : un autre mois → « Ce mois-ci »
+    await page.click('#m-analyse button[role="tab"]:has-text("Évolution")');
+    await page.evaluate(() => anaEvo('barres', true));
+    assert.equal(await bouton.count(), 0);
+    await page.locator('#m-analyse .ev-barres button').first().click();
+    await bouton.click();
+    assert.equal(await page.textContent('#m-analyse .ev-detail b'), 'Octobre 2026');
+    assert.equal(await bouton.count(), 0);
+    // Plus › Catégories › une catégorie : fenêtre décalée ou autre barre → « Ce mois-ci »
+    await page.evaluate(() => setView('categories'));
+    await page.locator('#m-categories .mg-cat', { hasText: 'Alimentation' }).locator('.mg-nom').click();
+    const a = page.locator('#m-catana'), b2 = a.locator('.m-maintenant');
+    await a.waitFor();
+    assert.equal(await b2.count(), 0);
+    await a.locator('button[aria-label="Période précédente"]').click();
+    await b2.click();
+    assert.match(await a.locator('.ca-total').textContent(), /Octobre 2026 \(en cours\)/);
+    await a.locator('.ca-barres button[aria-label^="Mars 2026"]').click();
+    await b2.click();
+    assert.match(await a.locator('.ca-total').textContent(), /Octobre 2026 \(en cours\)/);
+    assert.equal(await b2.count(), 0);
+    await a.locator('button:has-text("Par année")').click();
+    assert.equal(await b2.count(), 0);
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
 test('téléphone, catégories : montant total ; toucher une catégorie → son analyse par mois, par année', async () => {
   const { navigateur, page } = await ouvrirTelephone();
   try {
