@@ -506,3 +506,20 @@ test('dernière sauvegarde (écran Plus) : n° et date, ou date de dernière mod
     app.setMeta('rev', rev); app.setMeta('updated', upd); if (le != null) app.setMeta('sauvegarde_le', le);
   }
 });
+
+test('évolution sur plus de 2 ans : repères d\'années au 1er janvier, 6 au plus, pas collés aux bords', () => {
+  const mois = (de, a) => { const r = []; for (let y = +de.slice(0, 4), m = +de.slice(5); `${y}-${String(m).padStart(2, '0')}` <= a; m === 12 ? (y++, m = 1) : m++) r.push(`${y}-${String(m).padStart(2, '0')}`); return r; };
+  const pct = cles => i => i / (cles.length - 1) * 100;
+  // fin déc. 2001 → oct. 2026 (près de 25 ans) : un repère tous les 5 ans
+  const long = mois('2001-12', '2026-10');
+  assert.deepEqual(js(app.reperesAnnees(long, pct(long))).map(a => a.an), [2005, 2010, 2015, 2020, 2025]);
+  // 2001 tombe au tout début (0 %) : jamais de repère collé au bord
+  assert.ok(js(app.reperesAnnees(long, pct(long))).every(a => a.pct >= 5 && a.pct <= 95));
+  // un peu plus de 4 ans : chaque année ; l'année 2023 commence au point « fin déc. 2022 »
+  const quatre = mois('2022-06', '2026-10'), r = js(app.reperesAnnees(quatre, pct(quatre)));
+  assert.deepEqual(r.map(a => a.an), [2023, 2024, 2025, 2026]);
+  assert.equal(r[0].pct, quatre.indexOf('2022-12') / (quatre.length - 1) * 100);
+  // 10 ans : tous les 2 ans
+  const dix = mois('2016-10', '2026-10');
+  assert.deepEqual(js(app.reperesAnnees(dix, pct(dix))).map(a => a.an), [2018, 2020, 2022, 2024, 2026]);
+});
