@@ -523,3 +523,18 @@ test('évolution sur plus de 2 ans : repères d\'années au 1er janvier, 6 au pl
   const dix = mois('2016-10', '2026-10');
   assert.deepEqual(js(app.reperesAnnees(dix, pct(dix))).map(a => a.an), [2018, 2020, 2022, 2024, 2026]);
 });
+
+test('axe Y de l\'évolution : 3 ou 4 montants ronds, écrits court (k€ dès 1 000 €)', () => {
+  const g = (lo, hi) => js(app.graduations(lo * 100, hi * 100)).map(v => v / 100);
+  assert.deepEqual(g(-120, 15800), [0, 5000, 10000, 15000]);
+  assert.deepEqual(g(3200, 7900), [4000, 5000, 6000, 7000]);
+  assert.deepEqual(g(-2600, 2100), [-2000, 0, 2000]);
+  assert.ok([g(10, 990), g(0, 37000), g(-50000, -1000)].every(l => l.length >= 2 && l.length <= 4));
+  assert.deepEqual(js(app.graduations(500, 500)), []);
+  assert.equal(app.montantCourt(0), '0 €');
+  assert.equal(app.montantCourt(50000), '500 €');
+  assert.equal(app.montantCourt(100000), '1 k€');
+  assert.equal(app.montantCourt(250000), '2,5 k€');
+  assert.equal(app.montantCourt(1500000), '15 k€');
+  assert.equal(app.montantCourt(-100000), '−1 k€');
+});

@@ -1318,6 +1318,47 @@ test('téléphone, « Ce mois-ci » / « Cette année » : retour à la période
   } finally { await navigateur.close(); }
 });
 
+test('téléphone, évolution : axe Y en montants ronds (k€ dès 1 000 €), survol au doigt avec bulle du mois', async () => {
+  // écran ×3 : le centrage des étiquettes se mesure au tiers de pixel
+  const { navigateur, page } = await ouvrir({ ...TELEPHONE, deviceScaleFactor: 3, preparer: c => c.clock.setFixedTime(new Date('2026-10-26T10:00:00')) });
+  try {
+    await page.evaluate(() => {
+      const ins = (d, m) => run("INSERT INTO operation(compte_id,date_operation,montant,cat_path,statut,supprime,previsionnel,tiers_id,hay) VALUES(?,?,?,'Divers','pointe',0,0,?,?)",
+        [state.acc, d, m, upsertTiers('X'), makeHay('X', 'Divers', null, '', m, d)]);
+      for (let i = 1; i <= 10; i++) { const m = '2026-' + String(i).padStart(2, '0'); ins(m + '-02', 250000); ins(m + '-15', -120000); }
+      invalidateCaches(); render();
+    });
+    await page.click('#m-onglets button[data-o="analyse"]');
+    await page.click('#m-analyse button[role="tab"]:has-text("Évolution")');
+    // axe Y : 2 à 4 montants ronds écrits court
+    const etiq = await page.locator('#m-analyse .ev-y span').allTextContents();
+    assert.ok(etiq.length >= 2 && etiq.length <= 4 && etiq.every(t => /^−?\d+(,\d)?\s(k€|€)$/.test(t)), JSON.stringify(etiq));
+    assert.ok(etiq.some(t => /k€$/.test(t)), 'en k€ : ' + JSON.stringify(etiq));
+    // le texte de chaque étiquette est au milieu de son fond (mesuré sur les pixels)
+    for (const el of await page.locator('#m-analyse .ev-y span').all()) {
+      const img = lirePng(await el.screenshot()); let haut = img.h, bas = -1;
+      for (let y = 0; y < img.h; y++) for (let x = 0; x < img.w; x++) if (img.fonce(x, y)) { haut = Math.min(haut, y); bas = Math.max(bas, y); }
+      assert.ok(Math.abs((haut + bas) / 2 - (img.h - 1) / 2) / 3 <= 0.5, 'étiquette centrée : encre ' + haut + '–' + bas + ' sur ' + img.h);
+    }
+    // toucher la courbe : trait, point et bulle du mois touché ; elle reste ; toucher ailleurs la ferme
+    const z = await page.locator('#m-analyse .ev-zone').boundingBox(), bulle = page.locator('#m-analyse .ev-bulle');
+    await page.touchscreen.tap(z.x + z.width * 0.5, z.y + z.height * 0.5);
+    await bulle.waitFor();
+    assert.match(await bulle.textContent(), /^Fin \S+ 2026.*€.*sur le mois\+.*€ · −.*€$/);
+    assert.equal(await page.locator('#m-analyse .ev-point').evaluate(e => e.style.display), '');
+    await page.touchscreen.tap(z.x + z.width - 2, z.y + z.height * 0.5);
+    assert.match(await bulle.textContent(), /^Aujourd’hui/);
+    // la bulle reste dans la courbe (pas coupée à droite)
+    const b = await bulle.boundingBox();
+    assert.ok(b.x >= z.x - 1 && b.x + b.width <= z.x + z.width + 1, 'bulle dans la courbe');
+    const leg = await page.locator('#m-analyse .ev-legende').boundingBox();   // toucher ailleurs (la légende, sans rien redessiner)
+    await page.touchscreen.tap(leg.x + 10, leg.y + leg.height / 2);
+    assert.equal(await bulle.isVisible(), false);
+    assert.equal(await page.locator('#m-analyse .ev-point').evaluate(e => e.style.display), 'none');
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
 test('téléphone, catégories : montant total ; toucher une catégorie → son analyse par mois, par année', async () => {
   const { navigateur, page } = await ouvrirTelephone();
   try {
