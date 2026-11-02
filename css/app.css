@@ -234,7 +234,6 @@
   .m-puce{display:inline-flex;align-items:center;gap:2px;min-height:34px;padding:0 4px 0 12px;border-radius:17px;background:var(--brand-soft);color:var(--brand);font-size:.85rem;font-weight:600;border:0}
   /* croix dessinée (pas le caractère ✕, placé plus bas ou plus haut selon la police du téléphone) : centrée sur le texte */
   .m-puce button{display:flex;align-items:center;justify-content:center;width:28px;height:28px;min-height:0;padding:0;border:0;background:none;color:inherit}
-  .m-puce button svg{width:16px;height:16px}
   .m-puces{display:flex;flex-wrap:wrap;gap:8px;width:100%}
   .m-ligne-filtrer{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%}
   .m-filtrer{min-height:40px;border-radius:20px;font-weight:600;flex:none}
@@ -1049,6 +1048,8 @@
   .croix-zone .croix{position:absolute;right:4px;top:50%;transform:translateY(-50%);border:0;background:transparent;
        padding:2px 6px;font-size:1rem;line-height:1;color:var(--ink-3);display:flex;align-items:center;justify-content:center}
   .croix-zone input:placeholder-shown+.croix{display:none}
+  .ico-croix{display:block;width:18px;height:18px;flex:none}
+  body.mobile .ico-croix{width:24px;height:24px} /* même taille dans les barres de recherche et les puces des filtres */
   /* guide (écran Plus › Guide, barre latérale sur PC) */
   .guide-corps{margin:0;padding:2px 16px 16px 52px;display:flex;flex-direction:column;gap:8px;font-size:.94rem;line-height:1.45}
   .guide-corps li::marker{color:var(--brand)}

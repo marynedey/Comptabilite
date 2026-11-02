@@ -417,6 +417,9 @@ const META={
   previsionnel:{label:'Prévisionnel',col:'#7C3AED'},
   annule:{label:'Annulé',col:'#94A3B8'}
 };
+/* croix dessinée des barres de recherche et des puces de filtres (le caractère × se plaçait plus haut ou plus bas
+   selon la police du téléphone) : la même partout, centrée dans son bouton */
+const CROIX_SVG='<svg class="ico-croix" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg>';
 const ACC_TYPES={courant:'Compte courant',livret:'Livret',pel:'PEL',autre:'Compte'};
 const PAL=['#C2185B','#00838F','#8D6E63','#827717','#E8836B','#F06292','#00ACC1','#A1887F']; // anneau de l'analyse : ni les couleurs des statuts (META), ni le vert des boutons
 
@@ -701,7 +704,7 @@ function renderOperationsMobile(){
   const total=scal('SELECT COUNT(*) FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id'+w,p)||0;
   // les filtres actifs (puces), puis une ligne : le nombre d'opérations tout à gauche, « Filtrer » tout à droite
   document.getElementById('m-filtres-actifs').innerHTML=(actifs.length?'<div class="m-puces">'+actifs.map(([t,f])=>
-      '<span class="m-puce">'+esc(t)+'<button class="ghost" aria-label="Retirer le filtre '+esc(t)+'" onclick="'+f+'">'+icoPlus('M6 6l12 12M18 6L6 18')+'</button></span>').join('')+'</div>':'')+
+      '<span class="m-puce">'+esc(t)+'<button class="ghost" aria-label="Retirer le filtre '+esc(t)+'" onclick="'+f+'">'+CROIX_SVG+'</button></span>').join('')+'</div>':'')+
     '<div class="m-ligne-filtrer"><span class="m-nb-ops" id="m-nb-ops">'+total.toLocaleString('fr-FR')+' opération'+(total>1?'s':'')+'</span>'+
     '<button class="m-filtrer" onclick="ouvrirFiltres()">Filtrer'+(actifs.length?' · '+actifs.length:'')+'</button></div>';
   const lim=state.mLimite||MOBILE_PAR_LOT;
@@ -4942,7 +4945,7 @@ function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t
 function toastDurable(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');t.dataset.durable='1';clearTimeout(toastT);}
 
 function syncClear(){const v=document.getElementById('f-search').value;
-  document.getElementById('f-clear').style.display=v?'block':'none';}
+  document.getElementById('f-clear').style.display=v?'flex':'none';}
 // croix pour vider une barre de recherche : affichée seulement quand le champ n'est pas vide (CSS :placeholder-shown,
 // donc juste aussi quand le texte est remis par le code) ; vider = comme si on avait effacé au clavier (événement input)
 function ajouterCroix(input){
@@ -4951,7 +4954,7 @@ function ajouterCroix(input){
   ['width','maxWidth','minWidth','flex'].forEach(k=>{if(input.style[k]){z.style[k]=input.style[k];input.style[k]='';}});
   input.parentElement.insertBefore(z,input);z.appendChild(input);
   if(!input.placeholder)input.placeholder=' ';
-  const b=document.createElement('button');b.type='button';b.className='croix';b.textContent='×';
+  const b=document.createElement('button');b.type='button';b.className='croix';b.innerHTML=CROIX_SVG;
   b.title='Effacer la recherche (Échap)';b.setAttribute('aria-label','Effacer la recherche');
   b.addEventListener('click',()=>{input.value='';input.dispatchEvent(new Event('input',{bubbles:true}));
     if(!ecranTactile())input.focus();});

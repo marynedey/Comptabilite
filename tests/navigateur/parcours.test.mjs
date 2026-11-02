@@ -1017,6 +1017,9 @@ test('téléphone, opérations : recherche dans l\'écran, filtres dans la feuil
       const r = document.createRange(); r.selectNodeContents(p.firstChild); const t = r.getBoundingClientRect(), x = p.querySelector('svg').getBoundingClientRect();
       return [t.top + t.height / 2, x.top + x.height / 2]; });
     assert.ok(Math.abs(centres[0] - centres[1]) <= 1.5, 'croix et texte alignés : ' + centres);
+    // la même croix que dans les barres de recherche (dessinée, même taille)
+    const croix = sel => page.locator(sel).evaluate(e => [e.querySelector('path').getAttribute('d'), getComputedStyle(e).width]); // #f-clear est caché (recherche vide) : la taille du style
+    assert.deepEqual(await croix('#m-filtres-actifs .m-puce svg'), await croix('#f-clear svg'));
     assert.match(await page.textContent('.m-filtrer'), /Filtrer · 1/);
     assert.deepEqual(await page.locator('#m-ops .m-op-nom').allTextContents(), ['Pharmacie']);
     await page.click('#m-filtres-actifs button[aria-label="Retirer le filtre Septembre 2026"]');

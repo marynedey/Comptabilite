@@ -90,7 +90,7 @@
       <span style="position:relative;flex:1;min-width:180px;display:flex">
         <input class="search" id="f-search" type="text" style="flex:1;padding-right:30px" placeholder="Rechercher partout (destinataire, catégorie, montant, n°, date…)" onkeydown="if(event.key==='Escape'&&this.value){event.preventDefault();event.stopPropagation();this.value='';goPage(1);}">
         <button id="f-clear" title="Effacer la recherche (Échap)" onclick="clearSearch()"
-          style="display:none;position:absolute;right:4px;top:50%;transform:translateY(-50%);border:0;background:transparent;padding:2px 6px;font-size:1rem;line-height:1;color:var(--ink-3)">×</button>
+          style="display:none;position:absolute;right:4px;top:50%;transform:translateY(-50%);border:0;background:transparent;padding:2px 6px;align-items:center;justify-content:center;color:var(--ink-3)"><svg class="ico-croix" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg></button>
       </span>
       <div class="m-feuille-h">Statut</div>
       <div id="f-statuts" class="fstatuts" title="Filtrer par statut — clique pour cumuler (comme un filtre Excel)">
