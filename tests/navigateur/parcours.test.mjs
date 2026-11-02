@@ -915,6 +915,9 @@ test('téléphone, opérations : liste par jour, la barre de statut à gauche po
     assert.deepEqual(await page.locator('#m-ops .m-jour > span:first-child').allTextContents(),
       ['Mercredi 28 octobre', 'Aujourd’hui', 'Hier', 'Dimanche 20 septembre']);
     assert.match(await page.textContent('#m-soldes'), /2\s025,20\s€/); // solde réel
+    // Rapproché, Fin du mois, À pointer (un bouton) : libellés et valeurs sur les mêmes lignes
+    const lignes = await page.locator('#m-soldes .ms-grille>*').evaluateAll(es => es.map(e => [e.querySelector('small'), e.querySelector('span')].map(x => Math.round(x.getBoundingClientRect().top + x.getBoundingClientRect().height / 2))));
+    assert.ok(lignes.every(l => Math.abs(l[0] - lignes[0][0]) <= 1 && Math.abs(l[1] - lignes[0][1]) <= 1), 'alignés : ' + JSON.stringify(lignes));
     // « Rapprocher » à droite du solde réel, sur la même ligne
     const solde = await page.locator('#m-soldes .ms-reel').boundingBox(), rap = await page.locator('#m-soldes .ms-rapprocher').boundingBox();
     assert.ok(rap.x > solde.x + solde.width - 1 && rap.y < solde.y + solde.height && rap.y + rap.height > solde.y, 'Rapprocher à droite du solde');
