@@ -917,6 +917,77 @@ test('téléphone, opérations : liste par jour, la barre de statut à gauche po
   } finally { await navigateur.close(); }
 });
 
+test('téléphone, retours UX : statut plus écrit, icônes ↑ / ↓, pastille, filtres, saisie, bouton + caché, Plus, couleurs de l\'anneau', async () => {
+  const { navigateur, page } = await ouvrirTelephone();
+  try {
+    // première ouverture : pas « Tout est sauvegardé » au-dessus de « Jamais sauvegardée »
+    await page.click('#m-onglets button[data-o="plus"]');
+    assert.match(await page.textContent('#plus-sauvegarde'), /Rien à sauvegarder pour l’instant\s*Aucune sauvegarde encore/);
+    // Plus › Appli : le Guide sous les Réglages ; « Rechercher une mise à jour » n'est plus dans les Réglages du téléphone
+    assert.deepEqual(await page.locator('#plus-groupes .m-liste').last().locator('.ml-txt').evaluateAll(es => es.map(e => e.firstChild.textContent)),
+      ['Rechercher une mise à jour', 'Réglages', 'Guide']);
+    await page.click('#plus-groupes button:has-text("Réglages")');
+    assert.equal(await page.isVisible('#rg-maj'), false);
+    await page.click('#m-onglets button[data-o="registre"]');
+    // en-tête : ↑ sauvegarde, ↓ charge une sauvegarde
+    assert.match(await page.getAttribute('#m-sauver svg path', 'd'), /^M12 21V9/);
+    assert.match(await page.getAttribute('#m-charger svg path', 'd'), /^M12 3v12/);
+    assert.equal(await page.getAttribute('#f-search', 'placeholder'), 'Rechercher');
+    // la ligne d'une opération n'écrit plus son statut (la barre de couleur le donne)
+    await opsExemple(page);
+    const details = await page.locator('#m-ops .m-op-det').allTextContents();
+    assert.ok(details.every(d => !/point|rapproch|prévision|annul/i.test(d)), JSON.stringify(details));
+    assert.equal(await ligne(page, 'Supermarché').locator('.m-op-det').textContent(), 'Alimentation : Courses');
+    // une modification : pastille orange sur ↑
+    assert.equal(await page.isVisible('#m-point'), false);
+    await ligne(page, 'Boulangerie').locator('.m-st').click();
+    assert.equal(await page.isVisible('#m-point'), true);
+    assert.equal(await page.locator('#m-point').evaluate(e => getComputedStyle(e).backgroundColor),
+      await page.evaluate(() => { const t = document.createElement('i'); t.style.color = 'var(--st-non)'; document.body.append(t); const c = getComputedStyle(t).color; t.remove(); return c; }));
+    // filtres : un statut actif est rempli avec ✓, inactif = contour et point de couleur ; « Tout » → « Toutes les dates »
+    await page.click('.m-filtrer');
+    const puce = page.locator('#f-statuts .schip[data-s="pointe"]');
+    assert.equal(await puce.evaluate(e => getComputedStyle(e, '::before').content), '"✓"');
+    await puce.click();
+    assert.equal(await puce.evaluate(e => getComputedStyle(e, '::before').content), '""');
+    assert.equal(await puce.evaluate(e => getComputedStyle(e, '::before').backgroundColor), 'rgb(37, 99, 235)');
+    await puce.click();
+    await page.locator('#v-registre .pchip', { hasText: /^Ce mois$/ }).click();
+    assert.equal(await page.textContent('#m-mois-nom'), 'Octobre 2026');
+    await page.locator('#v-registre .pchip', { hasText: /^Tout$/ }).click();
+    assert.equal(await page.textContent('#m-mois-nom'), 'Toutes les dates');
+    await page.evaluate(() => fermerFiltres());
+    // saisie : sous-sous-catégorie seulement avec une sous-catégorie ; exemples clairs en italique ; « Répartir » dans une carte
+    await page.click('#m-ajouter');
+    await page.locator('#overlay #i-dest').waitFor({ state: 'visible' });
+    assert.equal(await page.isVisible('#i-cat2'), false);
+    await page.fill('#i-cat0', 'Alimentation');
+    await page.fill('#i-cat1', 'Courses');
+    assert.equal(await page.isVisible('#i-cat2'), true);
+    assert.equal(await page.locator('#i-dest').evaluate(e => getComputedStyle(e, '::placeholder').fontStyle), 'italic');
+    const carte = sel => page.locator(sel).evaluate(e => { const c = getComputedStyle(e); return [c.backgroundColor, c.borderRadius, c.borderTopStyle]; });
+    assert.deepEqual(await carte('.f-vent'), await carte('.f-prev'));
+    // montant : quand on tape dedans, plus de trait en dessous (le cadre suffit)
+    await page.focus('#i-montant');
+    assert.equal(await page.locator('#i-montant').evaluate(e => getComputedStyle(e).borderBottomColor), 'rgba(0, 0, 0, 0)');
+    // débit en noir (plus en rouge), prévisionnelle en violet
+    const couleurMontant = () => page.locator('#i-montant').evaluate(e => getComputedStyle(e).color);
+    assert.equal(await couleurMontant(), await page.evaluate(() => getComputedStyle(document.body).color));
+    await page.locator('#i-prev').check();
+    assert.equal(await couleurMontant(), 'rgb(124, 58, 237)');
+    await page.click('#overlay .m-fermer');
+    // le bouton + se cache quand on descend, revient quand on remonte
+    await page.evaluate(() => { for (let i = 0; i < 40; i++) run("INSERT INTO operation(compte_id,date_operation,montant,statut,supprime,previsionnel) VALUES(?,'2026-10-01',-100,'non_pointe',0,0)", [state.acc]); invalidateCaches(); render(); });
+    await page.evaluate(() => { document.querySelector('main').scrollTop = 900; });
+    await page.waitForFunction(() => document.body.classList.contains('fab-cache'));
+    await page.evaluate(() => { document.querySelector('main').scrollTop = 600; });
+    await page.waitForFunction(() => !document.body.classList.contains('fab-cache'));
+    // anneau de l'analyse : aucune couleur des statuts, ni le vert des boutons
+    assert.deepEqual(await page.evaluate(() => PAL.filter(c => [...Object.values(META).map(m => m.col), '#0F6E56'].includes(c.toUpperCase()))), []);
+    assert.deepEqual(page.erreurs, []);
+  } finally { await navigateur.close(); }
+});
+
 test('téléphone, opérations : recherche dans l\'écran, filtres dans la feuille du bas, mois ‹ ›', async () => {
   const { navigateur, page } = await ouvrirTelephone();
   try {
@@ -1242,7 +1313,15 @@ test('téléphone, échéances : ce mois-ci / ensuite, reste à payer ; toucher 
     assert.equal(await page.isVisible('#rec-rows'), false);   // le tableau du PC est caché
     assert.deepEqual(await e.locator('.ma-h').allTextContents(), ['Ce mois-ci', 'Ensuite']);
     assert.deepEqual(await e.locator('.me-liste').first().locator('.me-nom').evaluateAll(es => es.map(x => x.firstChild.textContent)), ['Électricité', 'Loyer']);
-    assert.match(await e.locator('.me-totaux').textContent(), /662,00\s€.*\+0,00\s€/);
+    assert.match(await e.locator('.me-totaux').textContent(), /662,00\s€.*recevoir0,00\s€/);
+    // 0,00 € : en noir et sans « + » ; il reste quelque chose à payer : en rouge
+    const couleurs = await e.locator('.me-totaux b').evaluateAll(bs => bs.map(b => getComputedStyle(b).color));
+    assert.equal(couleurs[1], await page.evaluate(() => getComputedStyle(document.body).color));
+    assert.notEqual(couleurs[0], couleurs[1]);
+    // des échéances : pas de texte d'explication ; bouton + seul, comme sur Opérations
+    assert.equal(await e.locator('.me-aide').count(), 0);
+    assert.equal((await e.locator('.me-nouvelle').textContent()).trim(), '');
+    assert.equal(await e.locator('.me-nouvelle').getAttribute('aria-label'), 'Nouvelle échéance');
     // toucher une échéance : son détail, puis suspendre
     await e.locator('.me-item', { hasText: 'Loyer' }).click();
     await page.locator('#dlgBack.show #dlgBody:has-text("Chaque mois")').waitFor();
