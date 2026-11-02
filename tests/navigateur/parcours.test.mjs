@@ -1011,7 +1011,12 @@ test('téléphone, opérations : recherche dans l\'écran, filtres dans la feuil
     await page.click('#f-zone .schip[data-s="pointe"]');           // recocher
     await page.click('#m-voir');
     await page.locator('#f-zone').waitFor({ state: 'hidden' });
-    assert.deepEqual(await page.locator('#m-filtres-actifs .m-puce').allTextContents(), ['Septembre 2026✕']);
+    assert.deepEqual(await page.locator('#m-filtres-actifs .m-puce').allTextContents(), ['Septembre 2026']);
+    // la croix (dessinée) est centrée sur la ligne du texte
+    const centres = await page.locator('#m-filtres-actifs .m-puce').evaluate(p => {
+      const r = document.createRange(); r.selectNodeContents(p.firstChild); const t = r.getBoundingClientRect(), x = p.querySelector('svg').getBoundingClientRect();
+      return [t.top + t.height / 2, x.top + x.height / 2]; });
+    assert.ok(Math.abs(centres[0] - centres[1]) <= 1.5, 'croix et texte alignés : ' + centres);
     assert.match(await page.textContent('.m-filtrer'), /Filtrer · 1/);
     assert.deepEqual(await page.locator('#m-ops .m-op-nom').allTextContents(), ['Pharmacie']);
     await page.click('#m-filtres-actifs button[aria-label="Retirer le filtre Septembre 2026"]');

@@ -2,7 +2,7 @@
    Mes comptes — moteur SQLite intégré (sql.js) + IndexedDB
    ============================================================ */
 const APP_VERSION=1;
-const VERSION = '2.22.1'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
+const VERSION = '2.22.2'; // = version du service worker (sw.js) ; changer avec « npm run nouvelle-version »
 const APP_BUILD='v'+VERSION;
 const IDB='mescomptes',STORE='db',KEY='main';
 const PAGE_SIZE=100;
@@ -659,7 +659,7 @@ function fermerFeuilles(){
   if(state.view==='analyse'&&MA.chemin.length){anaMobileRemonter();return true;}
   return false;
 }
-/* puces des filtres actifs (✕ pour retirer) ; la recherche a sa propre barre */
+/* puces des filtres actifs (croix pour retirer) ; la recherche a sa propre barre */
 function filtresActifsMobile(){
   const out=[],per=document.getElementById('f-periode').value;
   if(per&&per!=='tout')out.push([libellePeriode(per,new Date(),document.getElementById('f-from').value,document.getElementById('f-to').value),"setPeriode('f','tout')"]);
@@ -701,7 +701,7 @@ function renderOperationsMobile(){
   const total=scal('SELECT COUNT(*) FROM operation o LEFT JOIN tiers t ON t.id=o.tiers_id'+w,p)||0;
   // les filtres actifs (puces), puis une ligne : le nombre d'opérations tout à gauche, « Filtrer » tout à droite
   document.getElementById('m-filtres-actifs').innerHTML=(actifs.length?'<div class="m-puces">'+actifs.map(([t,f])=>
-      '<span class="m-puce">'+esc(t)+'<button class="ghost" style="padding:0;min-height:0;border:0;background:none;color:inherit" aria-label="Retirer le filtre '+esc(t)+'" onclick="'+f+'"><span>✕</span></button></span>').join('')+'</div>':'')+
+      '<span class="m-puce">'+esc(t)+'<button class="ghost" aria-label="Retirer le filtre '+esc(t)+'" onclick="'+f+'">'+icoPlus('M6 6l12 12M18 6L6 18')+'</button></span>').join('')+'</div>':'')+
     '<div class="m-ligne-filtrer"><span class="m-nb-ops" id="m-nb-ops">'+total.toLocaleString('fr-FR')+' opération'+(total>1?'s':'')+'</span>'+
     '<button class="m-filtrer" onclick="ouvrirFiltres()">Filtrer'+(actifs.length?' · '+actifs.length:'')+'</button></div>';
   const lim=state.mLimite||MOBILE_PAR_LOT;

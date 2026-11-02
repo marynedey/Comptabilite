@@ -232,7 +232,9 @@
   .m-soldes .ms-rapprocher{flex:none;min-height:44px;border-radius:22px;padding:0 16px;font-weight:600}
   body.mobile .m-filtres-actifs{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 0 2px}
   .m-puce{display:inline-flex;align-items:center;gap:2px;min-height:34px;padding:0 4px 0 12px;border-radius:17px;background:var(--brand-soft);color:var(--brand);font-size:.85rem;font-weight:600;border:0}
-  .m-puce span{display:inline-flex;width:28px;height:28px;align-items:center;justify-content:center}
+  /* croix dessinée (pas le caractère ✕, placé plus bas ou plus haut selon la police du téléphone) : centrée sur le texte */
+  .m-puce button{display:flex;align-items:center;justify-content:center;width:28px;height:28px;min-height:0;padding:0;border:0;background:none;color:inherit}
+  .m-puce button svg{width:16px;height:16px}
   .m-puces{display:flex;flex-wrap:wrap;gap:8px;width:100%}
   .m-ligne-filtrer{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%}
   .m-filtrer{min-height:40px;border-radius:20px;font-weight:600;flex:none}
