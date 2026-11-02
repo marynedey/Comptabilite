@@ -234,6 +234,8 @@
   .m-puce{display:inline-flex;align-items:center;gap:2px;min-height:34px;padding:0 4px 0 12px;border-radius:17px;background:var(--brand-soft);color:var(--brand);font-size:.85rem;font-weight:600;border:0}
   /* croix dessinée (pas le caractère ✕, placé plus bas ou plus haut selon la police du téléphone) : centrée sur le texte */
   .m-puce button{display:flex;align-items:center;justify-content:center;width:28px;height:28px;min-height:0;padding:0;border:0;background:none;color:inherit}
+  /* centrage optique : le milieu des lettres est un peu au-dessus du milieu de la ligne (place des jambages) */
+  .m-puce button svg{transform:translateY(-.11rem)}
   .m-puces{display:flex;flex-wrap:wrap;gap:8px;width:100%}
   .m-ligne-filtrer{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%}
   .m-filtrer{min-height:40px;border-radius:20px;font-weight:600;flex:none}

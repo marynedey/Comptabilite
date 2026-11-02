@@ -4,6 +4,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { readFileSync, existsSync, statSync } from 'node:fs';
+import { inflateSync } from 'node:zlib';
 import { extname, join, normalize } from 'node:path';
 import { chromium } from 'playwright';
 
@@ -36,6 +37,25 @@ before(async () => {
 after(() => serveur.close());
 
 /* ---------- outils ---------- */
+// image PNG (capture) → pixels ; fonce(x, y) : pixel nettement foncé (texte, icône) sur un fond clair
+function lirePng(buf) {
+  let p = 8, w, h, type; const idat = [];
+  while (p < buf.length) {
+    const n = buf.readUInt32BE(p), t = buf.toString('ascii', p + 4, p + 8), d = buf.subarray(p + 8, p + 8 + n);
+    if (t === 'IHDR') { w = d.readUInt32BE(0); h = d.readUInt32BE(4); type = d[9]; } else if (t === 'IDAT') idat.push(d);
+    p += 12 + n;
+  }
+  const bpp = type === 6 ? 4 : 3, brut = inflateSync(Buffer.concat(idat)), px = Buffer.alloc(w * h * bpp), lg = w * bpp;
+  for (let y = 0; y < h; y++) {
+    const f = brut[y * (lg + 1)], src = brut.subarray(y * (lg + 1) + 1, (y + 1) * (lg + 1)), o = y * lg;
+    for (let i = 0; i < lg; i++) {
+      const a = i >= bpp ? px[o + i - bpp] : 0, b = y ? px[o - lg + i] : 0, c = y && i >= bpp ? px[o - lg + i - bpp] : 0;
+      const pa = Math.abs(b - c), pb = Math.abs(a - c), pc = Math.abs(a + b - 2 * c);
+      px[o + i] = (src[i] + [0, a, b, (a + b) >> 1, pa <= pb && pa <= pc ? a : pb <= pc ? b : c][f]) & 255;
+    }
+  }
+  return { w, h, fonce: (x, y) => { const i = (y * w + x) * bpp; return px[i] + px[i + 1] + px[i + 2] < 400; } };
+}
 async function ouvrir({ preparer, ...options } = {}) {
   // CHROMIUM : chemin d'un Chromium déjà installé (sinon celui de Playwright, cf. tests.yml).
   const navigateur = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : { channel: 'chromium' });
@@ -989,7 +1009,8 @@ test('téléphone, retours UX : statut plus écrit, icônes ↑ / ↓, pastille,
 });
 
 test('téléphone, opérations : recherche dans l\'écran, filtres dans la feuille du bas, mois ‹ ›', async () => {
-  const { navigateur, page } = await ouvrirTelephone();
+  // écran haute densité (×3, comme un téléphone) : l'alignement de la croix se mesure au tiers de pixel
+  const { navigateur, page } = await ouvrir({ ...TELEPHONE, deviceScaleFactor: 3, preparer: c => c.clock.setFixedTime(new Date('2026-10-26T10:00:00')) });
   try {
     await opsExemple(page);
     assert.equal(await page.isVisible('#m-recherche #f-search'), true);
@@ -1012,11 +1033,17 @@ test('téléphone, opérations : recherche dans l\'écran, filtres dans la feuil
     await page.click('#m-voir');
     await page.locator('#f-zone').waitFor({ state: 'hidden' });
     assert.deepEqual(await page.locator('#m-filtres-actifs .m-puce').allTextContents(), ['Septembre 2026']);
-    // la croix (dessinée) est centrée sur la ligne du texte
-    const centres = await page.locator('#m-filtres-actifs .m-puce').evaluate(p => {
-      const r = document.createRange(); r.selectNodeContents(p.firstChild); const t = r.getBoundingClientRect(), x = p.querySelector('svg').getBoundingClientRect();
-      return [t.top + t.height / 2, x.top + x.height / 2]; });
-    assert.ok(Math.abs(centres[0] - centres[1]) <= 1.5, 'croix et texte alignés : ' + centres);
+    // la croix (dessinée) est alignée sur les lettres : mesuré sur les pixels de la puce, comme à l'œil
+    const puceFiltre = page.locator('#m-filtres-actifs .m-puce');
+    const xCroix = await puceFiltre.evaluate(p => p.querySelector('svg').getBoundingClientRect().left - p.getBoundingClientRect().left);
+    const img = lirePng(await puceFiltre.screenshot());
+    // haut de l'encre, et bas le plus fréquent des colonnes = ligne de base (sans le « p » de « Septembre » qui descend)
+    const milieu = (x0, x1, ligneDeBase) => { let haut = img.h, bas = 0; const bases = new Map();
+      for (let x = x0; x < x1; x++) { let b = -1; for (let y = 0; y < img.h; y++) if (img.fonce(x, y)) { haut = Math.min(haut, y); b = y; }
+        if (b >= 0) { bas = Math.max(bas, b); bases.set(b, (bases.get(b) || 0) + 1); } }
+      return (haut + (ligneDeBase ? [...bases].sort((u, v) => v[1] - u[1])[0][0] : bas)) / 2; };
+    const [mTexte, mCroix] = [milieu(0, Math.floor(xCroix) - 2, true), milieu(Math.ceil(xCroix), img.w, false)];
+    assert.ok(Math.abs(mTexte - mCroix) / 3 <= 0.5, 'croix et texte alignés (px de l\'écran ×3) : texte ' + mTexte + ', croix ' + mCroix);
     // la même croix que dans les barres de recherche (dessinée, même taille)
     const croix = sel => page.locator(sel).evaluate(e => [e.querySelector('path').getAttribute('d'), getComputedStyle(e).width]); // #f-clear est caché (recherche vide) : la taille du style
     assert.deepEqual(await croix('#m-filtres-actifs .m-puce svg'), await croix('#f-clear svg'));
