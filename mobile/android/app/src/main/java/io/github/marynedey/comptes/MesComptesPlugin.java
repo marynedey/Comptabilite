@@ -133,6 +133,34 @@ public class MesComptesPlugin extends Plugin {
         call.resolve();
     }
 
+    /** Crée le fichier « nom » dans le dossier choisi (un fichier vide raté est retiré). */
+    private void ecrireDansArbre(ContentResolver cr, Uri arbre, String nom, byte[] octets) throws Exception {
+        Uri parent = DocumentsContract.buildDocumentUriUsingTree(arbre, DocumentsContract.getTreeDocumentId(arbre));
+        Uri doc = DocumentsContract.createDocument(cr, parent, "application/octet-stream", nom);
+        if (doc == null) throw new IllegalStateException("création du fichier refusée");
+        try (OutputStream out = cr.openOutputStream(doc, "w")) {
+            if (out == null) throw new IllegalStateException("écriture refusée");
+            out.write(octets);
+        } catch (Exception e) {
+            try { DocumentsContract.deleteDocument(cr, doc); } catch (Exception ignore) { /* déjà absent */ }
+            throw e;
+        }
+    }
+
+    /** Parcourt le dossier choisi, comme la fenêtre de choix : le fournisseur (NAS) rétablit sa connexion. */
+    private void reveillerDossier(ContentResolver cr, Uri arbre) {
+        String id = DocumentsContract.getTreeDocumentId(arbre);
+        Uri[] adresses = {
+            DocumentsContract.buildDocumentUriUsingTree(arbre, id),
+            DocumentsContract.buildChildDocumentsUriUsingTree(arbre, id)
+        };
+        for (Uri u : adresses) {
+            try (Cursor c = cr.query(u, new String[] { DocumentsContract.Document.COLUMN_DOCUMENT_ID }, null, null, null)) {
+                if (c != null) c.moveToFirst();
+            } catch (Exception e) { /* l'écriture qui suit dira si le dossier reste inaccessible */ }
+        }
+    }
+
     /**
      * Écrit la base (base64) : dans le dossier choisi si « dossier » est vrai (refus si ce dossier
      * n'est plus accessible : le JavaScript propose alors Téléchargements), sinon dans Téléchargements.
@@ -155,11 +183,14 @@ public class MesComptesPlugin extends Plugin {
                 ContentResolver cr = getContext().getContentResolver();
                 try {
                     byte[] octets = Base64.decode(donnees, Base64.DEFAULT);
-                    Uri parent = DocumentsContract.buildDocumentUriUsingTree(arbre, DocumentsContract.getTreeDocumentId(arbre));
-                    Uri doc = DocumentsContract.createDocument(cr, parent, "application/octet-stream", nom);
-                    if (doc == null) throw new IllegalStateException("création du fichier refusée");
-                    try (OutputStream out = cr.openOutputStream(doc, "w")) {
-                        out.write(octets);
+                    try {
+                        ecrireDansArbre(cr, arbre, nom, octets);
+                    } catch (Exception premier) {
+                        // Dossier réseau (NAS par CIFS Documents Provider…) : après la fermeture de l'appli,
+                        // le fournisseur n'a plus sa connexion et refuse l'écriture tant qu'on n'a pas
+                        // parcouru le dossier (ce que fait la fenêtre de choix). On le parcourt, puis on réessaie.
+                        reveillerDossier(cr, arbre);
+                        ecrireDansArbre(cr, arbre, nom, octets);
                     }
                     JSObject r = new JSObject();
                     r.put("dossier", nomDuDossier(arbre));
