@@ -133,6 +133,36 @@ public class MesComptesPlugin extends Plugin {
         call.resolve();
     }
 
+    /** Crée le fichier « nom » dans le dossier choisi. */
+    private Uri creerDansArbre(ContentResolver cr, Uri arbre, String nom) throws Exception {
+        Uri parent = DocumentsContract.buildDocumentUriUsingTree(arbre, DocumentsContract.getTreeDocumentId(arbre));
+        Uri doc = DocumentsContract.createDocument(cr, parent, "application/octet-stream", nom);
+        if (doc == null) throw new IllegalStateException("création du fichier refusée");
+        return doc;
+    }
+
+    /** Écrit tout le contenu du fichier (« wt » au 2e essai : ce qui a été écrit à moitié est remplacé). */
+    private void ecrireFichier(ContentResolver cr, Uri doc, byte[] octets, String mode) throws Exception {
+        try (OutputStream out = cr.openOutputStream(doc, mode)) {
+            if (out == null) throw new IllegalStateException("écriture refusée");
+            out.write(octets);
+        }
+    }
+
+    /** Parcourt le dossier choisi, comme la fenêtre de choix : le fournisseur (NAS) rétablit sa connexion. */
+    private void reveillerDossier(ContentResolver cr, Uri arbre) {
+        String id = DocumentsContract.getTreeDocumentId(arbre);
+        Uri[] adresses = {
+            DocumentsContract.buildDocumentUriUsingTree(arbre, id),
+            DocumentsContract.buildChildDocumentsUriUsingTree(arbre, id)
+        };
+        for (Uri u : adresses) {
+            try (Cursor c = cr.query(u, new String[] { DocumentsContract.Document.COLUMN_DOCUMENT_ID }, null, null, null)) {
+                if (c != null) c.moveToFirst();
+            } catch (Exception e) { /* l'écriture qui suit dira si le dossier reste inaccessible */ }
+        }
+    }
+
     /**
      * Écrit la base (base64) : dans le dossier choisi si « dossier » est vrai (refus si ce dossier
      * n'est plus accessible : le JavaScript propose alors Téléchargements), sinon dans Téléchargements.
@@ -155,11 +185,30 @@ public class MesComptesPlugin extends Plugin {
                 ContentResolver cr = getContext().getContentResolver();
                 try {
                     byte[] octets = Base64.decode(donnees, Base64.DEFAULT);
-                    Uri parent = DocumentsContract.buildDocumentUriUsingTree(arbre, DocumentsContract.getTreeDocumentId(arbre));
-                    Uri doc = DocumentsContract.createDocument(cr, parent, "application/octet-stream", nom);
-                    if (doc == null) throw new IllegalStateException("création du fichier refusée");
-                    try (OutputStream out = cr.openOutputStream(doc, "w")) {
-                        out.write(octets);
+                    Uri doc = null;
+                    try {
+                        doc = creerDansArbre(cr, arbre, nom);
+                        ecrireFichier(cr, doc, octets, "w");
+                    } catch (Exception premier) {
+                        // Dossier réseau (NAS par CIFS Documents Provider…) : après une pause, le fournisseur
+                        // garde une connexion morte ; le fichier est créé mais l'écriture casse (« write failed:
+                        // ECONNABORTED »). L'échec lui fait abandonner cette connexion : on parcourt le dossier
+                        // pour qu'il se reconnecte, puis on réessaie dans le même fichier.
+                        Thread.sleep(500);
+                        reveillerDossier(cr, arbre);
+                        try {
+                            if (doc == null) {
+                                doc = creerDansArbre(cr, arbre, nom);
+                                ecrireFichier(cr, doc, octets, "w");
+                            } else {
+                                ecrireFichier(cr, doc, octets, "wt");
+                            }
+                        } catch (Exception second) {
+                            if (doc != null) {
+                                try { DocumentsContract.deleteDocument(cr, doc); } catch (Exception e) { /* déjà absent */ }
+                            }
+                            throw second;
+                        }
                     }
                     JSObject r = new JSObject();
                     r.put("dossier", nomDuDossier(arbre));
