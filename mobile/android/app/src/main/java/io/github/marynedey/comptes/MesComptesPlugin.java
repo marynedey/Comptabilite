@@ -133,17 +133,19 @@ public class MesComptesPlugin extends Plugin {
         call.resolve();
     }
 
-    /** Crée le fichier « nom » dans le dossier choisi (un fichier vide raté est retiré). */
-    private void ecrireDansArbre(ContentResolver cr, Uri arbre, String nom, byte[] octets) throws Exception {
+    /** Crée le fichier « nom » dans le dossier choisi. */
+    private Uri creerDansArbre(ContentResolver cr, Uri arbre, String nom) throws Exception {
         Uri parent = DocumentsContract.buildDocumentUriUsingTree(arbre, DocumentsContract.getTreeDocumentId(arbre));
         Uri doc = DocumentsContract.createDocument(cr, parent, "application/octet-stream", nom);
         if (doc == null) throw new IllegalStateException("création du fichier refusée");
-        try (OutputStream out = cr.openOutputStream(doc, "w")) {
+        return doc;
+    }
+
+    /** Écrit tout le contenu du fichier (« wt » au 2e essai : ce qui a été écrit à moitié est remplacé). */
+    private void ecrireFichier(ContentResolver cr, Uri doc, byte[] octets, String mode) throws Exception {
+        try (OutputStream out = cr.openOutputStream(doc, mode)) {
             if (out == null) throw new IllegalStateException("écriture refusée");
             out.write(octets);
-        } catch (Exception e) {
-            try { DocumentsContract.deleteDocument(cr, doc); } catch (Exception ignore) { /* déjà absent */ }
-            throw e;
         }
     }
 
@@ -183,14 +185,30 @@ public class MesComptesPlugin extends Plugin {
                 ContentResolver cr = getContext().getContentResolver();
                 try {
                     byte[] octets = Base64.decode(donnees, Base64.DEFAULT);
+                    Uri doc = null;
                     try {
-                        ecrireDansArbre(cr, arbre, nom, octets);
+                        doc = creerDansArbre(cr, arbre, nom);
+                        ecrireFichier(cr, doc, octets, "w");
                     } catch (Exception premier) {
-                        // Dossier réseau (NAS par CIFS Documents Provider…) : après la fermeture de l'appli,
-                        // le fournisseur n'a plus sa connexion et refuse l'écriture tant qu'on n'a pas
-                        // parcouru le dossier (ce que fait la fenêtre de choix). On le parcourt, puis on réessaie.
+                        // Dossier réseau (NAS par CIFS Documents Provider…) : après une pause, le fournisseur
+                        // garde une connexion morte ; le fichier est créé mais l'écriture casse (« write failed:
+                        // ECONNABORTED »). L'échec lui fait abandonner cette connexion : on parcourt le dossier
+                        // pour qu'il se reconnecte, puis on réessaie dans le même fichier.
+                        Thread.sleep(500);
                         reveillerDossier(cr, arbre);
-                        ecrireDansArbre(cr, arbre, nom, octets);
+                        try {
+                            if (doc == null) {
+                                doc = creerDansArbre(cr, arbre, nom);
+                                ecrireFichier(cr, doc, octets, "w");
+                            } else {
+                                ecrireFichier(cr, doc, octets, "wt");
+                            }
+                        } catch (Exception second) {
+                            if (doc != null) {
+                                try { DocumentsContract.deleteDocument(cr, doc); } catch (Exception e) { /* déjà absent */ }
+                            }
+                            throw second;
+                        }
                     }
                     JSObject r = new JSObject();
                     r.put("dossier", nomDuDossier(arbre));
